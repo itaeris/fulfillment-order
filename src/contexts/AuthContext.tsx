@@ -150,7 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
         queryParams: {
-          hd: ALLOWED_DOMAINS[0],
+          prompt: "select_account",
         },
       },
     });
