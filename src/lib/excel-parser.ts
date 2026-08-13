@@ -612,7 +612,7 @@ export function parseExcelFile(
   const worksheet = workbook.Sheets[sheetName];
   
   // Convert to JSON with headers
-  const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+  const jsonData = XLSX.utils.sheet_to_json(worksheet, {
     header: 1,
     raw: false,
     dateNF: "yyyy-mm-dd",
@@ -740,6 +740,11 @@ export function parseExcelFile(
       weight: parseNumber(getValue("weight")) || undefined,
       channelName: getValue("channelName")?.toString()?.trim(),
       storeName: getValue("storeName")?.toString()?.trim(),
+      refNo: getValue("refNo")?.toString()?.trim() || getValue("invoiceNo")?.toString()?.trim(),
+      pickupTime: (() => {
+        const raw = getValue("pickupTime") || getValue("rtsTime") || getValue("shippingScheduled");
+        return raw ? parseDate(raw) : undefined;
+      })(),
     };
     
     orders.push(order);

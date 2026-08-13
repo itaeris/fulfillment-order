@@ -7,19 +7,26 @@ import {
   Loader2,
   ShoppingBag,
   Upload,
+  GitCompareArrows,
   X,
+  LogOut,
+  User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth, type UserProfile } from "@/contexts/AuthContext";
+
+type TabId = "dashboard" | "upload" | "compare";
 
 interface SidebarProps {
-  activeTab: "dashboard" | "upload";
-  onTabChange: (tab: "dashboard" | "upload") => void;
+  activeTab: TabId;
+  onTabChange: (tab: TabId) => void;
   orderCount: number;
   onExportCSV: () => void;
   onClearAll: () => void;
   isSaving: boolean;
   isOpen: boolean;
   onClose: () => void;
+  profile: UserProfile | null;
 }
 
 export default function Sidebar({
@@ -31,12 +38,20 @@ export default function Sidebar({
   isSaving,
   isOpen,
   onClose,
+  profile,
 }: SidebarProps) {
+  const { signOut } = useAuth();
   const navItems = [
     {
       id: "dashboard" as const,
       label: "Dashboard",
       icon: LayoutDashboard,
+      section: "OVERVIEW",
+    },
+    {
+      id: "compare" as const,
+      label: "Komparasi",
+      icon: GitCompareArrows,
       section: "OVERVIEW",
     },
     {
@@ -53,7 +68,7 @@ export default function Sidebar({
     return acc;
   }, {} as Record<string, typeof navItems>);
 
-  const handleNav = (tab: "dashboard" | "upload") => {
+  const handleNav = (tab: TabId) => {
     onTabChange(tab);
     onClose();
   };
@@ -159,6 +174,30 @@ export default function Sidebar({
             </>
           )}
         </div>
+
+        {/* User info & Logout */}
+        {profile && (
+          <div className="px-3 py-3 border-t border-brand-800">
+            <div className="flex items-center gap-3 px-3 py-2">
+              <div className="w-8 h-8 bg-brand-700 rounded-full flex items-center justify-center shrink-0">
+                <User className="w-4 h-4 text-cream-200" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-cream-100 truncate">{profile.name}</p>
+                <p className="text-[10px] text-brand-400 truncate">
+                  {profile.role === "admin" ? "Admin" : "Warehouse"}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => { signOut(); onClose(); }}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-brand-400 hover:bg-brand-800 hover:text-red-400 transition-colors mt-1"
+            >
+              <LogOut className="w-[18px] h-[18px] shrink-0" />
+              Keluar
+            </button>
+          </div>
+        )}
       </aside>
     </>
   );

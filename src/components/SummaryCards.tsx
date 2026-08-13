@@ -3,19 +3,23 @@
 import { Package, TrendingUp, ShoppingBag, DollarSign } from "lucide-react";
 import { OrderSummary } from "@/types/order";
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
+import type { UserRole } from "@/contexts/AuthContext";
 
 interface SummaryCardsProps {
   summary: OrderSummary;
+  userRole: UserRole;
 }
 
-export default function SummaryCards({ summary }: SummaryCardsProps) {
-  const mainCards = [
+export default function SummaryCards({ summary, userRole }: SummaryCardsProps) {
+  const hideMoney = userRole === "warehouse";
+  const allCards = [
     {
       title: "Total Order",
       value: formatNumber(summary.totalOrders),
       icon: Package,
       bgColor: "bg-brand-50",
       textColor: "text-brand-500",
+      moneyRelated: false,
     },
     {
       title: "Total Pendapatan",
@@ -23,6 +27,7 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
       icon: DollarSign,
       bgColor: "bg-green-50",
       textColor: "text-green-600",
+      moneyRelated: true,
     },
     {
       title: "Total Item Terjual",
@@ -30,6 +35,7 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
       icon: ShoppingBag,
       bgColor: "bg-amber-50",
       textColor: "text-amber-600",
+      moneyRelated: false,
     },
     {
       title: "Rata-rata Order",
@@ -41,8 +47,13 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
       icon: TrendingUp,
       bgColor: "bg-rose-50",
       textColor: "text-rose-600",
+      moneyRelated: true,
     },
   ];
+
+  const mainCards = hideMoney
+    ? allCards.filter((c) => !c.moneyRelated)
+    : allCards;
 
   const combinedTiktokData = {
     orders: summary.byPlatform.tiktok.orders + summary.byPlatform.tokopedia.orders,
@@ -132,25 +143,28 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
                   </span>
                 </div>
 
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-brand-400">Pendapatan</span>
-                  <span className="font-semibold text-brand-700">
-                    {formatCurrency(data.revenue)}
-                  </span>
-                </div>
+                {!hideMoney && (
+                  <>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-brand-400">Pendapatan</span>
+                      <span className="font-semibold text-brand-700">
+                        {formatCurrency(data.revenue)}
+                      </span>
+                    </div>
 
-                {/* Progress Bar */}
-                <div className="mt-2">
-                  <div className="h-2 bg-cream-200 rounded-full overflow-hidden">
-                    <div
-                      className={cn("h-full rounded-full transition-all", card.barColor)}
-                      style={{ width: `${percentage}%` }}
-                    />
-                  </div>
-                  <p className="text-xs text-brand-300 mt-1">
-                    {percentage.toFixed(1)}% dari total
-                  </p>
-                </div>
+                    <div className="mt-2">
+                      <div className="h-2 bg-cream-200 rounded-full overflow-hidden">
+                        <div
+                          className={cn("h-full rounded-full transition-all", card.barColor)}
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-brand-300 mt-1">
+                        {percentage.toFixed(1)}% dari total
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Loader2,
@@ -11,17 +12,29 @@ import FileUpload from "@/components/FileUpload";
 import SummaryCards from "@/components/SummaryCards";
 import OrderTable from "@/components/OrderTable";
 import Charts from "@/components/Charts";
+import ComparisonView from "@/components/ComparisonView";
 import { Order, Platform, UploadedFile, OrderSummary, DailyStats } from "@/types/order";
 import { parseExcelFile, detectPlatform } from "@/lib/excel-parser";
 import { calculateSummary, calculateDailyStats } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function Dashboard() {
+  const { user, profile, isLoading: authLoading } = useAuth();
+  const router = useRouter();
+  const userRole = profile?.role ?? "warehouse";
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "upload">("upload");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "upload" | "compare">("upload");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace("/login");
+    }
+  }, [authLoading, user, router]);
 
   const summary: OrderSummary = calculateSummary(orders);
   const dailyStats: DailyStats[] = calculateDailyStats(orders);
@@ -213,7 +226,7 @@ export default function Dashboard() {
     URL.revokeObjectURL(url);
   }, [orders]);
 
-  if (isLoading) {
+  if (authLoading || !user || isLoading) {
     return (
       <div className="h-screen bg-cream-100 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
@@ -224,10 +237,13 @@ export default function Dashboard() {
     );
   }
 
-  const pageTitle = activeTab === "dashboard" ? "Dashboard" : "Import Data";
-  const pageSubtitle = activeTab === "dashboard"
-    ? "Ringkasan performa order dari semua platform"
-    : "Upload file Excel dari marketplace";
+  const pageTitles: Record<string, { title: string; subtitle: string }> = {
+    dashboard: { title: "Dashboard", subtitle: "Ringkasan performa order dari semua platform" },
+    upload: { title: "Import Data", subtitle: "Upload file Excel dari marketplace" },
+    compare: { title: "Komparasi", subtitle: "Bandingkan data Jubelio dengan Shopee / TikTok" },
+  };
+  const pageTitle = pageTitles[activeTab].title;
+  const pageSubtitle = pageTitles[activeTab].subtitle;
 
   return (
     <div className="h-screen flex overflow-hidden bg-cream-100">
@@ -241,6 +257,7 @@ export default function Dashboard() {
         isSaving={isSaving}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        profile={profile}
       />
 
       {/* Main area */}
@@ -329,6 +346,10 @@ export default function Dashboard() {
             </div>
           )}
 
+          {activeTab === "compare" && (
+            <ComparisonView orders={orders} userRole={userRole} />
+          )}
+
           {activeTab === "dashboard" && (
             <div className="space-y-4 sm:space-y-6">
               {orders.length === 0 ? (
@@ -351,9 +372,9 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <>
-                  <SummaryCards summary={summary} />
-                  <Charts dailyStats={dailyStats} summary={summary} />
-                  <OrderTable orders={orders} />
+                  <SummaryCards summary={summary} userRole={userRole} />
+                  <Charts dailyStats={dailyStats} summary={summary} userRole={userRole} />
+                  <OrderTable orders={orders} userRole={userRole} />
                 </>
               )}
             </div>

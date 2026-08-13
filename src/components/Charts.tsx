@@ -20,9 +20,12 @@ import { formatCurrency, formatNumber } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
 import { id } from "date-fns/locale";
 
+import type { UserRole } from "@/contexts/AuthContext";
+
 interface ChartsProps {
   dailyStats: DailyStats[];
   summary: OrderSummary;
+  userRole: UserRole;
 }
 
 const PLATFORM_COLORS = {
@@ -49,7 +52,8 @@ const STATUS_LABELS: Record<string, string> = {
   returned: "Dikembalikan",
 };
 
-export default function Charts({ dailyStats, summary }: ChartsProps) {
+export default function Charts({ dailyStats, summary, userRole }: ChartsProps) {
+  const hideMoney = userRole === "warehouse";
   const combinedTiktokRevenue = summary.byPlatform.tiktok.revenue + summary.byPlatform.tokopedia.revenue;
 
   const platformPieData = [
@@ -128,8 +132,8 @@ export default function Charts({ dailyStats, summary }: ChartsProps) {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Revenue Trend Chart */}
-      {dailyStats.length > 0 && (
+      {/* Revenue Trend Chart (hidden for warehouse) */}
+      {!hideMoney && dailyStats.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5">
           <h3 className="text-base sm:text-lg font-semibold text-brand-800 mb-3 sm:mb-4">
             Tren Pendapatan
@@ -225,8 +229,8 @@ export default function Charts({ dailyStats, summary }: ChartsProps) {
         </div>
       )}
 
-      {/* Platform Distribution Pie Chart */}
-      {platformPieData.length > 0 && (
+      {/* Platform Distribution Pie Chart (hidden for warehouse) */}
+      {!hideMoney && platformPieData.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5">
           <h3 className="text-base sm:text-lg font-semibold text-brand-800 mb-3 sm:mb-4">
             Distribusi per Platform

@@ -37,6 +37,8 @@ export interface Order {
   weight?: number;
   channelName?: string;
   storeName?: string;
+  refNo?: string;
+  pickupTime?: Date;
 }
 
 export interface OrderSummary {

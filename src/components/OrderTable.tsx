@@ -17,6 +17,9 @@ import {
   CreditCard,
   Zap,
   PackageCheck,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Send,
 } from "lucide-react";
 import { Order, Platform, OrderStatus } from "@/types/order";
 import {
@@ -29,9 +32,11 @@ import {
   getStatusLabel,
 } from "@/lib/utils";
 import { isBefore, addHours } from "date-fns";
+import type { UserRole } from "@/contexts/AuthContext";
 
 interface OrderTableProps {
   orders: Order[];
+  userRole: UserRole;
 }
 
 type SortField = "orderDate" | "totalAmount" | "customerName" | "status" | "mustShipBefore";
@@ -39,6 +44,7 @@ type SortDirection = "asc" | "desc";
 type StatusTab = "all" | "pending" | "processing" | "shipped" | "delivered" | "cancelled";
 
 type ShippingFilter = "all" | "instant" | "reguler";
+type PickupStage = "all" | "before_pickup" | "after_pickup" | "ready_to_ship";
 
 const ITEMS_PER_PAGE = 15;
 
@@ -59,11 +65,19 @@ function classifyShipping(order: Order): "instant" | "reguler" {
   return INSTANT_KEYWORDS.some((kw) => text.includes(kw)) ? "instant" : "reguler";
 }
 
-export default function OrderTable({ orders }: OrderTableProps) {
+function classifyPickupStage(order: Order): PickupStage {
+  if (order.shippedTime || order.trackingNumber) return "ready_to_ship";
+  if (order.pickupTime) return "after_pickup";
+  return "before_pickup";
+}
+
+export default function OrderTable({ orders, userRole }: OrderTableProps) {
+  const hideMoney = userRole === "warehouse";
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPlatform, setSelectedPlatform] = useState<Platform | "all">("all");
   const [selectedStatusTab, setSelectedStatusTab] = useState<StatusTab>("all");
   const [shippingFilter, setShippingFilter] = useState<ShippingFilter>("all");
+  const [pickupStage, setPickupStage] = useState<PickupStage>("all");
   const [sortField, setSortField] = useState<SortField>("mustShipBefore");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [currentPage, setCurrentPage] = useState(1);
@@ -109,6 +123,25 @@ export default function OrderTable({ orders }: OrderTableProps) {
       all: baseOrders.length,
       instant: baseOrders.filter(o => classifyShipping(o) === "instant").length,
       reguler: baseOrders.filter(o => classifyShipping(o) === "reguler").length,
+    };
+  }, [orders, selectedPlatform, selectedStatusTab]);
+
+  const pickupStageCounts = useMemo(() => {
+    const targetStatus = selectedStatusTab === "shipped" ? "shipped" : "processing";
+    const baseOrders = (selectedPlatform === "all"
+      ? orders
+      : selectedPlatform === "tiktok"
+        ? orders.filter(o => o.platform === "tiktok" || o.platform === "tokopedia")
+        : orders.filter(o => o.platform === selectedPlatform)
+    ).filter(o => o.status === targetStatus);
+
+    const regulerOrders = baseOrders.filter(o => classifyShipping(o) === "reguler");
+
+    return {
+      all: regulerOrders.length,
+      before_pickup: regulerOrders.filter(o => classifyPickupStage(o) === "before_pickup").length,
+      after_pickup: regulerOrders.filter(o => classifyPickupStage(o) === "after_pickup").length,
+      ready_to_ship: regulerOrders.filter(o => classifyPickupStage(o) === "ready_to_ship").length,
     };
   }, [orders, selectedPlatform, selectedStatusTab]);
 
@@ -158,6 +191,15 @@ export default function OrderTable({ orders }: OrderTableProps) {
       filtered = filtered.filter((order) => classifyShipping(order) === shippingFilter);
     }
 
+    // Pickup stage filter (Reguler sub-filter, or Instant auto-filters to ready_to_ship)
+    if (selectedStatusTab === "processing" || selectedStatusTab === "shipped") {
+      if (shippingFilter === "instant") {
+        filtered = filtered.filter((order) => classifyPickupStage(order) === "ready_to_ship");
+      } else if (shippingFilter === "reguler" && pickupStage !== "all") {
+        filtered = filtered.filter((order) => classifyPickupStage(order) === pickupStage);
+      }
+    }
+
     filtered.sort((a, b) => {
       let comparison = 0;
 
@@ -185,7 +227,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
     });
 
     return filtered;
-  }, [orders, searchQuery, selectedPlatform, selectedStatusTab, shippingFilter, sortField, sortDirection]);
+  }, [orders, searchQuery, selectedPlatform, selectedStatusTab, shippingFilter, pickupStage, sortField, sortDirection]);
 
   const totalPages = Math.ceil(filteredAndSortedOrders.length / ITEMS_PER_PAGE);
   const paginatedOrders = filteredAndSortedOrders.slice(
@@ -309,6 +351,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                   if (tab.value !== "processing" && tab.value !== "shipped") {
                     setShippingFilter("all");
                   }
+                  setPickupStage("all");
                 }}
                 className={cn(
                   "flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition-all",
@@ -347,6 +390,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                 key={item.value}
                 onClick={() => {
                   setShippingFilter(item.value);
+                  setPickupStage("all");
                   setCurrentPage(1);
                 }}
                 className={cn(
@@ -367,6 +411,56 @@ export default function OrderTable({ orders }: OrderTableProps) {
               </button>
             );
           })}
+        </div>
+      )}
+
+      {/* Pickup Stage Filter (visible when Reguler is selected on processing/shipped) */}
+      {(selectedStatusTab === "processing" || selectedStatusTab === "shipped") && shippingFilter === "reguler" && (
+        <div className="px-3 sm:px-4 py-2 sm:py-2.5 border-b border-brand-100 flex flex-wrap items-center gap-1.5 sm:gap-2">
+          <span className="text-[10px] sm:text-xs font-medium text-brand-400 mr-0.5 sm:mr-1">Status Pickup:</span>
+          {([
+            { value: "all" as PickupStage, label: "Semua", icon: Package },
+            { value: "before_pickup" as PickupStage, label: "Sebelum Pickup", icon: ArrowDownToLine },
+            { value: "after_pickup" as PickupStage, label: "Sesudah Pickup", icon: ArrowUpFromLine },
+            { value: "ready_to_ship" as PickupStage, label: "Siap Dikirim", icon: Send },
+          ]).map((item) => {
+            const isActive = pickupStage === item.value;
+            const count = pickupStageCounts[item.value];
+            return (
+              <button
+                key={item.value}
+                onClick={() => {
+                  setPickupStage(item.value);
+                  setCurrentPage(1);
+                }}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                  isActive
+                    ? "bg-brand-600 text-white shadow-sm"
+                    : "bg-cream-200 text-brand-400 hover:bg-cream-300"
+                )}
+              >
+                <item.icon className="w-3 h-3" />
+                {item.label}
+                <span className={cn(
+                  "px-1.5 py-0.5 rounded-full text-[10px]",
+                  isActive ? "bg-white/20" : "bg-brand-200 text-brand-500"
+                )}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Instant info note */}
+      {(selectedStatusTab === "processing" || selectedStatusTab === "shipped") && shippingFilter === "instant" && (
+        <div className="px-3 sm:px-4 py-2 border-b border-brand-100">
+          <div className="flex items-center gap-2 text-xs text-brand-400">
+            <Zap className="w-3.5 h-3.5 text-yellow-500" />
+            <span>Instant langsung masuk ke <strong className="text-brand-600">Siap Dikirim</strong></span>
+          </div>
         </div>
       )}
 
@@ -449,15 +543,17 @@ export default function OrderTable({ orders }: OrderTableProps) {
                 <th className="px-3 sm:px-4 py-2.5 sm:py-3 text-center text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider">
                   Qty
                 </th>
-                <th
-                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
-                  onClick={() => handleSort("totalAmount")}
-                >
-                  <div className="flex items-center justify-end gap-1">
-                    Total
-                    <SortIcon field="totalAmount" />
-                  </div>
-                </th>
+                {!hideMoney && (
+                  <th
+                    className="px-3 sm:px-4 py-2.5 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
+                    onClick={() => handleSort("totalAmount")}
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      Total
+                      <SortIcon field="totalAmount" />
+                    </div>
+                  </th>
+                )}
                 <th
                   className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
                   onClick={() => handleSort("customerName")}
@@ -470,6 +566,11 @@ export default function OrderTable({ orders }: OrderTableProps) {
                 <th className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider">
                   Kurir / Resi
                 </th>
+                {(selectedStatusTab === "processing" || selectedStatusTab === "shipped") && (
+                  <th className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider">
+                    Waktu Pickup
+                  </th>
+                )}
                 <th
                   className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
                   onClick={() => handleSort("mustShipBefore")}
@@ -541,16 +642,18 @@ export default function OrderTable({ orders }: OrderTableProps) {
                         {order.quantity}
                       </span>
                     </td>
-                    <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-right">
-                      <p className="text-xs sm:text-sm font-semibold text-brand-800">
-                        {formatCurrency(order.totalAmount)}
-                      </p>
-                      {order.originalPrice && order.originalPrice !== order.price && (
-                        <p className="text-[10px] sm:text-xs text-brand-300 line-through">
-                          {formatCurrency(order.originalPrice * order.quantity)}
+                    {!hideMoney && (
+                      <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-right">
+                        <p className="text-xs sm:text-sm font-semibold text-brand-800">
+                          {formatCurrency(order.totalAmount)}
                         </p>
-                      )}
-                    </td>
+                        {order.originalPrice && order.originalPrice !== order.price && (
+                          <p className="text-[10px] sm:text-xs text-brand-300 line-through">
+                            {formatCurrency(order.originalPrice * order.quantity)}
+                          </p>
+                        )}
+                      </td>
+                    )}
                     <td className="px-3 sm:px-4 py-2.5 sm:py-3">
                       <p className="text-xs sm:text-sm text-brand-700">
                         {order.recipientName || order.customerName}
@@ -572,6 +675,36 @@ export default function OrderTable({ orders }: OrderTableProps) {
                         </p>
                       )}
                     </td>
+                    {(selectedStatusTab === "processing" || selectedStatusTab === "shipped") && (
+                      <td className="px-3 sm:px-4 py-2.5 sm:py-3">
+                        {order.pickupTime ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-xs font-medium text-brand-700">
+                              {formatDateTime(order.pickupTime)}
+                            </span>
+                            <span className={cn(
+                              "inline-flex items-center gap-1 text-[10px] font-medium",
+                              classifyPickupStage(order) === "ready_to_ship"
+                                ? "text-green-600"
+                                : classifyPickupStage(order) === "after_pickup"
+                                  ? "text-blue-600"
+                                  : "text-orange-500"
+                            )}>
+                              {classifyPickupStage(order) === "ready_to_ship" && <Send className="w-2.5 h-2.5" />}
+                              {classifyPickupStage(order) === "after_pickup" && <ArrowUpFromLine className="w-2.5 h-2.5" />}
+                              {classifyPickupStage(order) === "before_pickup" && <ArrowDownToLine className="w-2.5 h-2.5" />}
+                              {classifyPickupStage(order) === "ready_to_ship"
+                                ? "Siap Dikirim"
+                                : classifyPickupStage(order) === "after_pickup"
+                                  ? "Sudah Pickup"
+                                  : "Belum Pickup"}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-brand-300">-</span>
+                        )}
+                      </td>
+                    )}
                     <td className="px-3 sm:px-4 py-2.5 sm:py-3">
                       {order.mustShipBefore ? (
                         <div className={cn(

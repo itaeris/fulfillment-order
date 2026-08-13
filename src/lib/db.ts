@@ -3,24 +3,50 @@ import { supabase } from "./supabase";
 // ── Order operations ──
 
 export async function getAllOrders() {
-  const { data, error } = await supabase
-    .from("orders")
-    .select("*")
-    .order("order_date", { ascending: false });
+  const allRows: any[] = [];
+  const PAGE_SIZE = 1000;
+  let from = 0;
 
-  if (error) throw error;
-  return (data ?? []).map(rowToOrder);
+  while (true) {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("*")
+      .order("order_date", { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    allRows.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return allRows.map(rowToOrder);
 }
 
 export async function getOrdersByPlatform(platform: string) {
-  const { data, error } = await supabase
-    .from("orders")
-    .select("*")
-    .eq("platform", platform)
-    .order("order_date", { ascending: false });
+  const allRows: any[] = [];
+  const PAGE_SIZE = 1000;
+  let from = 0;
 
-  if (error) throw error;
-  return (data ?? []).map(rowToOrder);
+  while (true) {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("*")
+      .eq("platform", platform)
+      .order("order_date", { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    allRows.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return allRows.map(rowToOrder);
 }
 
 export async function insertOrder(order: OrderInput) {
@@ -121,6 +147,8 @@ interface OrderInput {
   weight?: number;
   channelName?: string;
   storeName?: string;
+  refNo?: string;
+  pickupTime?: string;
 }
 
 function orderToRow(o: OrderInput) {
@@ -153,6 +181,8 @@ function orderToRow(o: OrderInput) {
     weight: o.weight ?? null,
     channel_name: o.channelName ?? null,
     store_name: o.storeName ?? null,
+    ref_no: o.refNo ?? null,
+    pickup_time: o.pickupTime ?? null,
   };
 }
 
@@ -186,6 +216,8 @@ function rowToOrder(r: any) {
     weight: r.weight,
     channelName: r.channel_name,
     storeName: r.store_name,
+    refNo: r.ref_no,
+    pickupTime: r.pickup_time,
     createdAt: r.created_at,
   };
 }
