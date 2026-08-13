@@ -21,6 +21,8 @@ export interface UserProfile {
   role: UserRole;
 }
 
+const ALLOWED_DOMAINS = ["aerisbeaute.com", "fromthisisland.com"];
+
 interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
@@ -29,6 +31,7 @@ interface AuthContextType {
     emailOrUsername: string,
     password: string
   ) => Promise<{ error: string | null }>;
+  signInWithGoogle: () => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: string | null }>;
   updatePassword: (password: string) => Promise<{ error: string | null }>;
@@ -83,8 +86,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
+        const email = session.user.email || "";
+        const domain = email.split("@")[1]?.toLowerCase();
+
+        if (domain && !ALLOWED_DOMAINS.includes(domain)) {
+          await supabase.auth.signOut();
+          setUser(null);
+          setProfile(null);
+          return;
+        }
+
         setUser(session.user);
-        await fetchProfile(session.user.id, session.user.email!);
+        await fetchProfile(session.user.id, email);
       } else {
         setUser(null);
         setProfile(null);
@@ -130,6 +143,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     []
   );
+
+  const signInWithGoogle = useCallback(async (): Promise<{ error: string | null }> => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+        queryParams: {
+          hd: ALLOWED_DOMAINS[0],
+        },
+      },
+    });
+
+    if (error) return { error: error.message };
+    return { error: null };
+  }, []);
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
@@ -179,6 +207,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         profile,
         isLoading,
         signIn,
+        signInWithGoogle,
         signOut,
         resetPassword,
         updatePassword,
