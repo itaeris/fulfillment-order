@@ -145,7 +145,7 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
     };
   }, [orders, selectedPlatform, selectedStatusTab]);
 
-  const platformCounts = useMemo(() => {
+  const platformCounts: Record<string, number> = useMemo(() => {
     return {
       all: orders.length,
       shopee: orders.filter(o => o.platform === "shopee").length,

@@ -140,7 +140,7 @@ export default function ComparisonView({ orders, userRole }: ComparisonViewProps
       }
     }
 
-    const comparisonRows: ComparisonRow[] = [...matched.values()];
+    const comparisonRows: ComparisonRow[] = Array.from(matched.values());
 
     // Add unmatched Jubelio
     for (const jOrder of jubelioOrders) {
