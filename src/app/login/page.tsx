@@ -2,7 +2,7 @@
 
 import { useState, FormEvent, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ShoppingBag, Eye, EyeOff, Loader2 } from "lucide-react";
+import { ShoppingBag, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
 export default function LoginPage() {
@@ -44,7 +44,7 @@ export default function LoginPage() {
   if (authLoading) {
     return (
       <div className="min-h-screen bg-cream-100 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
+        <div className="loader" />
       </div>
     );
   }
@@ -128,14 +128,7 @@ export default function LoginPage() {
               disabled={isSubmitting}
               className="w-full py-3 bg-brand-600 text-white rounded-xl font-medium text-sm hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
             >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Memproses...
-                </>
-              ) : (
-                "Masuk"
-              )}
+              {isSubmitting ? "Memproses..." : "Masuk"}
             </button>
           </form>
 

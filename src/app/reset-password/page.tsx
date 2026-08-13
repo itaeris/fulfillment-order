@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   ShoppingBag,
   ArrowLeft,
-  Loader2,
   CheckCircle,
   Eye,
   EyeOff,
@@ -141,14 +140,7 @@ export default function ResetPasswordPage() {
                 disabled={isSubmitting}
                 className="w-full py-3 bg-brand-600 text-white rounded-xl font-medium text-sm hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
               >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Mengirim...
-                  </>
-                ) : (
-                  "Kirim Link Reset"
-                )}
+                {isSubmitting ? "Mengirim..." : "Kirim Link Reset"}
               </button>
             </form>
           )}
@@ -214,14 +206,7 @@ export default function ResetPasswordPage() {
                 disabled={isSubmitting}
                 className="w-full py-3 bg-brand-600 text-white rounded-xl font-medium text-sm hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
               >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Menyimpan...
-                  </>
-                ) : (
-                  "Simpan Password Baru"
-                )}
+                {isSubmitting ? "Menyimpan..." : "Simpan Password Baru"}
               </button>
             </form>
           )}

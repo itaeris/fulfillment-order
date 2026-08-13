@@ -80,6 +80,16 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Users can update own profile') THEN
     CREATE POLICY "Users can update own profile" ON profiles FOR UPDATE USING (auth.uid() = id);
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Admin can update any profile') THEN
+    CREATE POLICY "Admin can update any profile" ON profiles FOR UPDATE USING (
+      EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+    );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Admin can delete profiles') THEN
+    CREATE POLICY "Admin can delete profiles" ON profiles FOR DELETE USING (
+      EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+    );
+  END IF;
 END $$;
 
 -- Auto-create profile when a new auth user is created

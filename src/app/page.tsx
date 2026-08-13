@@ -4,7 +4,6 @@ import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   LayoutDashboard,
-  Loader2,
   Menu,
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
@@ -13,6 +12,7 @@ import SummaryCards from "@/components/SummaryCards";
 import OrderTable from "@/components/OrderTable";
 import Charts from "@/components/Charts";
 import ComparisonView from "@/components/ComparisonView";
+import SettingsView from "@/components/SettingsView";
 import { Order, Platform, UploadedFile, OrderSummary, DailyStats } from "@/types/order";
 import { parseExcelFile, detectPlatform } from "@/lib/excel-parser";
 import { calculateSummary, calculateDailyStats } from "@/lib/utils";
@@ -25,7 +25,7 @@ export default function Dashboard() {
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "upload" | "compare">("upload");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "upload" | "compare" | "settings">("upload");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -230,7 +230,7 @@ export default function Dashboard() {
     return (
       <div className="h-screen bg-cream-100 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-10 h-10 text-brand-500 animate-spin" />
+          <div className="loader" />
           <p className="text-brand-400">Memuat data...</p>
         </div>
       </div>
@@ -241,6 +241,7 @@ export default function Dashboard() {
     dashboard: { title: "Dashboard", subtitle: "Ringkasan performa order dari semua platform" },
     upload: { title: "Import Data", subtitle: "Upload file Excel dari marketplace" },
     compare: { title: "Komparasi", subtitle: "Bandingkan data Jubelio dengan Shopee / TikTok" },
+    settings: { title: "Settings", subtitle: "Kelola profil, password, dan user" },
   };
   const pageTitle = pageTitles[activeTab].title;
   const pageSubtitle = pageTitles[activeTab].subtitle;
@@ -348,6 +349,10 @@ export default function Dashboard() {
 
           {activeTab === "compare" && (
             <ComparisonView orders={orders} userRole={userRole} />
+          )}
+
+          {activeTab === "settings" && (
+            <SettingsView />
           )}
 
           {activeTab === "dashboard" && (
