@@ -14,6 +14,7 @@ import {
   Shield,
   Warehouse,
   ChevronDown,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -287,11 +288,57 @@ function PasswordSection() {
   );
 }
 
+function ConfirmModal({
+  open,
+  title,
+  message,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  title: string;
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/40" onClick={onCancel} />
+      <div className="relative bg-white rounded-2xl shadow-xl border border-brand-200 p-6 w-full max-w-sm">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center shrink-0">
+            <AlertTriangle className="w-5 h-5 text-red-500" />
+          </div>
+          <h3 className="text-base font-semibold text-brand-800">{title}</h3>
+        </div>
+        <p className="text-sm text-brand-500 mb-6">{message}</p>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 rounded-xl text-sm font-medium text-brand-600 bg-cream-100 hover:bg-cream-200 transition-all"
+          >
+            Batal
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 rounded-xl text-sm font-medium text-white bg-red-500 hover:bg-red-600 transition-all"
+          >
+            Hapus
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function UserManagementSection() {
   const { profile } = useAuth();
   const [users, setUsers] = useState<AllUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<AllUser | null>(null);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -312,12 +359,12 @@ function UserManagementSection() {
 
   const handleDeleteUser = async (userId: string) => {
     if (userId === profile?.id) return;
-    if (!confirm("Yakin hapus user ini?")) return;
 
     const { error } = await supabase.from("profiles").delete().eq("id", userId);
     if (!error) {
       setUsers((prev) => prev.filter((u) => u.id !== userId));
     }
+    setDeleteTarget(null);
   };
 
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
@@ -417,7 +464,7 @@ function UserManagementSection() {
                       <td className="px-4 py-3 text-center">
                         {!isSelf && (
                           <button
-                            onClick={() => handleDeleteUser(u.id)}
+                            onClick={() => setDeleteTarget(u)}
                             className="p-2 rounded-lg text-brand-300 hover:text-red-500 hover:bg-red-50 transition-colors"
                             title="Hapus user"
                           >
@@ -433,6 +480,14 @@ function UserManagementSection() {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        open={!!deleteTarget}
+        title="Hapus User"
+        message={`Yakin hapus user "${deleteTarget?.name}" (${deleteTarget?.email})?`}
+        onConfirm={() => deleteTarget && handleDeleteUser(deleteTarget.id)}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

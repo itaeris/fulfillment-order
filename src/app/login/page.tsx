@@ -163,10 +163,6 @@ export default function LoginPage() {
             {isGoogleLoading ? "Mengalihkan..." : "Masuk dengan Google"}
           </button>
 
-          <p className="text-[11px] text-brand-300 text-center mt-3">
-            Hanya domain @aerisbeaute.com dan @fromthisisland.com
-          </p>
-
           <div className="mt-4 text-center">
             <a
               href="/reset-password"
