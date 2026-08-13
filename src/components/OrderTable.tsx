@@ -39,7 +39,7 @@ interface OrderTableProps {
   userRole: UserRole;
 }
 
-type SortField = "orderDate" | "totalAmount" | "customerName" | "status" | "mustShipBefore";
+type SortField = "platform" | "orderNumber" | "status" | "productName" | "quantity" | "totalAmount" | "customerName" | "trackingNumber" | "pickupTime" | "mustShipBefore" | "orderDate";
 type SortDirection = "asc" | "desc";
 type StatusTab = "all" | "pending" | "processing" | "shipped" | "delivered" | "cancelled";
 
@@ -204,22 +204,44 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
       let comparison = 0;
 
       switch (sortField) {
-        case "orderDate":
-          comparison = new Date(a.orderDate).getTime() - new Date(b.orderDate).getTime();
+        case "platform":
+          comparison = (a.platform || "").localeCompare(b.platform || "");
           break;
-        case "mustShipBefore":
+        case "orderNumber":
+          comparison = (a.orderNumber || "").localeCompare(b.orderNumber || "");
+          break;
+        case "status":
+          comparison = (a.status || "").localeCompare(b.status || "");
+          break;
+        case "productName":
+          comparison = (a.productName || "").localeCompare(b.productName || "");
+          break;
+        case "quantity":
+          comparison = (a.quantity || 0) - (b.quantity || 0);
+          break;
+        case "totalAmount":
+          comparison = (a.totalAmount || 0) - (b.totalAmount || 0);
+          break;
+        case "customerName":
+          comparison = (a.customerName || "").localeCompare(b.customerName || "");
+          break;
+        case "trackingNumber":
+          comparison = (a.trackingNumber || "").localeCompare(b.trackingNumber || "");
+          break;
+        case "pickupTime": {
+          const aT = a.pickupTime ? new Date(a.pickupTime).getTime() : Infinity;
+          const bT = b.pickupTime ? new Date(b.pickupTime).getTime() : Infinity;
+          comparison = aT - bT;
+          break;
+        }
+        case "mustShipBefore": {
           const aShip = a.mustShipBefore ? new Date(a.mustShipBefore).getTime() : Infinity;
           const bShip = b.mustShipBefore ? new Date(b.mustShipBefore).getTime() : Infinity;
           comparison = aShip - bShip;
           break;
-        case "totalAmount":
-          comparison = a.totalAmount - b.totalAmount;
-          break;
-        case "customerName":
-          comparison = a.customerName.localeCompare(b.customerName);
-          break;
-        case "status":
-          comparison = a.status.localeCompare(b.status);
+        }
+        case "orderDate":
+          comparison = new Date(a.orderDate).getTime() - new Date(b.orderDate).getTime();
           break;
       }
 
@@ -245,11 +267,13 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
   };
 
   const SortIcon = ({ field }: { field: SortField }) => {
-    if (sortField !== field) return null;
+    if (sortField !== field) {
+      return <ChevronDown className="w-3 h-3 opacity-30" />;
+    }
     return sortDirection === "asc" ? (
-      <ChevronUp className="w-4 h-4" />
+      <ChevronUp className="w-3.5 h-3.5 text-brand-700" />
     ) : (
-      <ChevronDown className="w-4 h-4" />
+      <ChevronDown className="w-3.5 h-3.5 text-brand-700" />
     );
   };
 
@@ -522,62 +546,88 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
           <table className="w-full min-w-[800px]">
             <thead className="bg-cream-100">
               <tr>
-                <th className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider">
-                  Platform
-                </th>
-                <th className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider">
-                  No. Pesanan
+                <th
+                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
+                  onClick={() => handleSort("platform")}
+                >
+                  <div className="flex items-center gap-1">
+                    Platform <SortIcon field="platform" />
+                  </div>
                 </th>
                 <th
-                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-center text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
+                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
+                  onClick={() => handleSort("orderNumber")}
+                >
+                  <div className="flex items-center gap-1">
+                    No. Pesanan <SortIcon field="orderNumber" />
+                  </div>
+                </th>
+                <th
+                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-center text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
                   onClick={() => handleSort("status")}
                 >
                   <div className="flex items-center justify-center gap-1">
-                    Status
-                    <SortIcon field="status" />
+                    Status <SortIcon field="status" />
                   </div>
                 </th>
-                <th className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider">
-                  Produk
+                <th
+                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
+                  onClick={() => handleSort("productName")}
+                >
+                  <div className="flex items-center gap-1">
+                    Produk <SortIcon field="productName" />
+                  </div>
                 </th>
-                <th className="px-3 sm:px-4 py-2.5 sm:py-3 text-center text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider">
-                  Qty
+                <th
+                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-center text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
+                  onClick={() => handleSort("quantity")}
+                >
+                  <div className="flex items-center justify-center gap-1">
+                    Qty <SortIcon field="quantity" />
+                  </div>
                 </th>
                 {!hideMoney && (
                   <th
-                    className="px-3 sm:px-4 py-2.5 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
+                    className="px-3 sm:px-4 py-2.5 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
                     onClick={() => handleSort("totalAmount")}
                   >
                     <div className="flex items-center justify-end gap-1">
-                      Total
-                      <SortIcon field="totalAmount" />
+                      Total <SortIcon field="totalAmount" />
                     </div>
                   </th>
                 )}
                 <th
-                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
+                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
                   onClick={() => handleSort("customerName")}
                 >
                   <div className="flex items-center gap-1">
-                    Penerima
-                    <SortIcon field="customerName" />
+                    Penerima <SortIcon field="customerName" />
                   </div>
                 </th>
-                <th className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider">
-                  Kurir / Resi
+                <th
+                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
+                  onClick={() => handleSort("trackingNumber")}
+                >
+                  <div className="flex items-center gap-1">
+                    Kurir / Resi <SortIcon field="trackingNumber" />
+                  </div>
                 </th>
                 {(selectedStatusTab === "processing" || selectedStatusTab === "shipped") && (
-                  <th className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider">
-                    Waktu Pickup
+                  <th
+                    className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
+                    onClick={() => handleSort("pickupTime")}
+                  >
+                    <div className="flex items-center gap-1">
+                      Waktu Pickup <SortIcon field="pickupTime" />
+                    </div>
                   </th>
                 )}
                 <th
-                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
+                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
                   onClick={() => handleSort("mustShipBefore")}
                 >
                   <div className="flex items-center gap-1">
-                    Batas Kirim
-                    <SortIcon field="mustShipBefore" />
+                    Batas Kirim <SortIcon field="mustShipBefore" />
                   </div>
                 </th>
               </tr>
