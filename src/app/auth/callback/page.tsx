@@ -31,6 +31,18 @@ export default function AuthCallbackPage() {
         return;
       }
 
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("approved")
+        .eq("id", session.user.id)
+        .single();
+
+      if (!profile?.approved) {
+        await supabase.auth.signOut();
+        setError("Akun kamu belum didaftarkan. Hubungi admin untuk mendaftarkan akun terlebih dahulu.");
+        return;
+      }
+
       router.replace("/");
     };
 

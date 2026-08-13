@@ -68,8 +68,14 @@ CREATE TABLE IF NOT EXISTS profiles (
   name TEXT NOT NULL,
   email TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'warehouse',
+  approved BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Run this if profiles table already exists:
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS approved BOOLEAN NOT NULL DEFAULT false;
+-- Set existing users as approved:
+UPDATE profiles SET approved = true WHERE approved = false;
 
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
@@ -98,13 +104,14 @@ RETURNS TRIGGER
 SECURITY DEFINER SET search_path = public
 AS $$
 BEGIN
-  INSERT INTO public.profiles (id, username, name, email, role)
+  INSERT INTO public.profiles (id, username, name, email, role, approved)
   VALUES (
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'username', split_part(NEW.email, '@', 1)),
     COALESCE(NEW.raw_user_meta_data->>'name', 'User'),
     NEW.email,
-    COALESCE(NEW.raw_user_meta_data->>'role', 'warehouse')
+    COALESCE(NEW.raw_user_meta_data->>'role', 'warehouse'),
+    COALESCE((NEW.raw_user_meta_data->>'approved')::boolean, false)
   );
   RETURN NEW;
 END;

@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
       email,
       password,
       email_confirm: true,
-      user_metadata: { username, name, role: role || "warehouse" },
+      user_metadata: { username, name, role: role || "warehouse", approved: true },
     });
 
     if (error) {
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     if (data.user) {
       await supabaseAdmin
         .from("profiles")
-        .update({ role: role || "warehouse", username, name })
+        .update({ role: role || "warehouse", username, name, approved: true })
         .eq("id", data.user.id);
     }
 

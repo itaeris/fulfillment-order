@@ -19,6 +19,7 @@ export interface UserProfile {
   name: string;
   email: string;
   role: UserRole;
+  approved: boolean;
 }
 
 const ALLOWED_DOMAINS = ["aerisbeaute.com", "fromthisisland.com"];
@@ -50,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchProfile = useCallback(async (userId: string, email: string) => {
+  const fetchProfile = useCallback(async (userId: string, email: string): Promise<boolean> => {
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
@@ -58,14 +59,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .single();
 
     if (data && !error) {
+      if (!data.approved) {
+        await supabase.auth.signOut();
+        setUser(null);
+        setProfile(null);
+        return false;
+      }
+
       setProfile({
         id: data.id,
         username: data.username,
         name: data.name,
         email,
         role: data.role as UserRole,
+        approved: data.approved,
       });
+      return true;
     }
+
+    await supabase.auth.signOut();
+    setUser(null);
+    setProfile(null);
+    return false;
   }, []);
 
   useEffect(() => {
