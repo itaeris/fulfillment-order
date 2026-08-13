@@ -1,0 +1,24 @@
+{
+  "name": "Order Dashboard - Aeris Beaute",
+  "short_name": "Order Dashboard",
+  "description": "Dashboard untuk mengelola order dari marketplace",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAF7F4",
+  "theme_color": "#3D2319",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
