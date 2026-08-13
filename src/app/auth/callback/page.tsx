@@ -12,6 +12,13 @@ export default function AuthCallbackPage() {
 
   useEffect(() => {
     const handleCallback = async () => {
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const hashError = hashParams.get("error_description") || hashParams.get("error");
+      if (hashError) {
+        setError(decodeURIComponent(hashError));
+        return;
+      }
+
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
       if (sessionError) {
@@ -31,15 +38,21 @@ export default function AuthCallbackPage() {
         return;
       }
 
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("approved")
         .eq("id", session.user.id)
         .single();
 
-      if (!profile?.approved) {
+      if (profileError || !profile) {
         await supabase.auth.signOut();
         setError("Akun kamu belum didaftarkan. Hubungi admin untuk mendaftarkan akun terlebih dahulu.");
+        return;
+      }
+
+      if (!profile.approved) {
+        await supabase.auth.signOut();
+        setError("Akun kamu belum disetujui. Hubungi admin untuk mengaktifkan akun.");
         return;
       }
 
