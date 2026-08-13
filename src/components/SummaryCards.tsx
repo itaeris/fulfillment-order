@@ -2,7 +2,7 @@
 
 import { Package, TrendingUp, ShoppingBag, DollarSign } from "lucide-react";
 import { OrderSummary } from "@/types/order";
-import { cn, formatCurrency, formatNumber, getPlatformName } from "@/lib/utils";
+import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 
 interface SummaryCardsProps {
   summary: OrderSummary;
@@ -14,15 +14,13 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
       title: "Total Order",
       value: formatNumber(summary.totalOrders),
       icon: Package,
-      color: "bg-blue-500",
-      bgColor: "bg-blue-50",
-      textColor: "text-blue-600",
+      bgColor: "bg-brand-50",
+      textColor: "text-brand-500",
     },
     {
       title: "Total Pendapatan",
       value: formatCurrency(summary.totalRevenue),
       icon: DollarSign,
-      color: "bg-green-500",
       bgColor: "bg-green-50",
       textColor: "text-green-600",
     },
@@ -30,9 +28,8 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
       title: "Total Item Terjual",
       value: formatNumber(summary.totalItems),
       icon: ShoppingBag,
-      color: "bg-purple-500",
-      bgColor: "bg-purple-50",
-      textColor: "text-purple-600",
+      bgColor: "bg-amber-50",
+      textColor: "text-amber-600",
     },
     {
       title: "Rata-rata Order",
@@ -42,13 +39,11 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
           : 0
       ),
       icon: TrendingUp,
-      color: "bg-orange-500",
-      bgColor: "bg-orange-50",
-      textColor: "text-orange-600",
+      bgColor: "bg-rose-50",
+      textColor: "text-rose-600",
     },
   ];
 
-  // Combine TikTok and Tokopedia data
   const combinedTiktokData = {
     orders: summary.byPlatform.tiktok.orders + summary.byPlatform.tokopedia.orders,
     revenue: summary.byPlatform.tiktok.revenue + summary.byPlatform.tokopedia.revenue,
@@ -58,18 +53,26 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
     {
       platform: "shopee" as const,
       name: "Shopee",
-      color: "bg-shopee-500",
-      bgColor: "bg-shopee-50",
-      borderColor: "border-shopee-200",
+      dotColor: "bg-shopee-500",
+      borderColor: "border-brand-200",
+      barColor: "bg-shopee-500",
       data: summary.byPlatform.shopee,
     },
     {
       platform: "tiktok" as const,
       name: "TikTok & Tokopedia",
-      color: "bg-black",
-      bgColor: "bg-slate-50",
-      borderColor: "border-slate-200",
+      dotColor: "bg-brand-800",
+      borderColor: "border-brand-200",
+      barColor: "bg-brand-800",
       data: combinedTiktokData,
+    },
+    {
+      platform: "jubelio" as const,
+      name: "Jubelio",
+      dotColor: "bg-brand-500",
+      borderColor: "border-brand-200",
+      barColor: "bg-brand-500",
+      data: summary.byPlatform.jubelio,
     },
   ];
 
@@ -80,14 +83,14 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
         {mainCards.map((card) => (
           <div
             key={card.title}
-            className="bg-white rounded-xl shadow-sm border border-slate-200 p-5"
+            className="bg-white rounded-xl shadow-sm border border-brand-200 p-5"
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500 font-medium">
+                <p className="text-sm text-brand-400 font-medium">
                   {card.title}
                 </p>
-                <p className="text-2xl font-bold text-slate-800 mt-1">
+                <p className="text-2xl font-bold text-brand-800 mt-1">
                   {card.value}
                 </p>
               </div>
@@ -100,7 +103,7 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
       </div>
 
       {/* Platform Breakdown */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {platformCards.map((card) => {
           const data = card.data;
           const percentage =
@@ -117,34 +120,34 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
               )}
             >
               <div className="flex items-center gap-3 mb-4">
-                <div className={cn("w-3 h-3 rounded-full", card.color)} />
-                <h3 className="font-semibold text-slate-800">{card.name}</h3>
+                <div className={cn("w-3 h-3 rounded-full", card.dotColor)} />
+                <h3 className="font-semibold text-brand-800">{card.name}</h3>
               </div>
 
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-500">Order</span>
-                  <span className="font-semibold text-slate-700">
+                  <span className="text-sm text-brand-400">Order</span>
+                  <span className="font-semibold text-brand-700">
                     {formatNumber(data.orders)}
                   </span>
                 </div>
 
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-500">Pendapatan</span>
-                  <span className="font-semibold text-slate-700">
+                  <span className="text-sm text-brand-400">Pendapatan</span>
+                  <span className="font-semibold text-brand-700">
                     {formatCurrency(data.revenue)}
                   </span>
                 </div>
 
                 {/* Progress Bar */}
                 <div className="mt-2">
-                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-2 bg-cream-200 rounded-full overflow-hidden">
                     <div
-                      className={cn("h-full rounded-full transition-all", card.color)}
+                      className={cn("h-full rounded-full transition-all", card.barColor)}
                       style={{ width: `${percentage}%` }}
                     />
                   </div>
-                  <p className="text-xs text-slate-400 mt-1">
+                  <p className="text-xs text-brand-300 mt-1">
                     {percentage.toFixed(1)}% dari total
                   </p>
                 </div>

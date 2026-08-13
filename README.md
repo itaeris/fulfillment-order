@@ -1,20 +1,20 @@
-# Order Dashboard - Shopee & TikTok Shop / Tokopedia
+# Order Dashboard - Shopee & TikTok Shop / Tokopedia & Jubelio
 
-Dashboard webapp untuk menampilkan dan menganalisis data order dari marketplace **Shopee** dan **TikTok Shop / Tokopedia** yang diimport dari file Excel. Data disimpan secara persisten menggunakan SQLite, sehingga tetap ada meskipun halaman di-refresh.
+Dashboard webapp untuk menampilkan dan menganalisis data order dari marketplace **Shopee**, **TikTok Shop / Tokopedia**, dan **Jubelio** yang diimport dari file Excel. Data disimpan secara persisten menggunakan SQLite, sehingga tetap ada meskipun halaman di-refresh.
 
 ## Fitur
 
-- **Import Excel/CSV**: Upload file export dari Shopee atau TikTok Shop / Tokopedia (drag & drop atau pilih file)
+- **Import Excel/CSV**: Upload file export dari Shopee, TikTok Shop / Tokopedia, atau Jubelio (drag & drop atau pilih file)
 - **Auto-detect Platform**: Sistem otomatis mendeteksi platform berdasarkan nama file maupun header kolom di dalam file
 - **Penyimpanan Persisten**: Data tersimpan di database SQLite lokal (`data/orders.db`), tidak hilang saat refresh
 - **Dashboard Summary**: Ringkasan total order, pendapatan, item terjual, dan rata-rata order
-- **Breakdown per Platform**: Statistik terpisah untuk Shopee dan TikTok Shop/Tokopedia (digabung)
+- **Breakdown per Platform**: Statistik terpisah untuk Shopee, TikTok Shop/Tokopedia (digabung), dan Jubelio
 - **Visualisasi Data**:
   - Grafik tren pendapatan harian (area chart)
   - Pie chart distribusi pendapatan per platform
   - Bar chart distribusi status pesanan
 - **Tabel Order ala Seller Center**:
-  - Tab filter per platform (Semua, Shopee, TikTok & Tokopedia)
+  - Tab filter per platform (Semua, Shopee, TikTok & Tokopedia, Jubelio)
   - Tab filter per status (Semua, Belum Bayar, Perlu Dikirim, Dikirim, Selesai, Batal/Retur)
   - Pencarian berdasarkan no. pesanan, customer, SKU, atau no. resi
   - Sorting berdasarkan tanggal, total, customer, status, atau batas waktu kirim
@@ -77,6 +77,15 @@ npm start
 
 > Sejak integrasi TikTok Shop dan Tokopedia, keduanya ditampilkan sebagai satu kategori platform di dashboard.
 
+### 3. Import Data dari Jubelio
+
+1. Login ke [Jubelio](https://app.jubelio.com)
+2. Buka menu **Sales Order**
+3. Klik **Export** dan pilih format Excel/XLSX
+4. Di dashboard, pilih platform **Jubelio**, lalu upload file hasil export
+
+> Jubelio adalah platform omnichannel yang mengagregasi order dari berbagai marketplace. Kolom `channel_name` dan `store_name` juga diparsing untuk referensi asal channel.
+
 ### Reset Data
 
 Klik tombol **Reset** di header untuk menghapus seluruh data order dan riwayat file yang tersimpan di database.
@@ -111,24 +120,23 @@ data/
 
 Parser membaca header kolom asli dari file export marketplace (case-insensitive) dan otomatis memetakannya. Beberapa kolom utama yang dikenali:
 
-| Field | Shopee | TikTok Shop |
-|-------|--------|--------------|
-| No. Pesanan | No. Pesanan | Order ID |
-| Status | Status Pesanan | Order Status |
-| Customer | Username (Pembeli) | Buyer Username |
-| Penerima | Nama Penerima | Recipient |
-| Produk | Nama Produk | Product Name |
-| Variasi | Nama Variasi | Variation |
-| SKU | Nomor Referensi SKU | Seller SKU |
-| Qty | Jumlah | Quantity |
-| Harga | Harga Setelah Diskon | SKU Subtotal After Discount |
-| Total | Total Pembayaran | Order Amount |
-| Tanggal Order | Waktu Pesanan Dibuat | Created Time |
-| Batas Kirim | Pesanan Harus Dikirimkan Sebelum... | - |
-| No. Resi | No. Resi | Tracking ID |
-| Kurir | Opsi Pengiriman | Shipping Provider Name |
-| Alamat | Alamat Pengiriman | Detail Address |
-| Telepon | No. Telepon | Phone # |
+| Field | Shopee | TikTok Shop | Jubelio |
+|-------|--------|--------------|---------|
+| No. Pesanan | No. Pesanan | Order ID | salesorder_no |
+| Status | Status Pesanan | Order Status | channel_status |
+| Customer | Username (Pembeli) | Buyer Username | customer_name |
+| Produk | Nama Produk | Product Name | - (order level) |
+| SKU | Nomor Referensi SKU | Seller SKU | - |
+| Qty | Jumlah | Quantity | qty / total_qty |
+| Total | Total Pembayaran | Order Amount | grand_total |
+| Tanggal Order | Waktu Pesanan Dibuat | Created Time | transaction_date |
+| Batas Kirim | Pesanan Harus Dikirimkan Sebelum... | - | due_date |
+| No. Resi | No. Resi | Tracking ID | tracking_no / tracking_number |
+| Kurir | Opsi Pengiriman | Shipping Provider Name | shipper |
+| Alamat | Alamat Pengiriman | Detail Address | - |
+| Telepon | No. Telepon | Phone # | - |
+| Channel | - | - | channel_name |
+| Store | - | - | store_name |
 
 Jika struktur file sedikit berbeda, sistem akan mencoba mendeteksi platform dari isi header dan mencari kolom ID pesanan secara otomatis sebagai fallback.
 

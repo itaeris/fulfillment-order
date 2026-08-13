@@ -1,4 +1,4 @@
-export type Platform = "shopee" | "tiktok" | "tokopedia";
+export type Platform = "shopee" | "tiktok" | "tokopedia" | "jubelio";
 
 export type OrderStatus = 
   | "pending" 
@@ -35,6 +35,8 @@ export interface Order {
   phone?: string;
   notes?: string;
   weight?: number;
+  channelName?: string;
+  storeName?: string;
 }
 
 export interface OrderSummary {
@@ -45,6 +47,7 @@ export interface OrderSummary {
     shopee: { orders: number; revenue: number };
     tiktok: { orders: number; revenue: number };
     tokopedia: { orders: number; revenue: number };
+    jubelio: { orders: number; revenue: number };
   };
   byStatus: Record<OrderStatus, number>;
 }
@@ -54,6 +57,7 @@ export interface DailyStats {
   shopee: number;
   tiktok: number;
   tokopedia: number;
+  jubelio: number;
   total: number;
 }
 

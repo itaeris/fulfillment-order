@@ -27,16 +27,17 @@ interface ChartsProps {
 
 const PLATFORM_COLORS = {
   shopee: "#ee4d2d",
-  tiktok: "#000000",
+  tiktok: "#3D2319",
+  jubelio: "#7A4232",
 };
 
 const STATUS_COLORS = {
   pending: "#eab308",
-  processing: "#3b82f6",
+  processing: "#7A4232",
   shipped: "#8b5cf6",
   delivered: "#22c55e",
   cancelled: "#ef4444",
-  returned: "#6b7280",
+  returned: "#A8917E",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -49,10 +50,8 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export default function Charts({ dailyStats, summary }: ChartsProps) {
-  // Combine TikTok and Tokopedia data
   const combinedTiktokRevenue = summary.byPlatform.tiktok.revenue + summary.byPlatform.tokopedia.revenue;
 
-  // Prepare pie chart data for platform distribution
   const platformPieData = [
     {
       name: "Shopee",
@@ -64,18 +63,21 @@ export default function Charts({ dailyStats, summary }: ChartsProps) {
       value: combinedTiktokRevenue,
       color: PLATFORM_COLORS.tiktok,
     },
+    {
+      name: "Jubelio",
+      value: summary.byPlatform.jubelio.revenue,
+      color: PLATFORM_COLORS.jubelio,
+    },
   ].filter((item) => item.value > 0);
 
-  // Prepare status bar chart data
   const statusBarData = Object.entries(summary.byStatus)
     .map(([status, count]) => ({
       name: STATUS_LABELS[status] || status,
       value: count,
-      fill: STATUS_COLORS[status as keyof typeof STATUS_COLORS] || "#6b7280",
+      fill: STATUS_COLORS[status as keyof typeof STATUS_COLORS] || "#A8917E",
     }))
     .filter((item) => item.value > 0);
 
-  // Format date for chart
   const formatChartDate = (dateStr: string) => {
     try {
       return format(parseISO(dateStr), "dd MMM", { locale: id });
@@ -87,8 +89,8 @@ export default function Charts({ dailyStats, summary }: ChartsProps) {
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
-        <div className="bg-white p-3 rounded-lg shadow-lg border border-slate-200">
-          <p className="font-medium text-slate-700 mb-2">
+        <div className="bg-white p-3 rounded-lg shadow-lg border border-brand-200">
+          <p className="font-medium text-brand-700 mb-2">
             {formatChartDate(label)}
           </p>
           {payload.map((entry: any, index: number) => (
@@ -106,12 +108,12 @@ export default function Charts({ dailyStats, summary }: ChartsProps) {
     if (active && payload && payload.length) {
       const data = payload[0];
       return (
-        <div className="bg-white p-3 rounded-lg shadow-lg border border-slate-200">
-          <p className="font-medium text-slate-700">{data.name}</p>
-          <p className="text-sm text-slate-600">
+        <div className="bg-white p-3 rounded-lg shadow-lg border border-brand-200">
+          <p className="font-medium text-brand-700">{data.name}</p>
+          <p className="text-sm text-brand-500">
             {formatCurrency(data.value)}
           </p>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-brand-300">
             {((data.value / summary.totalRevenue) * 100).toFixed(1)}%
           </p>
         </div>
@@ -128,8 +130,8 @@ export default function Charts({ dailyStats, summary }: ChartsProps) {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Revenue Trend Chart */}
       {dailyStats.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">
+        <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-5">
+          <h3 className="text-lg font-semibold text-brand-800 mb-4">
             Tren Pendapatan
           </h3>
           <div className="h-[300px]">
@@ -160,12 +162,24 @@ export default function Charts({ dailyStats, summary }: ChartsProps) {
                       stopOpacity={0}
                     />
                   </linearGradient>
+                  <linearGradient id="jubelioGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop
+                      offset="5%"
+                      stopColor={PLATFORM_COLORS.jubelio}
+                      stopOpacity={0.3}
+                    />
+                    <stop
+                      offset="95%"
+                      stopColor={PLATFORM_COLORS.jubelio}
+                      stopOpacity={0}
+                    />
+                  </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#E8DDD3" />
                 <XAxis
                   dataKey="date"
                   tickFormatter={formatChartDate}
-                  stroke="#94a3b8"
+                  stroke="#A8917E"
                   fontSize={12}
                 />
                 <YAxis
@@ -176,7 +190,7 @@ export default function Charts({ dailyStats, summary }: ChartsProps) {
                       ? `${(value / 1000).toFixed(0)}rb`
                       : value
                   }
-                  stroke="#94a3b8"
+                  stroke="#A8917E"
                   fontSize={12}
                 />
                 <Tooltip content={<CustomTooltip />} />
@@ -197,6 +211,14 @@ export default function Charts({ dailyStats, summary }: ChartsProps) {
                   fill="url(#tiktokGradient)"
                   strokeWidth={2}
                 />
+                <Area
+                  type="monotone"
+                  dataKey="jubelio"
+                  name="Jubelio"
+                  stroke={PLATFORM_COLORS.jubelio}
+                  fill="url(#jubelioGradient)"
+                  strokeWidth={2}
+                />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -205,8 +227,8 @@ export default function Charts({ dailyStats, summary }: ChartsProps) {
 
       {/* Platform Distribution Pie Chart */}
       {platformPieData.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">
+        <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-5">
+          <h3 className="text-lg font-semibold text-brand-800 mb-4">
             Distribusi per Platform
           </h3>
           <div className="h-[300px]">
@@ -230,7 +252,7 @@ export default function Charts({ dailyStats, summary }: ChartsProps) {
                   verticalAlign="bottom"
                   height={36}
                   formatter={(value) => (
-                    <span className="text-sm text-slate-600">{value}</span>
+                    <span className="text-sm text-brand-500">{value}</span>
                   )}
                 />
               </PieChart>
@@ -241,19 +263,19 @@ export default function Charts({ dailyStats, summary }: ChartsProps) {
 
       {/* Status Distribution Bar Chart */}
       {statusBarData.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 lg:col-span-2">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">
+        <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-5 lg:col-span-2">
+          <h3 className="text-lg font-semibold text-brand-800 mb-4">
             Status Order
           </h3>
           <div className="h-[250px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={statusBarData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis type="number" stroke="#94a3b8" fontSize={12} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#E8DDD3" />
+                <XAxis type="number" stroke="#A8917E" fontSize={12} />
                 <YAxis
                   type="category"
                   dataKey="name"
-                  stroke="#94a3b8"
+                  stroke="#A8917E"
                   fontSize={12}
                   width={100}
                 />
@@ -261,7 +283,7 @@ export default function Charts({ dailyStats, summary }: ChartsProps) {
                   formatter={(value: number) => [formatNumber(value), "Order"]}
                   contentStyle={{
                     backgroundColor: "white",
-                    border: "1px solid #e2e8f0",
+                    border: "1px solid #E8DDD3",
                     borderRadius: "8px",
                   }}
                 />

@@ -153,6 +153,73 @@ const COLUMN_MAPPINGS: Record<Platform, Record<string, string>> = {
     "Creator Handle": "creatorHandle",
   },
   
+  jubelio: {
+    // Order identification
+    "salesorder_id": "salesorderId",
+    "salesorder_no": "orderNumber",
+    "channel_status": "status",
+    "sub_status": "subStatus",
+    "status": "jubelioStatus",
+    "status_details": "statusDetails",
+    
+    // Dates
+    "transaction_date": "orderDate",
+    "due_date": "mustShipBefore",
+    "due_date_minute": "dueDateMinute",
+    "pickup_time_store": "pickupTime",
+    
+    // Customer
+    "contact_id": "contactId",
+    "customer_name": "customerName",
+    
+    // Product & quantity
+    "qty": "quantity",
+    "total_qty": "totalQty",
+    
+    // Pricing
+    "grand_total": "totalAmount",
+    
+    // Shipping
+    "shipper": "courier",
+    "tracking_no": "trackingNumber",
+    "tracking_number": "trackingNumber",
+    "booking_no": "bookingNo",
+    "shipment_type": "shippingOption",
+    "total_weight_order": "weight",
+    
+    // Fulfillment
+    "fulfillment_sla": "fulfillmentSla",
+    "priority_fulfillment_tag": "priorityTag",
+    "picked_in": "pickedIn",
+    "wms_status": "wmsStatus",
+    "picklist_no": "picklistNo",
+    "picklist_id": "picklistId",
+    "packlist_id": "packlistId",
+    "package_count": "packageCount",
+    "packages": "packages",
+    
+    // Store / Channel info
+    "store_id": "storeId",
+    "store_name": "storeName",
+    "location_id": "locationId",
+    "location_name": "locationName",
+    "source": "source",
+    "source_name": "sourceName",
+    "channel_name": "channelName",
+    
+    // Order details
+    "ref_no": "refNo",
+    "invoice_no": "invoiceNo",
+    "order_type": "orderType",
+    "dropshipper": "dropshipper",
+    "extra_info": "extraInfo",
+    "warehouse_type": "warehouseType",
+    "is_po": "isPo",
+    "is_cod": "isCod",
+    "is_tokopedia_plus": "isTokopediaPlus",
+    "logo": "logo",
+  },
+
   tokopedia: {
     // Order identification
     "Nomor Invoice": "orderNumber",
@@ -297,6 +364,52 @@ const TIKTOK_STATUS_MAPPINGS: Record<string, OrderStatus> = {
   "retur": "returned",
 };
 
+// Status mappings for Jubelio
+const JUBELIO_STATUS_MAPPINGS: Record<string, OrderStatus> = {
+  // Pending
+  "waiting payment": "pending",
+  "menunggu pembayaran": "pending",
+  "pending": "pending",
+  "unpaid": "pending",
+
+  // Processing / Ready to ship
+  "ready to ship": "processing",
+  "ready to process": "processing",
+  "waiting for pickup": "processing",
+  "waiting pickup": "processing",
+  "processing": "processing",
+  "open": "processing",
+  "confirm": "processing",
+  "confirmed": "processing",
+  "to ship": "processing",
+  "ready to pack": "processing",
+  "packing": "processing",
+  "packed": "processing",
+
+  // Shipped
+  "shipped": "shipped",
+  "in transit": "shipped",
+  "on delivery": "shipped",
+  "delivering": "shipped",
+  "in delivery": "shipped",
+
+  // Delivered / Completed
+  "delivered": "delivered",
+  "completed": "delivered",
+  "done": "delivered",
+  "settled": "delivered",
+
+  // Cancelled
+  "cancelled": "cancelled",
+  "canceled": "cancelled",
+  "void": "cancelled",
+
+  // Returned
+  "returned": "returned",
+  "return": "returned",
+  "refunded": "returned",
+};
+
 // Status mappings for Tokopedia
 const TOKOPEDIA_STATUS_MAPPINGS: Record<string, OrderStatus> = {
   "menunggu pembayaran": "pending",
@@ -325,6 +438,9 @@ function normalizeStatus(rawStatus: string, platform: Platform): OrderStatus {
       break;
     case "tokopedia":
       mappings = TOKOPEDIA_STATUS_MAPPINGS;
+      break;
+    case "jubelio":
+      mappings = JUBELIO_STATUS_MAPPINGS;
       break;
     default:
       mappings = {};
@@ -461,6 +577,11 @@ function findColumnMapping(
 function detectPlatformFromHeaders(headers: string[]): Platform | null {
   const headerStr = headers.join(" ").toLowerCase();
   
+  // Jubelio specific columns (check first - most unique headers)
+  if (headerStr.includes("salesorder_id") || headerStr.includes("salesorder_no") || (headerStr.includes("channel_status") && headerStr.includes("grand_total"))) {
+    return "jubelio";
+  }
+  
   // TikTok specific columns
   if (headerStr.includes("order id") && (headerStr.includes("buyer username") || headerStr.includes("sku subtotal"))) {
     return "tiktok";
@@ -520,7 +641,7 @@ export function parseExcelFile(
     if (nonEmptyCells.length > 5 && hasTextCells) {
       // Check if this looks like TikTok/Shopee headers
       const rowStr = row.join(" ").toLowerCase();
-      if (rowStr.includes("order") || rowStr.includes("pesanan") || rowStr.includes("product") || rowStr.includes("produk")) {
+      if (rowStr.includes("order") || rowStr.includes("pesanan") || rowStr.includes("product") || rowStr.includes("produk") || rowStr.includes("salesorder")) {
         headerRowIndex = i;
         break;
       }
@@ -566,7 +687,11 @@ export function parseExcelFile(
       return colIndex !== undefined ? row[colIndex] : undefined;
     };
     
-    const orderNumber = getValue("orderNumber")?.toString()?.trim() || "";
+    let orderNumber = getValue("orderNumber")?.toString()?.trim() || "";
+    // Jubelio: fallback to salesorderId if no salesorder_no
+    if (!orderNumber && finalPlatform === "jubelio") {
+      orderNumber = getValue("salesorderId")?.toString()?.trim() || "";
+    }
     if (!orderNumber) {
       // Try first column as fallback
       const firstCell = row[0]?.toString()?.trim() || "";
@@ -576,7 +701,7 @@ export function parseExcelFile(
     const finalOrderNumber = orderNumber || row[0]?.toString()?.trim() || "";
     if (!finalOrderNumber) continue;
     
-    const quantity = parseNumber(getValue("quantity")) || 1;
+    const quantity = parseNumber(getValue("quantity")) || parseNumber(getValue("totalQty")) || 1;
     const price = parseNumber(getValue("price"));
     const originalPrice = parseNumber(getValue("originalPrice")) || price;
     let totalAmount = parseNumber(getValue("totalAmount"));
@@ -592,7 +717,7 @@ export function parseExcelFile(
       platform: finalPlatform,
       customerName: getValue("customerName")?.toString()?.trim() || getValue("recipientName")?.toString()?.trim() || "Unknown",
       recipientName: getValue("recipientName")?.toString()?.trim(),
-      productName: getValue("productName")?.toString()?.trim() || "Unknown Product",
+      productName: getValue("productName")?.toString()?.trim() || (finalPlatform === "jubelio" ? `Order ${finalOrderNumber}` : "Unknown Product"),
       variation: getValue("variation")?.toString()?.trim(),
       sku: getValue("sku")?.toString()?.trim(),
       quantity,
@@ -613,6 +738,8 @@ export function parseExcelFile(
       phone: getValue("phone")?.toString()?.trim(),
       notes: getValue("notes")?.toString()?.trim(),
       weight: parseNumber(getValue("weight")) || undefined,
+      channelName: getValue("channelName")?.toString()?.trim(),
+      storeName: getValue("storeName")?.toString()?.trim(),
     };
     
     orders.push(order);
@@ -625,14 +752,17 @@ export function parseExcelFile(
 export function detectPlatform(filename: string): Platform {
   const lower = filename.toLowerCase();
   
-  // Shopee patterns (check first as it's more specific)
-  // "Order.toship" is Shopee format, "pesanan" with date is also common
+  // Jubelio patterns
+  if (lower.includes("jubelio") || lower.includes("salesorder")) {
+    return "jubelio";
+  }
+  
+  // Shopee patterns
   if (lower.includes("shopee") || lower.includes("order.toship") || lower.includes("pesanan_shopee")) {
     return "shopee";
   }
   
   // TikTok patterns
-  // "Untuk Dikirim pesanan-" is TikTok format
   if (lower.includes("tiktok") || lower.includes("tik tok") || lower.includes("tt_") || lower.includes("untuk dikirim")) {
     return "tiktok";
   }

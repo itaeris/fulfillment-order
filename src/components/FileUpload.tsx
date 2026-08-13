@@ -70,18 +70,19 @@ export default function FileUpload({
 
   const platforms: { value: Platform; label: string; color: string }[] = [
     { value: "shopee", label: "Shopee", color: "bg-shopee-500" },
-    { value: "tiktok", label: "TikTok & Tokopedia", color: "bg-black" },
+    { value: "tiktok", label: "TikTok & Tokopedia", color: "bg-brand-800" },
+    { value: "jubelio", label: "Jubelio", color: "bg-brand-500" },
   ];
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-      <h2 className="text-lg font-semibold text-slate-800 mb-4">
+    <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-6">
+      <h2 className="text-lg font-semibold text-brand-800 mb-4">
         Import Data Order
       </h2>
 
       {/* Platform Selection */}
       <div className="mb-4">
-        <label className="block text-sm font-medium text-slate-600 mb-2">
+        <label className="block text-sm font-medium text-brand-400 mb-2">
           Pilih Platform
         </label>
         <div className="flex gap-2">
@@ -93,7 +94,7 @@ export default function FileUpload({
                 "px-4 py-2 rounded-lg text-sm font-medium transition-all",
                 selectedPlatform === platform.value
                   ? `${platform.color} text-white shadow-md`
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  : "bg-cream-200 text-brand-400 hover:bg-cream-300"
               )}
             >
               {platform.label}
@@ -110,8 +111,8 @@ export default function FileUpload({
         className={cn(
           "relative border-2 border-dashed rounded-xl p-8 text-center transition-all",
           isDragging
-            ? "border-blue-500 bg-blue-50"
-            : "border-slate-300 hover:border-slate-400",
+            ? "border-brand-500 bg-brand-50"
+            : "border-brand-200 hover:border-brand-300",
           isUploading && "opacity-50 pointer-events-none"
         )}
       >
@@ -128,24 +129,24 @@ export default function FileUpload({
           <div
             className={cn(
               "w-14 h-14 rounded-full flex items-center justify-center",
-              isDragging ? "bg-blue-100" : "bg-slate-100"
+              isDragging ? "bg-brand-100" : "bg-cream-200"
             )}
           >
             <Upload
               className={cn(
                 "w-6 h-6",
-                isDragging ? "text-blue-500" : "text-slate-400"
+                isDragging ? "text-brand-500" : "text-brand-300"
               )}
             />
           </div>
 
           <div>
-            <p className="text-slate-700 font-medium">
+            <p className="text-brand-700 font-medium">
               {isUploading
                 ? "Mengupload..."
                 : "Drag & drop file Excel di sini"}
             </p>
-            <p className="text-sm text-slate-500 mt-1">
+            <p className="text-sm text-brand-400 mt-1">
               atau klik untuk memilih file (.xlsx, .xls, .csv)
             </p>
           </div>
@@ -155,23 +156,23 @@ export default function FileUpload({
       {/* Uploaded Files List */}
       {uploadedFiles.length > 0 && (
         <div className="mt-4">
-          <h3 className="text-sm font-medium text-slate-600 mb-2">
+          <h3 className="text-sm font-medium text-brand-400 mb-2">
             File yang diupload
           </h3>
           <div className="space-y-2">
             {uploadedFiles.map((file) => (
               <div
                 key={file.name}
-                className="flex items-center justify-between p-3 bg-slate-50 rounded-lg"
+                className="flex items-center justify-between p-3 bg-cream-100 rounded-lg border border-brand-200"
               >
                 <div className="flex items-center gap-3">
-                  <FileSpreadsheet className="w-5 h-5 text-green-600" />
+                  <FileSpreadsheet className="w-5 h-5 text-brand-500" />
                   <div>
-                    <p className="text-sm font-medium text-slate-700">
+                    <p className="text-sm font-medium text-brand-700">
                       {file.name}
                     </p>
-                    <p className="text-xs text-slate-500">
-                      {getPlatformName(file.platform)} • {file.orderCount} order
+                    <p className="text-xs text-brand-400">
+                      {getPlatformName(file.platform)} &bull; {file.orderCount} order
                     </p>
                   </div>
                 </div>
@@ -179,9 +180,9 @@ export default function FileUpload({
                   <CheckCircle className="w-4 h-4 text-green-500" />
                   <button
                     onClick={() => onRemoveFile(file.name)}
-                    className="p-1 hover:bg-slate-200 rounded"
+                    className="p-1 hover:bg-cream-300 rounded"
                   >
-                    <X className="w-4 h-4 text-slate-400" />
+                    <X className="w-4 h-4 text-brand-300" />
                   </button>
                 </div>
               </div>

@@ -15,6 +15,8 @@ import {
   XCircle,
   RotateCcw,
   CreditCard,
+  Zap,
+  PackageCheck,
 } from "lucide-react";
 import { Order, Platform, OrderStatus } from "@/types/order";
 import {
@@ -36,17 +38,36 @@ type SortField = "orderDate" | "totalAmount" | "customerName" | "status" | "must
 type SortDirection = "asc" | "desc";
 type StatusTab = "all" | "pending" | "processing" | "shipped" | "delivered" | "cancelled";
 
+type ShippingFilter = "all" | "instant" | "reguler";
+
 const ITEMS_PER_PAGE = 15;
+
+const INSTANT_KEYWORDS = [
+  "instant", "instan", "same day", "sameday", "same-day",
+  "grab", "gojek", "gosend", "now", "ojol",
+];
+
+function classifyShipping(order: Order): "instant" | "reguler" {
+  const text = [
+    order.shippingOption,
+    order.courier,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return INSTANT_KEYWORDS.some((kw) => text.includes(kw)) ? "instant" : "reguler";
+}
 
 export default function OrderTable({ orders }: OrderTableProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPlatform, setSelectedPlatform] = useState<Platform | "all">("all");
   const [selectedStatusTab, setSelectedStatusTab] = useState<StatusTab>("all");
+  const [shippingFilter, setShippingFilter] = useState<ShippingFilter>("all");
   const [sortField, setSortField] = useState<SortField>("mustShipBefore");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Calculate counts for each status
   const statusCounts = useMemo(() => {
     const counts = {
       all: 0,
@@ -60,32 +81,49 @@ export default function OrderTable({ orders }: OrderTableProps) {
 
     const filteredByPlatform = selectedPlatform === "all" 
       ? orders 
-      : orders.filter(o => o.platform === selectedPlatform);
+      : selectedPlatform === "tiktok"
+        ? orders.filter(o => o.platform === "tiktok" || o.platform === "tokopedia")
+        : orders.filter(o => o.platform === selectedPlatform);
 
     filteredByPlatform.forEach((order) => {
       counts.all++;
       counts[order.status]++;
     });
 
-    // Merge cancelled and returned
     counts.cancelled = counts.cancelled + counts.returned;
 
     return counts;
   }, [orders, selectedPlatform]);
 
-  // Platform counts (TikTok & Tokopedia combined)
+  // Shipping type counts (for "processing" and "shipped" tabs)
+  const shippingCounts = useMemo(() => {
+    const targetStatus = selectedStatusTab === "shipped" ? "shipped" : "processing";
+    const baseOrders = (selectedPlatform === "all"
+      ? orders
+      : selectedPlatform === "tiktok"
+        ? orders.filter(o => o.platform === "tiktok" || o.platform === "tokopedia")
+        : orders.filter(o => o.platform === selectedPlatform)
+    ).filter(o => o.status === targetStatus);
+
+    return {
+      all: baseOrders.length,
+      instant: baseOrders.filter(o => classifyShipping(o) === "instant").length,
+      reguler: baseOrders.filter(o => classifyShipping(o) === "reguler").length,
+    };
+  }, [orders, selectedPlatform, selectedStatusTab]);
+
   const platformCounts = useMemo(() => {
     return {
       all: orders.length,
       shopee: orders.filter(o => o.platform === "shopee").length,
       tiktok: orders.filter(o => o.platform === "tiktok" || o.platform === "tokopedia").length,
+      jubelio: orders.filter(o => o.platform === "jubelio").length,
     };
   }, [orders]);
 
   const filteredAndSortedOrders = useMemo(() => {
     let filtered = orders;
 
-    // Search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(
@@ -99,7 +137,6 @@ export default function OrderTable({ orders }: OrderTableProps) {
       );
     }
 
-    // Platform filter (TikTok & Tokopedia combined)
     if (selectedPlatform !== "all") {
       if (selectedPlatform === "tiktok") {
         filtered = filtered.filter((order) => order.platform === "tiktok" || order.platform === "tokopedia");
@@ -108,7 +145,6 @@ export default function OrderTable({ orders }: OrderTableProps) {
       }
     }
 
-    // Status tab filter
     if (selectedStatusTab !== "all") {
       if (selectedStatusTab === "cancelled") {
         filtered = filtered.filter((order) => order.status === "cancelled" || order.status === "returned");
@@ -117,7 +153,11 @@ export default function OrderTable({ orders }: OrderTableProps) {
       }
     }
 
-    // Sort
+    // Shipping type filter (applies on "Perlu Dikirim" and "Dikirim")
+    if ((selectedStatusTab === "processing" || selectedStatusTab === "shipped") && shippingFilter !== "all") {
+      filtered = filtered.filter((order) => classifyShipping(order) === shippingFilter);
+    }
+
     filtered.sort((a, b) => {
       let comparison = 0;
 
@@ -145,7 +185,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
     });
 
     return filtered;
-  }, [orders, searchQuery, selectedPlatform, selectedStatusTab, sortField, sortDirection]);
+  }, [orders, searchQuery, selectedPlatform, selectedStatusTab, shippingFilter, sortField, sortDirection]);
 
   const totalPages = Math.ceil(filteredAndSortedOrders.length / ITEMS_PER_PAGE);
   const paginatedOrders = filteredAndSortedOrders.slice(
@@ -174,8 +214,9 @@ export default function OrderTable({ orders }: OrderTableProps) {
   const getPlatformBadgeColor = (platform: Platform) => {
     const colors: Record<Platform, string> = {
       shopee: "bg-shopee-100 text-shopee-600",
-      tiktok: "bg-slate-900 text-white",
-      tokopedia: "bg-tokopedia-100 text-tokopedia-600",
+      tiktok: "bg-brand-100 text-brand-800",
+      tokopedia: "bg-brand-100 text-brand-800",
+      jubelio: "bg-brand-100 text-brand-600",
     };
     return colors[platform];
   };
@@ -198,9 +239,8 @@ export default function OrderTable({ orders }: OrderTableProps) {
     return null;
   };
 
-  // Status tabs configuration
   const statusTabs: { value: StatusTab; label: string; icon: any; color: string }[] = [
-    { value: "all", label: "Semua", icon: Package, color: "text-slate-600" },
+    { value: "all", label: "Semua", icon: Package, color: "text-brand-700" },
     { value: "pending", label: "Belum Bayar", icon: CreditCard, color: "text-yellow-600" },
     { value: "processing", label: "Perlu Dikirim", icon: Clock, color: "text-orange-600" },
     { value: "shipped", label: "Dikirim", icon: Truck, color: "text-blue-600" },
@@ -208,17 +248,17 @@ export default function OrderTable({ orders }: OrderTableProps) {
     { value: "cancelled", label: "Batal/Retur", icon: XCircle, color: "text-red-600" },
   ];
 
-  // Platform tabs
   const platformTabs: { value: Platform | "all"; label: string; color: string }[] = [
-    { value: "all", label: "Semua", color: "bg-slate-500" },
+    { value: "all", label: "Semua", color: "bg-brand-400" },
     { value: "shopee", label: "Shopee", color: "bg-shopee-500" },
-    { value: "tiktok", label: "TikTok & Tokopedia", color: "bg-black" },
+    { value: "tiktok", label: "TikTok & Tokopedia", color: "bg-brand-800" },
+    { value: "jubelio", label: "Jubelio", color: "bg-brand-500" },
   ];
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200">
+    <div className="bg-white rounded-xl shadow-sm border border-brand-200">
       {/* Platform Tabs */}
-      <div className="px-4 pt-4 border-b border-slate-100">
+      <div className="px-4 pt-4 border-b border-brand-100">
         <div className="flex gap-2 overflow-x-auto pb-3">
           {platformTabs.map((tab) => {
             const count = platformCounts[tab.value];
@@ -234,13 +274,13 @@ export default function OrderTable({ orders }: OrderTableProps) {
                   "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all",
                   isActive
                     ? `${tab.color} text-white shadow-md`
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    : "bg-cream-200 text-brand-400 hover:bg-cream-300"
                 )}
               >
                 {tab.label}
                 <span className={cn(
                   "px-2 py-0.5 rounded-full text-xs",
-                  isActive ? "bg-white/20" : "bg-slate-200"
+                  isActive ? "bg-white/20" : "bg-brand-200 text-brand-500"
                 )}>
                   {count}
                 </span>
@@ -251,7 +291,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
       </div>
 
       {/* Status Tabs */}
-      <div className="px-4 border-b border-slate-200">
+      <div className="px-4 border-b border-brand-200">
         <div className="flex gap-1 overflow-x-auto">
           {statusTabs.map((tab) => {
             const count = statusCounts[tab.value];
@@ -266,19 +306,22 @@ export default function OrderTable({ orders }: OrderTableProps) {
                     setSortField("mustShipBefore");
                     setSortDirection("asc");
                   }
+                  if (tab.value !== "processing" && tab.value !== "shipped") {
+                    setShippingFilter("all");
+                  }
                 }}
                 className={cn(
                   "flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-all",
                   isActive
-                    ? `border-blue-500 ${tab.color}`
-                    : "border-transparent text-slate-500 hover:text-slate-700"
+                    ? `border-brand-500 ${tab.color}`
+                    : "border-transparent text-brand-300 hover:text-brand-500"
                 )}
               >
                 <tab.icon className="w-4 h-4" />
                 {tab.label}
                 <span className={cn(
                   "px-2 py-0.5 rounded-full text-xs",
-                  isActive ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"
+                  isActive ? "bg-brand-100 text-brand-700" : "bg-cream-200 text-brand-400"
                 )}>
                   {count}
                 </span>
@@ -288,11 +331,50 @@ export default function OrderTable({ orders }: OrderTableProps) {
         </div>
       </div>
 
+      {/* Shipping Type Filter (visible on "Perlu Dikirim" and "Dikirim") */}
+      {(selectedStatusTab === "processing" || selectedStatusTab === "shipped") && (
+        <div className="px-4 py-2.5 border-b border-brand-100 flex items-center gap-2">
+          <span className="text-xs font-medium text-brand-400 mr-1">Tipe Pengiriman:</span>
+          {([
+            { value: "all" as ShippingFilter, label: "Semua", icon: Package },
+            { value: "instant" as ShippingFilter, label: "Instant", icon: Zap },
+            { value: "reguler" as ShippingFilter, label: "Reguler", icon: PackageCheck },
+          ]).map((item) => {
+            const isActive = shippingFilter === item.value;
+            const count = shippingCounts[item.value];
+            return (
+              <button
+                key={item.value}
+                onClick={() => {
+                  setShippingFilter(item.value);
+                  setCurrentPage(1);
+                }}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                  isActive
+                    ? "bg-brand-500 text-white shadow-sm"
+                    : "bg-cream-200 text-brand-400 hover:bg-cream-300"
+                )}
+              >
+                <item.icon className="w-3 h-3" />
+                {item.label}
+                <span className={cn(
+                  "px-1.5 py-0.5 rounded-full text-[10px]",
+                  isActive ? "bg-white/20" : "bg-brand-200 text-brand-500"
+                )}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Search and Info Bar */}
-      <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="p-4 border-b border-brand-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <p className="text-sm text-slate-600">
-            Menampilkan <span className="font-semibold">{filteredAndSortedOrders.length}</span> pesanan
+          <p className="text-sm text-brand-400">
+            Menampilkan <span className="font-semibold text-brand-700">{filteredAndSortedOrders.length}</span> pesanan
             {selectedStatusTab === "processing" && statusCounts.processing > 0 && (
               <span className="text-orange-600 ml-2">
                 <AlertTriangle className="w-4 h-4 inline mr-1" />
@@ -302,9 +384,8 @@ export default function OrderTable({ orders }: OrderTableProps) {
           </p>
         </div>
 
-        {/* Search */}
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-300" />
           <input
             type="text"
             placeholder="Cari order, customer, SKU, resi..."
@@ -313,7 +394,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
               setSearchQuery(e.target.value);
               setCurrentPage(1);
             }}
-            className="pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full sm:w-80"
+            className="pl-10 pr-4 py-2 border border-brand-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent w-full sm:w-80 bg-cream-50 text-brand-700 placeholder:text-brand-300"
           />
         </div>
       </div>
@@ -322,10 +403,10 @@ export default function OrderTable({ orders }: OrderTableProps) {
       <div className="overflow-x-auto">
         {orders.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 px-4">
-            <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-              <Package className="w-8 h-8 text-slate-400" />
+            <div className="w-16 h-16 bg-cream-200 rounded-full flex items-center justify-center mb-4">
+              <Package className="w-8 h-8 text-brand-300" />
             </div>
-            <p className="text-slate-500 text-center">
+            <p className="text-brand-400 text-center">
               Belum ada data order.
               <br />
               Import file Excel untuk memulai.
@@ -333,10 +414,10 @@ export default function OrderTable({ orders }: OrderTableProps) {
           </div>
         ) : filteredAndSortedOrders.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 px-4">
-            <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-              <Search className="w-8 h-8 text-slate-400" />
+            <div className="w-16 h-16 bg-cream-200 rounded-full flex items-center justify-center mb-4">
+              <Search className="w-8 h-8 text-brand-300" />
             </div>
-            <p className="text-slate-500 text-center">
+            <p className="text-brand-400 text-center">
               Tidak ada pesanan yang ditemukan.
               <br />
               Coba ubah filter atau kata kunci pencarian.
@@ -344,16 +425,16 @@ export default function OrderTable({ orders }: OrderTableProps) {
           </div>
         ) : (
           <table className="w-full">
-            <thead className="bg-slate-50">
+            <thead className="bg-cream-100">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-brand-400 uppercase tracking-wider">
                   Platform
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-brand-400 uppercase tracking-wider">
                   No. Pesanan
                 </th>
                 <th
-                  className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-slate-700"
+                  className="px-4 py-3 text-center text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
                   onClick={() => handleSort("status")}
                 >
                   <div className="flex items-center justify-center gap-1">
@@ -361,14 +442,14 @@ export default function OrderTable({ orders }: OrderTableProps) {
                     <SortIcon field="status" />
                   </div>
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-brand-400 uppercase tracking-wider">
                   Produk
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-semibold text-brand-400 uppercase tracking-wider">
                   Qty
                 </th>
                 <th
-                  className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-slate-700"
+                  className="px-4 py-3 text-right text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
                   onClick={() => handleSort("totalAmount")}
                 >
                   <div className="flex items-center justify-end gap-1">
@@ -377,7 +458,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                   </div>
                 </th>
                 <th
-                  className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-slate-700"
+                  className="px-4 py-3 text-left text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
                   onClick={() => handleSort("customerName")}
                 >
                   <div className="flex items-center gap-1">
@@ -385,11 +466,11 @@ export default function OrderTable({ orders }: OrderTableProps) {
                     <SortIcon field="customerName" />
                   </div>
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-brand-400 uppercase tracking-wider">
                   Kurir / Resi
                 </th>
                 <th
-                  className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-slate-700"
+                  className="px-4 py-3 text-left text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
                   onClick={() => handleSort("mustShipBefore")}
                 >
                   <div className="flex items-center gap-1">
@@ -399,7 +480,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-cream-200">
               {paginatedOrders.map((order) => {
                 const deadlineStatus = getShipDeadlineStatus(order.mustShipBefore);
                 
@@ -407,7 +488,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                   <tr
                     key={order.id}
                     className={cn(
-                      "hover:bg-slate-50 transition-colors",
+                      "hover:bg-cream-50 transition-colors",
                       order.status === "processing" && deadlineStatus?.color.includes("red") && "bg-red-50/50"
                     )}
                   >
@@ -422,10 +503,10 @@ export default function OrderTable({ orders }: OrderTableProps) {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <p className="text-sm font-medium text-slate-800 font-mono">
+                      <p className="text-sm font-medium text-brand-800 font-mono">
                         {order.orderNumber}
                       </p>
-                      <p className="text-xs text-slate-400 mt-0.5">
+                      <p className="text-xs text-brand-300 mt-0.5">
                         {formatDate(order.orderDate)}
                       </p>
                     </td>
@@ -440,52 +521,52 @@ export default function OrderTable({ orders }: OrderTableProps) {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <p className="text-sm text-slate-700 max-w-[200px] truncate" title={order.productName}>
+                      <p className="text-sm text-brand-700 max-w-[200px] truncate" title={order.productName}>
                         {order.productName}
                       </p>
                       {order.variation && (
-                        <p className="text-xs text-slate-400 truncate max-w-[200px]" title={order.variation}>
+                        <p className="text-xs text-brand-300 truncate max-w-[200px]" title={order.variation}>
                           {order.variation}
                         </p>
                       )}
                       {order.sku && (
-                        <p className="text-xs text-blue-500 font-mono">
+                        <p className="text-xs text-brand-500 font-mono">
                           SKU: {order.sku}
                         </p>
                       )}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span className="text-sm font-medium text-slate-700">
+                      <span className="text-sm font-medium text-brand-700">
                         {order.quantity}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <p className="text-sm font-semibold text-slate-800">
+                      <p className="text-sm font-semibold text-brand-800">
                         {formatCurrency(order.totalAmount)}
                       </p>
                       {order.originalPrice && order.originalPrice !== order.price && (
-                        <p className="text-xs text-slate-400 line-through">
+                        <p className="text-xs text-brand-300 line-through">
                           {formatCurrency(order.originalPrice * order.quantity)}
                         </p>
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <p className="text-sm text-slate-700">
+                      <p className="text-sm text-brand-700">
                         {order.recipientName || order.customerName}
                       </p>
                       {order.phone && (
-                        <p className="text-xs text-slate-400">{order.phone}</p>
+                        <p className="text-xs text-brand-300">{order.phone}</p>
                       )}
                       {order.city && (
-                        <p className="text-xs text-slate-400">{order.city}</p>
+                        <p className="text-xs text-brand-300">{order.city}</p>
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <p className="text-sm text-slate-700">
+                      <p className="text-sm text-brand-700">
                         {order.shippingOption || order.courier || "-"}
                       </p>
                       {order.trackingNumber && (
-                        <p className="text-xs text-blue-600 font-mono">
+                        <p className="text-xs text-brand-500 font-mono">
                           {order.trackingNumber}
                         </p>
                       )}
@@ -494,7 +575,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                       {order.mustShipBefore ? (
                         <div className={cn(
                           "inline-flex items-center gap-1 px-2 py-1 rounded text-xs",
-                          deadlineStatus?.color || "text-slate-600"
+                          deadlineStatus?.color || "text-brand-400"
                         )}>
                           {deadlineStatus?.icon && <deadlineStatus.icon className="w-3 h-3" />}
                           <span className="font-medium">
@@ -502,7 +583,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                           </span>
                         </div>
                       ) : (
-                        <span className="text-xs text-slate-400">-</span>
+                        <span className="text-xs text-brand-300">-</span>
                       )}
                     </td>
                   </tr>
@@ -515,8 +596,8 @@ export default function OrderTable({ orders }: OrderTableProps) {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="px-5 py-4 border-t border-slate-200 flex items-center justify-between">
-          <p className="text-sm text-slate-500">
+        <div className="px-5 py-4 border-t border-brand-200 flex items-center justify-between">
+          <p className="text-sm text-brand-400">
             Menampilkan {(currentPage - 1) * ITEMS_PER_PAGE + 1} -{" "}
             {Math.min(currentPage * ITEMS_PER_PAGE, filteredAndSortedOrders.length)}{" "}
             dari {filteredAndSortedOrders.length} pesanan
@@ -526,9 +607,9 @@ export default function OrderTable({ orders }: OrderTableProps) {
             <button
               onClick={() => setCurrentPage(currentPage - 1)}
               disabled={currentPage === 1}
-              className="p-2 rounded-lg border border-slate-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
+              className="p-2 rounded-lg border border-brand-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-cream-100"
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="w-4 h-4 text-brand-400" />
             </button>
 
             <div className="flex items-center gap-1">
@@ -551,8 +632,8 @@ export default function OrderTable({ orders }: OrderTableProps) {
                     className={cn(
                       "w-8 h-8 rounded-lg text-sm font-medium transition-colors",
                       currentPage === pageNum
-                        ? "bg-blue-500 text-white"
-                        : "hover:bg-slate-100 text-slate-600"
+                        ? "bg-brand-500 text-white"
+                        : "hover:bg-cream-200 text-brand-400"
                     )}
                   >
                     {pageNum}
@@ -564,9 +645,9 @@ export default function OrderTable({ orders }: OrderTableProps) {
             <button
               onClick={() => setCurrentPage(currentPage + 1)}
               disabled={currentPage === totalPages}
-              className="p-2 rounded-lg border border-slate-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
+              className="p-2 rounded-lg border border-brand-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-cream-100"
             >
-              <ChevronRight className="w-4 h-4" />
+              <ChevronRight className="w-4 h-4 text-brand-400" />
             </button>
           </div>
         </div>

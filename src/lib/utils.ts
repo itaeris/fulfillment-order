@@ -38,6 +38,7 @@ export function calculateSummary(orders: Order[]): OrderSummary {
       shopee: { orders: 0, revenue: 0 },
       tiktok: { orders: 0, revenue: 0 },
       tokopedia: { orders: 0, revenue: 0 },
+      jubelio: { orders: 0, revenue: 0 },
     },
     byStatus: {
       pending: 0,
@@ -72,6 +73,7 @@ export function calculateDailyStats(orders: Order[]): DailyStats[] {
         shopee: 0,
         tiktok: 0,
         tokopedia: 0,
+        jubelio: 0,
         total: 0,
       });
     }
@@ -96,6 +98,7 @@ export function getPlatformColor(platform: Platform): string {
     shopee: "#ee4d2d",
     tiktok: "#00f2ea",
     tokopedia: "#03ac0e",
+    jubelio: "#2563eb",
   };
   return colors[platform];
 }
@@ -105,6 +108,7 @@ export function getPlatformBgColor(platform: Platform): string {
     shopee: "bg-shopee-50",
     tiktok: "bg-tiktok-50",
     tokopedia: "bg-tokopedia-50",
+    jubelio: "bg-blue-50",
   };
   return colors[platform];
 }
@@ -114,6 +118,7 @@ export function getPlatformName(platform: Platform): string {
     shopee: "Shopee",
     tiktok: "TikTok & Tokopedia",
     tokopedia: "TikTok & Tokopedia",
+    jubelio: "Jubelio",
   };
   return names[platform];
 }
@@ -125,9 +130,9 @@ export function getStatusColor(status: string): string {
     shipped: "bg-blue-100 text-blue-800",
     delivered: "bg-green-100 text-green-800",
     cancelled: "bg-red-100 text-red-800",
-    returned: "bg-slate-100 text-slate-800",
+    returned: "bg-stone-100 text-stone-800",
   };
-  return colors[status] || "bg-gray-100 text-gray-800";
+  return colors[status] || "bg-stone-100 text-stone-800";
 }
 
 export function getStatusLabel(status: string): string {

@@ -9,6 +9,24 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        brand: {
+          50: "#FBF8F5",
+          100: "#F5EFE8",
+          200: "#E8DDD3",
+          300: "#D4C4B5",
+          400: "#A8917E",
+          500: "#7A4232",
+          600: "#6B3A2A",
+          700: "#5C2E1E",
+          800: "#3D2319",
+          900: "#2C1810",
+        },
+        cream: {
+          50: "#FDFCFA",
+          100: "#FAF7F4",
+          200: "#F5F0EB",
+          300: "#EDE5DC",
+        },
         shopee: {
           50: "#fff5f2",
           100: "#ffe6df",

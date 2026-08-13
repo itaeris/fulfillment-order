@@ -5,7 +5,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Order Dashboard - Shopee & TikTok/Tokopedia",
+  title: "Order Dashboard - Marketplace Order Management",
   description: "Dashboard untuk melihat dan menganalisis data order dari marketplace",
 };
 

@@ -3,11 +3,9 @@
 import { useState, useCallback, useEffect } from "react";
 import {
   LayoutDashboard,
-  FileSpreadsheet,
-  RefreshCw,
-  Download,
   Loader2,
 } from "lucide-react";
+import Sidebar from "@/components/Sidebar";
 import FileUpload from "@/components/FileUpload";
 import SummaryCards from "@/components/SummaryCards";
 import OrderTable from "@/components/OrderTable";
@@ -26,22 +24,18 @@ export default function Dashboard() {
   const summary: OrderSummary = calculateSummary(orders);
   const dailyStats: DailyStats[] = calculateDailyStats(orders);
 
-  // Load data from database on mount
   useEffect(() => {
     const loadData = async () => {
       try {
         setIsLoading(true);
-        
-        // Fetch orders
+
         const ordersRes = await fetch("/api/orders");
         const ordersData = await ordersRes.json();
-        
-        // Fetch uploaded files
+
         const filesRes = await fetch("/api/files");
         const filesData = await filesRes.json();
-        
+
         if (ordersData.orders) {
-          // Convert date strings back to Date objects
           const loadedOrders = ordersData.orders.map((order: any) => ({
             ...order,
             orderDate: new Date(order.orderDate),
@@ -50,13 +44,12 @@ export default function Dashboard() {
             mustShipBefore: order.mustShipBefore ? new Date(order.mustShipBefore) : undefined,
           }));
           setOrders(loadedOrders);
-          
-          // Auto switch to dashboard if there's data
+
           if (loadedOrders.length > 0) {
             setActiveTab("dashboard");
           }
         }
-        
+
         if (filesData.files) {
           const loadedFiles = filesData.files.map((file: any) => ({
             ...file,
@@ -74,7 +67,6 @@ export default function Dashboard() {
     loadData();
   }, []);
 
-  // Save orders to database
   const saveOrdersToDb = async (newOrders: Order[]) => {
     try {
       setIsSaving(true);
@@ -90,7 +82,6 @@ export default function Dashboard() {
     }
   };
 
-  // Save uploaded file to database
   const saveFileToDb = async (file: { name: string; platform: string; orderCount: number }) => {
     try {
       await fetch("/api/files", {
@@ -111,40 +102,35 @@ export default function Dashboard() {
         reader.onload = async (e) => {
           const buffer = e.target?.result as ArrayBuffer;
 
-          // Auto-detect platform from filename if possible
           const detectedPlatform = detectPlatform(file.name);
           const finalPlatform =
             detectedPlatform !== "shopee" ? detectedPlatform : platform;
 
           const parsedOrders = parseExcelFile(buffer, finalPlatform);
 
-          // Add new orders (avoid duplicates based on orderNumber + platform)
           setOrders((prev) => {
             const existingIds = new Set(prev.map((o) => o.id));
             const newOrders = parsedOrders.filter((o) => !existingIds.has(o.id));
-            
-            // Save to database
+
             if (newOrders.length > 0) {
               saveOrdersToDb(newOrders);
             }
-            
+
             return [...prev, ...newOrders];
           });
 
-          // Track uploaded file
           const uploadedFile = {
             name: file.name,
             platform: finalPlatform,
             uploadedAt: new Date(),
             orderCount: parsedOrders.length,
           };
-          
+
           setUploadedFiles((prev) => [
             ...prev.filter((f) => f.name !== file.name),
             uploadedFile,
           ]);
-          
-          // Save file info to database
+
           saveFileToDb({
             name: file.name,
             platform: finalPlatform,
@@ -163,19 +149,15 @@ export default function Dashboard() {
   const handleRemoveFile = useCallback(async (fileName: string) => {
     const file = uploadedFiles.find((f) => f.name === fileName);
     if (file) {
-      // Remove from state
       setOrders((prev) =>
         prev.filter((o) => !o.id.startsWith(`${file.platform}-`))
       );
       setUploadedFiles((prev) => prev.filter((f) => f.name !== fileName));
-      
-      // Remove from database
+
       try {
         await fetch(`/api/files?name=${encodeURIComponent(fileName)}`, {
           method: "DELETE",
         });
-        // Note: We should also delete orders by file, but for simplicity
-        // we'll delete all orders for that platform
       } catch (error) {
         console.error("Error removing file:", error);
       }
@@ -185,8 +167,7 @@ export default function Dashboard() {
   const handleClearAll = useCallback(async () => {
     setOrders([]);
     setUploadedFiles([]);
-    
-    // Clear from database
+
     try {
       await Promise.all([
         fetch("/api/orders", { method: "DELETE" }),
@@ -201,45 +182,20 @@ export default function Dashboard() {
     if (orders.length === 0) return;
 
     const headers = [
-      "Order Number",
-      "Platform",
-      "Customer",
-      "Recipient",
-      "Product",
-      "Variation",
-      "SKU",
-      "Quantity",
-      "Price",
-      "Total",
-      "Status",
-      "Order Date",
-      "Must Ship Before",
-      "Shipping Option",
-      "Tracking",
-      "Phone",
-      "City",
-      "Province",
+      "Order Number", "Platform", "Customer", "Recipient", "Product",
+      "Variation", "SKU", "Quantity", "Price", "Total", "Status",
+      "Order Date", "Must Ship Before", "Shipping Option", "Tracking",
+      "Phone", "City", "Province",
     ];
 
     const rows = orders.map((o) => [
-      o.orderNumber,
-      o.platform,
-      o.customerName,
-      o.recipientName || "",
-      o.productName,
-      o.variation || "",
-      o.sku || "",
-      o.quantity,
-      o.price,
-      o.totalAmount,
-      o.status,
+      o.orderNumber, o.platform, o.customerName, o.recipientName || "",
+      o.productName, o.variation || "", o.sku || "", o.quantity, o.price,
+      o.totalAmount, o.status,
       o.orderDate instanceof Date ? o.orderDate.toISOString().split("T")[0] : o.orderDate,
       o.mustShipBefore instanceof Date ? o.mustShipBefore.toISOString() : o.mustShipBefore || "",
-      o.shippingOption || "",
-      o.trackingNumber || "",
-      o.phone || "",
-      o.city || "",
-      o.province || "",
+      o.shippingOption || "", o.trackingNumber || "", o.phone || "",
+      o.city || "", o.province || "",
     ]);
 
     const csvContent = [headers, ...rows]
@@ -255,195 +211,143 @@ export default function Dashboard() {
     URL.revokeObjectURL(url);
   }, [orders]);
 
-  // Show loading state
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
+      <div className="h-screen bg-cream-100 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-10 h-10 text-blue-500 animate-spin" />
-          <p className="text-slate-600">Memuat data...</p>
+          <Loader2 className="w-10 h-10 text-brand-500 animate-spin" />
+          <p className="text-brand-400">Memuat data...</p>
         </div>
       </div>
     );
   }
 
+  const pageTitle = activeTab === "dashboard" ? "Dashboard" : "Import Data";
+  const pageSubtitle = activeTab === "dashboard"
+    ? "Ringkasan performa order dari semua platform"
+    : "Upload file Excel dari marketplace";
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex flex-col">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center">
-                <FileSpreadsheet className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-slate-800">
-                  Order Dashboard
-                </h1>
-                <p className="text-xs text-slate-500">
-                  Shopee • TikTok Shop & Tokopedia
-                </p>
-              </div>
+    <div className="h-screen flex overflow-hidden bg-cream-100">
+      {/* Sidebar */}
+      <Sidebar
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        orderCount={orders.length}
+        onExportCSV={handleExportCSV}
+        onClearAll={handleClearAll}
+        isSaving={isSaving}
+      />
+
+      {/* Main area */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Top bar */}
+        <header className="bg-white border-b border-brand-200 px-6 py-4 shrink-0">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-brand-800">{pageTitle}</h2>
+              <p className="text-xs text-brand-400 mt-0.5">{pageSubtitle}</p>
             </div>
 
-            <div className="flex items-center gap-3">
-              {isSaving && (
-                <div className="flex items-center gap-2 text-sm text-slate-500">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Menyimpan...
+            {activeTab === "dashboard" && orders.length > 0 && (
+              <div className="flex items-center gap-4 text-sm">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-cream-200 rounded-lg border border-brand-200">
+                  <span className="text-brand-400">Total Order</span>
+                  <span className="font-bold text-brand-700">{orders.length}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </header>
+
+        {/* Scrollable content */}
+        <main className="flex-1 overflow-y-auto p-6">
+          {activeTab === "upload" && (
+            <div className="max-w-5xl space-y-6">
+              <FileUpload
+                onFileUpload={handleFileUpload}
+                uploadedFiles={uploadedFiles}
+                onRemoveFile={handleRemoveFile}
+              />
+
+              {orders.length > 0 && (
+                <div className="bg-brand-50 border border-brand-200 rounded-xl p-4">
+                  <p className="text-brand-700 text-sm">
+                    <span className="font-semibold">{orders.length} order</span>{" "}
+                    tersimpan di database. Klik{" "}
+                    <button
+                      onClick={() => setActiveTab("dashboard")}
+                      className="font-semibold underline"
+                    >
+                      Dashboard
+                    </button>{" "}
+                    untuk melihat data.
+                  </p>
                 </div>
               )}
-              {orders.length > 0 && (
+
+              {/* Quick Tips */}
+              <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-6">
+                <h3 className="text-lg font-semibold text-brand-800 mb-4">
+                  Panduan Import
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-4 bg-cream-200 rounded-lg border border-brand-200">
+                    <h4 className="font-semibold text-brand-700 mb-2">Shopee</h4>
+                    <p className="text-sm text-brand-400">
+                      Export dari Seller Centre &gt; Pesanan &gt; Export. Pilih format Excel/CSV.
+                    </p>
+                  </div>
+                  <div className="p-4 bg-cream-200 rounded-lg border border-brand-200">
+                    <h4 className="font-semibold text-brand-700 mb-2">
+                      TikTok &amp; Tokopedia
+                    </h4>
+                    <p className="text-sm text-brand-400">
+                      Export dari Seller Center &gt; Orders &gt; Export Orders. Pilih format XLSX.
+                    </p>
+                  </div>
+                  <div className="p-4 bg-cream-200 rounded-lg border border-brand-200">
+                    <h4 className="font-semibold text-brand-700 mb-2">Jubelio</h4>
+                    <p className="text-sm text-brand-400">
+                      Export dari Jubelio &gt; Sales Order &gt; Export. Pilih format Excel/XLSX.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "dashboard" && (
+            <div className="space-y-6">
+              {orders.length === 0 ? (
+                <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-12 text-center">
+                  <div className="w-20 h-20 bg-cream-200 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <LayoutDashboard className="w-10 h-10 text-brand-300" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-brand-700 mb-2">
+                    Belum Ada Data
+                  </h3>
+                  <p className="text-brand-400 mb-4">
+                    Import file Excel dari marketplace untuk memulai.
+                  </p>
+                  <button
+                    onClick={() => setActiveTab("upload")}
+                    className="px-6 py-3 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors font-medium"
+                  >
+                    Import Data
+                  </button>
+                </div>
+              ) : (
                 <>
-                  <button
-                    onClick={handleExportCSV}
-                    className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm font-medium"
-                  >
-                    <Download className="w-4 h-4" />
-                    Export CSV
-                  </button>
-                  <button
-                    onClick={handleClearAll}
-                    className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                    Reset
-                  </button>
+                  <SummaryCards summary={summary} />
+                  <Charts dailyStats={dailyStats} summary={summary} />
+                  <OrderTable orders={orders} />
                 </>
               )}
             </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Tab Navigation */}
-      <nav className="bg-white border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex gap-1">
-            <button
-              onClick={() => setActiveTab("upload")}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === "upload"
-                  ? "border-blue-500 text-blue-600"
-                  : "border-transparent text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              Import Data
-            </button>
-            <button
-              onClick={() => setActiveTab("dashboard")}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === "dashboard"
-                  ? "border-blue-500 text-blue-600"
-                  : "border-transparent text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              <LayoutDashboard className="w-4 h-4" />
-              Dashboard
-              {orders.length > 0 && (
-                <span className="bg-blue-100 text-blue-600 text-xs px-2 py-0.5 rounded-full">
-                  {orders.length}
-                </span>
-              )}
-            </button>
-          </div>
-        </div>
-      </nav>
-
-      {/* Main Content */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full">
-        {activeTab === "upload" && (
-          <div className="space-y-6">
-            <FileUpload
-              onFileUpload={handleFileUpload}
-              uploadedFiles={uploadedFiles}
-              onRemoveFile={handleRemoveFile}
-            />
-
-            {orders.length > 0 && (
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                <p className="text-blue-700 text-sm">
-                  <span className="font-semibold">{orders.length} order</span>{" "}
-                  tersimpan di database. Klik tab{" "}
-                  <button
-                    onClick={() => setActiveTab("dashboard")}
-                    className="font-semibold underline"
-                  >
-                    Dashboard
-                  </button>{" "}
-                  untuk melihat data.
-                </p>
-              </div>
-            )}
-
-            {/* Quick Tips */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-              <h3 className="text-lg font-semibold text-slate-800 mb-4">
-                Panduan Import
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4 bg-shopee-50 rounded-lg">
-                  <h4 className="font-semibold text-shopee-600 mb-2">Shopee</h4>
-                  <p className="text-sm text-slate-600">
-                    Export dari Seller Centre &gt; Pesanan &gt; Export. Pilih
-                    format Excel/CSV.
-                  </p>
-                </div>
-                <div className="p-4 bg-slate-100 rounded-lg">
-                  <h4 className="font-semibold text-slate-800 mb-2">
-                    TikTok &amp; Tokopedia
-                  </h4>
-                  <p className="text-sm text-slate-600">
-                    Export dari Seller Center &gt; Orders &gt; Export Orders.
-                    Pilih format XLSX.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "dashboard" && (
-          <div className="space-y-6">
-            {orders.length === 0 ? (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center">
-                <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <LayoutDashboard className="w-10 h-10 text-slate-400" />
-                </div>
-                <h3 className="text-xl font-semibold text-slate-700 mb-2">
-                  Belum Ada Data
-                </h3>
-                <p className="text-slate-500 mb-4">
-                  Import file Excel dari marketplace untuk memulai.
-                </p>
-                <button
-                  onClick={() => setActiveTab("upload")}
-                  className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-medium"
-                >
-                  Import Data
-                </button>
-              </div>
-            ) : (
-              <>
-                <SummaryCards summary={summary} />
-                <Charts dailyStats={dailyStats} summary={summary} />
-                <OrderTable orders={orders} />
-              </>
-            )}
-          </div>
-        )}
-      </main>
-
-      {/* Footer */}
-      <footer className="border-t border-slate-200 bg-white mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <p className="text-center text-sm text-slate-500">
-            Order Dashboard - Marketplace Order Management
-          </p>
-        </div>
-      </footer>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

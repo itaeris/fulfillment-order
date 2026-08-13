@@ -44,6 +44,8 @@ db.exec(`
     phone TEXT,
     notes TEXT,
     weight REAL,
+    channelName TEXT,
+    storeName TEXT,
     createdAt TEXT DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -59,6 +61,14 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
   CREATE INDEX IF NOT EXISTS idx_orders_orderDate ON orders(orderDate);
 `);
+
+// Migrate: add new columns if they don't exist yet
+try {
+  db.exec(`ALTER TABLE orders ADD COLUMN channelName TEXT`);
+} catch { /* column already exists */ }
+try {
+  db.exec(`ALTER TABLE orders ADD COLUMN storeName TEXT`);
+} catch { /* column already exists */ }
 
 export default db;
 
@@ -100,6 +110,8 @@ export function insertOrder(order: {
   phone?: string;
   notes?: string;
   weight?: number;
+  channelName?: string;
+  storeName?: string;
 }) {
   // Normalize undefined values to null for SQLite
   const normalizedOrder = {
@@ -129,6 +141,8 @@ export function insertOrder(order: {
     phone: order.phone ?? null,
     notes: order.notes ?? null,
     weight: order.weight ?? null,
+    channelName: order.channelName ?? null,
+    storeName: order.storeName ?? null,
   };
 
   const stmt = db.prepare(`
@@ -136,12 +150,14 @@ export function insertOrder(order: {
       id, orderNumber, platform, customerName, recipientName, productName,
       variation, sku, quantity, originalPrice, price, totalAmount, status,
       orderDate, paidTime, shippedTime, mustShipBefore, shippingAddress,
-      city, province, trackingNumber, shippingOption, courier, phone, notes, weight
+      city, province, trackingNumber, shippingOption, courier, phone, notes, weight,
+      channelName, storeName
     ) VALUES (
       @id, @orderNumber, @platform, @customerName, @recipientName, @productName,
       @variation, @sku, @quantity, @originalPrice, @price, @totalAmount, @status,
       @orderDate, @paidTime, @shippedTime, @mustShipBefore, @shippingAddress,
-      @city, @province, @trackingNumber, @shippingOption, @courier, @phone, @notes, @weight
+      @city, @province, @trackingNumber, @shippingOption, @courier, @phone, @notes, @weight,
+      @channelName, @storeName
     )
   `);
   return stmt.run(normalizedOrder);
