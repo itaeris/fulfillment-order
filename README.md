@@ -1,37 +1,59 @@
-# Order Dashboard - Shopee & TikTok Shop / Tokopedia & Jubelio
+# Order Dashboard - Aeris Beaute Fulfillment
 
-Dashboard webapp untuk menampilkan dan menganalisis data order dari marketplace **Shopee**, **TikTok Shop / Tokopedia**, dan **Jubelio** yang diimport dari file Excel. Data disimpan secara persisten menggunakan SQLite, sehingga tetap ada meskipun halaman di-refresh.
+Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **Shopee**, **TikTok Shop / Tokopedia**, dan **Jubelio**. Data diimport dari file Excel dan disimpan di **Supabase** (PostgreSQL).
+
+**Live**: [fulfillment-order.vercel.app](https://fulfillment-order.vercel.app)
 
 ## Fitur
 
+### Dashboard & Data
 - **Import Excel/CSV**: Upload file export dari Shopee, TikTok Shop / Tokopedia, atau Jubelio (drag & drop atau pilih file)
-- **Auto-detect Platform**: Sistem otomatis mendeteksi platform berdasarkan nama file maupun header kolom di dalam file
-- **Penyimpanan Persisten**: Data tersimpan di database SQLite lokal (`data/orders.db`), tidak hilang saat refresh
-- **Dashboard Summary**: Ringkasan total order, pendapatan, item terjual, dan rata-rata order
-- **Breakdown per Platform**: Statistik terpisah untuk Shopee, TikTok Shop/Tokopedia (digabung), dan Jubelio
-- **Visualisasi Data**:
-  - Grafik tren pendapatan harian (area chart)
-  - Pie chart distribusi pendapatan per platform
-  - Bar chart distribusi status pesanan
-- **Tabel Order ala Seller Center**:
-  - Tab filter per platform (Semua, Shopee, TikTok & Tokopedia, Jubelio)
-  - Tab filter per status (Semua, Belum Bayar, Perlu Dikirim, Dikirim, Selesai, Batal/Retur)
-  - Pencarian berdasarkan no. pesanan, customer, SKU, atau no. resi
-  - Sorting berdasarkan tanggal, total, customer, status, atau batas waktu kirim
-  - Indikator visual untuk pesanan yang mendekati/melewati batas waktu pengiriman
-  - Pagination
-- **Export CSV**: Download seluruh data order dalam format CSV
+- **Auto-detect Platform**: Otomatis mendeteksi platform berdasarkan nama file dan header kolom
+- **Dashboard Summary**: Total order, pendapatan, item terjual, dan rata-rata order
+- **Breakdown per Platform**: Statistik terpisah untuk Shopee, TikTok & Tokopedia, dan Jubelio
+- **Visualisasi Data**: Grafik tren pendapatan, distribusi platform (pie chart), distribusi status (bar chart)
+- **Komparasi Data**: Bandingkan data Jubelio dengan Shopee/TikTok via order number, ref number, atau tracking number
+
+### Tabel Order
+- Filter per platform dan status (Belum Bayar, Perlu Dikirim, Dikirim, Selesai, Batal/Retur)
+- Sub-filter pengiriman: Instant / Reguler
+- Sub-filter pickup stage: Sebelum Pickup, Sesudah Pickup, Siap Dikirim
+- Sorting di semua kolom (A-Z, terbaru-terlama, dll)
+- Pencarian berdasarkan no. pesanan, customer, SKU, atau no. resi
+- Indikator visual batas waktu pengiriman
+- Pagination
+- Export CSV
+
+### Autentikasi & Keamanan
+- **Login**: Email/username + password, atau Google OAuth
+- **Google OAuth**: Hanya domain `@aerisbeaute.com` dan `@fromthisisland.com` yang diizinkan
+- **User Approval**: User harus didaftarkan oleh admin sebelum bisa login (termasuk via Google)
+- **Role-Based Access**:
+  - **Admin**: Akses penuh ke semua fitur
+  - **Warehouse**: Akses penuh, tapi data keuangan (pendapatan, total, selisih) disembunyikan
+- **Reset Password**: Via email link atau langsung dari Settings
+
+### Settings
+- Edit profil (nama, username)
+- Ubah password
+- Kelola user (admin only): tambah, ubah role, hapus user
+
+### Lainnya
+- **PWA**: Bisa di-install sebagai app di desktop/mobile
+- **Responsive**: Desktop-first dengan sidebar, responsif di mobile
+- **Tema**: Warm brown/cream color palette
 
 ## Tech Stack
 
 - **Framework**: Next.js 14 (App Router)
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS
-- **Database**: SQLite (better-sqlite3)
+- **Database**: Supabase (PostgreSQL + Auth)
 - **Charts**: Recharts
 - **Excel Parser**: xlsx (SheetJS)
 - **Icons**: Lucide React
 - **Date Utils**: date-fns
+- **Hosting**: Vercel
 
 ## Getting Started
 
@@ -39,56 +61,67 @@ Dashboard webapp untuk menampilkan dan menganalisis data order dari marketplace 
 
 - Node.js 18+
 - npm
+- Supabase project ([supabase.com](https://supabase.com))
 
 ### Installation
 
 ```bash
-# Install dependencies
 npm install
+```
 
-# Jalankan development server
+### Environment Variables
+
+Buat file `.env.local`:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+```
+
+### Database Setup
+
+Jalankan `supabase/migration.sql` di **Supabase Dashboard > SQL Editor** untuk membuat tabel dan trigger.
+
+### Run
+
+```bash
 npm run dev
 ```
 
-Buka [http://localhost:3000](http://localhost:3000) di browser. Database SQLite akan otomatis dibuat di folder `data/orders.db` saat pertama kali dijalankan.
+Buka [http://localhost:3000](http://localhost:3000).
 
-### Build for Production
+### Build & Deploy
 
 ```bash
 npm run build
 npm start
 ```
 
+Untuk Vercel: push ke GitHub, import di Vercel, set environment variables di Settings.
+
 ## Cara Penggunaan
 
-### 1. Import Data dari Shopee
+### Import Data
 
-1. Login ke [Shopee Seller Centre](https://seller.shopee.co.id)
-2. Buka menu **Pesanan** > pilih tab pesanan yang diinginkan (mis. Perlu Dikirim)
-3. Klik **Export** dan pilih format Excel/CSV
-4. Di dashboard, pilih platform **Shopee**, lalu upload file hasil export
+| Platform | Sumber Export | Format |
+|----------|-------------|--------|
+| Shopee | Seller Centre > Pesanan > Export | Excel/CSV |
+| TikTok & Tokopedia | Seller Center > Orders > Export Orders | XLSX |
+| Jubelio | Jubelio > Sales Order > Export | Excel/XLSX |
 
-### 2. Import Data dari TikTok Shop / Tokopedia
+### Google OAuth Setup
 
-1. Login ke [TikTok Shop Seller Center](https://seller-id.tiktok.com)
-2. Buka menu **Orders** > **Manage Orders**
-3. Klik **Export Orders** dan pilih format XLSX
-4. Di dashboard, pilih platform **TikTok & Tokopedia**, lalu upload file hasil export
+1. Buat OAuth Client ID di [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+2. Set Authorized redirect URI: `https://<supabase-project>.supabase.co/auth/v1/callback`
+3. Enable Google provider di Supabase Dashboard > Authentication > Providers
+4. Paste Client ID dan Client Secret
 
-> Sejak integrasi TikTok Shop dan Tokopedia, keduanya ditampilkan sebagai satu kategori platform di dashboard.
+### User Management
 
-### 3. Import Data dari Jubelio
-
-1. Login ke [Jubelio](https://app.jubelio.com)
-2. Buka menu **Sales Order**
-3. Klik **Export** dan pilih format Excel/XLSX
-4. Di dashboard, pilih platform **Jubelio**, lalu upload file hasil export
-
-> Jubelio adalah platform omnichannel yang mengagregasi order dari berbagai marketplace. Kolom `channel_name` dan `store_name` juga diparsing untuk referensi asal channel.
-
-### Reset Data
-
-Klik tombol **Reset** di header untuk menghapus seluruh data order dan riwayat file yang tersimpan di database.
+- Admin membuat user baru di **Settings > Kelola User > Tambah User**
+- User yang belum didaftarkan tidak bisa login (termasuk via Google OAuth)
+- Admin bisa mengubah role dan menghapus user
 
 ## Struktur Project
 
@@ -96,54 +129,58 @@ Klik tombol **Reset** di header untuk menghapus seluruh data order dan riwayat f
 src/
 ├── app/
 │   ├── api/
-│   │   ├── orders/route.ts  # API untuk GET/POST/DELETE order
-│   │   └── files/route.ts   # API untuk GET/POST/DELETE riwayat file upload
-│   ├── globals.css          # Global styles & Tailwind
-│   ├── layout.tsx           # Root layout
-│   └── page.tsx             # Main dashboard page
+│   │   ├── auth/create-user/  # API create user (admin, server-side)
+│   │   ├── orders/            # API CRUD order
+│   │   └── files/             # API riwayat file upload
+│   ├── auth/callback/         # OAuth callback page
+│   ├── login/                 # Login page
+│   ├── reset-password/        # Reset password page
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── page.tsx               # Main dashboard
 ├── components/
-│   ├── Charts.tsx           # Recharts visualizations
-│   ├── FileUpload.tsx       # Drag & drop upload
-│   ├── OrderTable.tsx       # Tabel data dengan tab & filter ala seller center
-│   └── SummaryCards.tsx     # Ringkasan statistik
+│   ├── Charts.tsx             # Visualisasi data (Recharts)
+│   ├── ComparisonView.tsx     # Komparasi Jubelio vs marketplace
+│   ├── FileUpload.tsx         # Drag & drop upload
+│   ├── OrderTable.tsx         # Tabel order dengan filter & sorting
+│   ├── SettingsView.tsx       # Profil, password, kelola user
+│   ├── Sidebar.tsx            # Navigasi sidebar
+│   ├── SummaryCards.tsx       # Ringkasan statistik
+│   └── ServiceWorkerRegistrar.tsx
+├── contexts/
+│   └── AuthContext.tsx        # Auth state & functions
 ├── lib/
-│   ├── db.ts                # Setup & operasi database SQLite
-│   ├── excel-parser.ts      # Logika parsing Excel/CSV per platform
-│   └── utils.ts             # Fungsi utilitas (format, kalkulasi summary, dll)
+│   ├── db.ts                  # Operasi database Supabase
+│   ├── excel-parser.ts        # Parser Excel per platform
+│   ├── supabase.ts            # Supabase client (lazy init)
+│   └── utils.ts               # Utilitas (format, kalkulasi)
 └── types/
-    └── order.ts             # TypeScript interfaces
-data/
-└── orders.db                # File database SQLite (dibuat otomatis, di-gitignore)
+    └── order.ts               # TypeScript interfaces
+public/
+├── manifest.json              # PWA manifest
+├── sw.js                      # Service worker
+└── icons/                     # PWA icons (192x192, 512x512)
+supabase/
+└── migration.sql              # Schema & trigger SQL
 ```
 
 ## Format Kolom yang Didukung
 
-Parser membaca header kolom asli dari file export marketplace (case-insensitive) dan otomatis memetakannya. Beberapa kolom utama yang dikenali:
-
 | Field | Shopee | TikTok Shop | Jubelio |
-|-------|--------|--------------|---------|
+|-------|--------|-------------|---------|
 | No. Pesanan | No. Pesanan | Order ID | salesorder_no |
 | Status | Status Pesanan | Order Status | channel_status |
 | Customer | Username (Pembeli) | Buyer Username | customer_name |
-| Produk | Nama Produk | Product Name | - (order level) |
+| Produk | Nama Produk | Product Name | - |
 | SKU | Nomor Referensi SKU | Seller SKU | - |
 | Qty | Jumlah | Quantity | qty / total_qty |
 | Total | Total Pembayaran | Order Amount | grand_total |
-| Tanggal Order | Waktu Pesanan Dibuat | Created Time | transaction_date |
-| Batas Kirim | Pesanan Harus Dikirimkan Sebelum... | - | due_date |
-| No. Resi | No. Resi | Tracking ID | tracking_no / tracking_number |
+| Tanggal | Waktu Pesanan Dibuat | Created Time | transaction_date |
+| Batas Kirim | Pesanan Harus Dikirimkan Sebelum | - | due_date |
+| No. Resi | No. Resi | Tracking ID | tracking_no |
 | Kurir | Opsi Pengiriman | Shipping Provider Name | shipper |
-| Alamat | Alamat Pengiriman | Detail Address | - |
-| Telepon | No. Telepon | Phone # | - |
-| Channel | - | - | channel_name |
-| Store | - | - | store_name |
-
-Jika struktur file sedikit berbeda, sistem akan mencoba mendeteksi platform dari isi header dan mencari kolom ID pesanan secara otomatis sebagai fallback.
-
-## Catatan
-
-- Database SQLite (`data/orders.db`) tidak di-commit ke git (lihat `.gitignore`).
-- Untuk memindahkan data ke server lain, cukup salin folder `data/`.
+| Ref No | - | - | ref_no |
+| Pickup Time | - | RTS Time | pickup_time_store |
 
 ## License
 
