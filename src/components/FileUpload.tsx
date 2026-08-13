@@ -75,8 +75,8 @@ export default function FileUpload({
   ];
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-6">
-      <h2 className="text-lg font-semibold text-brand-800 mb-4">
+    <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-6">
+      <h2 className="text-base sm:text-lg font-semibold text-brand-800 mb-4">
         Import Data Order
       </h2>
 
@@ -85,7 +85,7 @@ export default function FileUpload({
         <label className="block text-sm font-medium text-brand-400 mb-2">
           Pilih Platform
         </label>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {platforms.map((platform) => (
             <button
               key={platform.value}
@@ -109,7 +109,7 @@ export default function FileUpload({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={cn(
-          "relative border-2 border-dashed rounded-xl p-8 text-center transition-all",
+          "relative border-2 border-dashed rounded-xl p-6 sm:p-8 text-center transition-all",
           isDragging
             ? "border-brand-500 bg-brand-50"
             : "border-brand-200 hover:border-brand-300",

@@ -130,11 +130,11 @@ export default function Charts({ dailyStats, summary }: ChartsProps) {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Revenue Trend Chart */}
       {dailyStats.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-5">
-          <h3 className="text-lg font-semibold text-brand-800 mb-4">
+        <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5">
+          <h3 className="text-base sm:text-lg font-semibold text-brand-800 mb-3 sm:mb-4">
             Tren Pendapatan
           </h3>
-          <div className="h-[300px]">
+          <div className="h-[220px] sm:h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={dailyStats}>
                 <defs>
@@ -227,11 +227,11 @@ export default function Charts({ dailyStats, summary }: ChartsProps) {
 
       {/* Platform Distribution Pie Chart */}
       {platformPieData.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-5">
-          <h3 className="text-lg font-semibold text-brand-800 mb-4">
+        <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5">
+          <h3 className="text-base sm:text-lg font-semibold text-brand-800 mb-3 sm:mb-4">
             Distribusi per Platform
           </h3>
-          <div className="h-[300px]">
+          <div className="h-[220px] sm:h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
@@ -263,11 +263,11 @@ export default function Charts({ dailyStats, summary }: ChartsProps) {
 
       {/* Status Distribution Bar Chart */}
       {statusBarData.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-5 lg:col-span-2">
-          <h3 className="text-lg font-semibold text-brand-800 mb-4">
+        <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5 lg:col-span-2">
+          <h3 className="text-base sm:text-lg font-semibold text-brand-800 mb-3 sm:mb-4">
             Status Order
           </h3>
-          <div className="h-[250px]">
+          <div className="h-[200px] sm:h-[250px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={statusBarData} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#E8DDD3" />

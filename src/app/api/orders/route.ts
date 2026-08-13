@@ -7,9 +7,8 @@ import {
 
 export async function GET() {
   try {
-    const orders = getAllOrders();
-    
-    // Convert date strings back to proper format for frontend
+    const orders = await getAllOrders();
+
     const formattedOrders = orders.map((order: any) => ({
       ...order,
       orderDate: order.orderDate ? new Date(order.orderDate) : new Date(),
@@ -17,7 +16,7 @@ export async function GET() {
       shippedTime: order.shippedTime ? new Date(order.shippedTime) : undefined,
       mustShipBefore: order.mustShipBefore ? new Date(order.mustShipBefore) : undefined,
     }));
-    
+
     return NextResponse.json({ orders: formattedOrders });
   } catch (error) {
     console.error("Error fetching orders:", error);
@@ -31,8 +30,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const { orders } = await request.json();
-    
-    // Convert Date objects to ISO strings for SQLite
+
     const ordersForDb = orders.map((order: any) => ({
       ...order,
       orderDate: order.orderDate ? new Date(order.orderDate).toISOString() : null,
@@ -40,9 +38,9 @@ export async function POST(request: NextRequest) {
       shippedTime: order.shippedTime ? new Date(order.shippedTime).toISOString() : null,
       mustShipBefore: order.mustShipBefore ? new Date(order.mustShipBefore).toISOString() : null,
     }));
-    
-    insertOrders(ordersForDb);
-    
+
+    await insertOrders(ordersForDb);
+
     return NextResponse.json({ success: true, count: orders.length });
   } catch (error) {
     console.error("Error saving orders:", error);
@@ -55,7 +53,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE() {
   try {
-    deleteAllOrders();
+    await deleteAllOrders();
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error deleting orders:", error);

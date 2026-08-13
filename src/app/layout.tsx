@@ -7,6 +7,10 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Order Dashboard - Marketplace Order Management",
   description: "Dashboard untuk melihat dan menganalisis data order dari marketplace",
+  icons: {
+    icon: "/icon.png",
+    apple: "/icon.png",
+  },
 };
 
 export default function RootLayout({

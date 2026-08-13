@@ -9,21 +9,20 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.3",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "lucide-react": "^0.400.0",
     "next": "^14.2.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "xlsx": "^0.18.5",
     "recharts": "^2.12.7",
-    "lucide-react": "^0.400.0",
-    "date-fns": "^3.6.0",
-    "clsx": "^2.1.1",
-    "better-sqlite3": "^11.1.2"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
-    "@types/better-sqlite3": "^7.6.11",
     "eslint": "^8",
     "eslint-config-next": "14.2.5",
     "postcss": "^8",

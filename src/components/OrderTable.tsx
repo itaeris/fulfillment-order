@@ -258,8 +258,8 @@ export default function OrderTable({ orders }: OrderTableProps) {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-brand-200">
       {/* Platform Tabs */}
-      <div className="px-4 pt-4 border-b border-brand-100">
-        <div className="flex gap-2 overflow-x-auto pb-3">
+      <div className="px-3 sm:px-4 pt-3 sm:pt-4 border-b border-brand-100">
+        <div className="flex gap-1.5 sm:gap-2 overflow-x-auto pb-3 scrollbar-hide">
           {platformTabs.map((tab) => {
             const count = platformCounts[tab.value];
             const isActive = selectedPlatform === tab.value;
@@ -271,7 +271,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                   setCurrentPage(1);
                 }}
                 className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all",
+                  "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium whitespace-nowrap transition-all",
                   isActive
                     ? `${tab.color} text-white shadow-md`
                     : "bg-cream-200 text-brand-400 hover:bg-cream-300"
@@ -279,7 +279,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
               >
                 {tab.label}
                 <span className={cn(
-                  "px-2 py-0.5 rounded-full text-xs",
+                  "px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-xs",
                   isActive ? "bg-white/20" : "bg-brand-200 text-brand-500"
                 )}>
                   {count}
@@ -291,8 +291,8 @@ export default function OrderTable({ orders }: OrderTableProps) {
       </div>
 
       {/* Status Tabs */}
-      <div className="px-4 border-b border-brand-200">
-        <div className="flex gap-1 overflow-x-auto">
+      <div className="px-3 sm:px-4 border-b border-brand-200">
+        <div className="flex gap-0.5 sm:gap-1 overflow-x-auto scrollbar-hide">
           {statusTabs.map((tab) => {
             const count = statusCounts[tab.value];
             const isActive = selectedStatusTab === tab.value;
@@ -311,16 +311,16 @@ export default function OrderTable({ orders }: OrderTableProps) {
                   }
                 }}
                 className={cn(
-                  "flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-all",
+                  "flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition-all",
                   isActive
                     ? `border-brand-500 ${tab.color}`
                     : "border-transparent text-brand-300 hover:text-brand-500"
                 )}
               >
-                <tab.icon className="w-4 h-4" />
+                <tab.icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                 {tab.label}
                 <span className={cn(
-                  "px-2 py-0.5 rounded-full text-xs",
+                  "px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-xs",
                   isActive ? "bg-brand-100 text-brand-700" : "bg-cream-200 text-brand-400"
                 )}>
                   {count}
@@ -333,8 +333,8 @@ export default function OrderTable({ orders }: OrderTableProps) {
 
       {/* Shipping Type Filter (visible on "Perlu Dikirim" and "Dikirim") */}
       {(selectedStatusTab === "processing" || selectedStatusTab === "shipped") && (
-        <div className="px-4 py-2.5 border-b border-brand-100 flex items-center gap-2">
-          <span className="text-xs font-medium text-brand-400 mr-1">Tipe Pengiriman:</span>
+        <div className="px-3 sm:px-4 py-2 sm:py-2.5 border-b border-brand-100 flex flex-wrap items-center gap-1.5 sm:gap-2">
+          <span className="text-[10px] sm:text-xs font-medium text-brand-400 mr-0.5 sm:mr-1">Tipe Pengiriman:</span>
           {([
             { value: "all" as ShippingFilter, label: "Semua", icon: Package },
             { value: "instant" as ShippingFilter, label: "Instant", icon: Zap },
@@ -371,14 +371,15 @@ export default function OrderTable({ orders }: OrderTableProps) {
       )}
 
       {/* Search and Info Bar */}
-      <div className="p-4 border-b border-brand-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="p-3 sm:p-4 border-b border-brand-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
         <div>
-          <p className="text-sm text-brand-400">
-            Menampilkan <span className="font-semibold text-brand-700">{filteredAndSortedOrders.length}</span> pesanan
+          <p className="text-xs sm:text-sm text-brand-400">
+            <span className="font-semibold text-brand-700">{filteredAndSortedOrders.length}</span> pesanan
             {selectedStatusTab === "processing" && statusCounts.processing > 0 && (
               <span className="text-orange-600 ml-2">
-                <AlertTriangle className="w-4 h-4 inline mr-1" />
-                Perlu segera diproses
+                <AlertTriangle className="w-3.5 h-3.5 sm:w-4 sm:h-4 inline mr-1" />
+                <span className="hidden sm:inline">Perlu segera diproses</span>
+                <span className="sm:hidden">Segera proses</span>
               </span>
             )}
           </p>
@@ -388,7 +389,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-300" />
           <input
             type="text"
-            placeholder="Cari order, customer, SKU, resi..."
+            placeholder="Cari order, customer, SKU..."
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
@@ -424,17 +425,17 @@ export default function OrderTable({ orders }: OrderTableProps) {
             </p>
           </div>
         ) : (
-          <table className="w-full">
+          <table className="w-full min-w-[800px]">
             <thead className="bg-cream-100">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-brand-400 uppercase tracking-wider">
+                <th className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider">
                   Platform
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-brand-400 uppercase tracking-wider">
+                <th className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider">
                   No. Pesanan
                 </th>
                 <th
-                  className="px-4 py-3 text-center text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
+                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-center text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
                   onClick={() => handleSort("status")}
                 >
                   <div className="flex items-center justify-center gap-1">
@@ -442,14 +443,14 @@ export default function OrderTable({ orders }: OrderTableProps) {
                     <SortIcon field="status" />
                   </div>
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-brand-400 uppercase tracking-wider">
+                <th className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider">
                   Produk
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-brand-400 uppercase tracking-wider">
+                <th className="px-3 sm:px-4 py-2.5 sm:py-3 text-center text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider">
                   Qty
                 </th>
                 <th
-                  className="px-4 py-3 text-right text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
+                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
                   onClick={() => handleSort("totalAmount")}
                 >
                   <div className="flex items-center justify-end gap-1">
@@ -458,7 +459,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                   </div>
                 </th>
                 <th
-                  className="px-4 py-3 text-left text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
+                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
                   onClick={() => handleSort("customerName")}
                 >
                   <div className="flex items-center gap-1">
@@ -466,11 +467,11 @@ export default function OrderTable({ orders }: OrderTableProps) {
                     <SortIcon field="customerName" />
                   </div>
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-brand-400 uppercase tracking-wider">
+                <th className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider">
                   Kurir / Resi
                 </th>
                 <th
-                  className="px-4 py-3 text-left text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
+                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600"
                   onClick={() => handleSort("mustShipBefore")}
                 >
                   <div className="flex items-center gap-1">
@@ -492,86 +493,86 @@ export default function OrderTable({ orders }: OrderTableProps) {
                       order.status === "processing" && deadlineStatus?.color.includes("red") && "bg-red-50/50"
                     )}
                   >
-                    <td className="px-4 py-3">
+                    <td className="px-3 sm:px-4 py-2.5 sm:py-3">
                       <span
                         className={cn(
-                          "inline-flex px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap",
+                          "inline-flex px-2 py-1 rounded-full text-[10px] sm:text-xs font-medium whitespace-nowrap",
                           getPlatformBadgeColor(order.platform)
                         )}
                       >
                         {getPlatformName(order.platform)}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
-                      <p className="text-sm font-medium text-brand-800 font-mono">
+                    <td className="px-3 sm:px-4 py-2.5 sm:py-3">
+                      <p className="text-xs sm:text-sm font-medium text-brand-800 font-mono">
                         {order.orderNumber}
                       </p>
-                      <p className="text-xs text-brand-300 mt-0.5">
+                      <p className="text-[10px] sm:text-xs text-brand-300 mt-0.5">
                         {formatDate(order.orderDate)}
                       </p>
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-center">
                       <span
                         className={cn(
-                          "inline-flex px-2.5 py-1 rounded-full text-xs font-medium",
+                          "inline-flex px-2 sm:px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-medium",
                           getStatusColor(order.status)
                         )}
                       >
                         {getStatusLabel(order.status)}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
-                      <p className="text-sm text-brand-700 max-w-[200px] truncate" title={order.productName}>
+                    <td className="px-3 sm:px-4 py-2.5 sm:py-3">
+                      <p className="text-xs sm:text-sm text-brand-700 max-w-[160px] sm:max-w-[200px] truncate" title={order.productName}>
                         {order.productName}
                       </p>
                       {order.variation && (
-                        <p className="text-xs text-brand-300 truncate max-w-[200px]" title={order.variation}>
+                        <p className="text-[10px] sm:text-xs text-brand-300 truncate max-w-[160px] sm:max-w-[200px]" title={order.variation}>
                           {order.variation}
                         </p>
                       )}
                       {order.sku && (
-                        <p className="text-xs text-brand-500 font-mono">
+                        <p className="text-[10px] sm:text-xs text-brand-500 font-mono">
                           SKU: {order.sku}
                         </p>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-center">
-                      <span className="text-sm font-medium text-brand-700">
+                    <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-center">
+                      <span className="text-xs sm:text-sm font-medium text-brand-700">
                         {order.quantity}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <p className="text-sm font-semibold text-brand-800">
+                    <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-right">
+                      <p className="text-xs sm:text-sm font-semibold text-brand-800">
                         {formatCurrency(order.totalAmount)}
                       </p>
                       {order.originalPrice && order.originalPrice !== order.price && (
-                        <p className="text-xs text-brand-300 line-through">
+                        <p className="text-[10px] sm:text-xs text-brand-300 line-through">
                           {formatCurrency(order.originalPrice * order.quantity)}
                         </p>
                       )}
                     </td>
-                    <td className="px-4 py-3">
-                      <p className="text-sm text-brand-700">
+                    <td className="px-3 sm:px-4 py-2.5 sm:py-3">
+                      <p className="text-xs sm:text-sm text-brand-700">
                         {order.recipientName || order.customerName}
                       </p>
                       {order.phone && (
-                        <p className="text-xs text-brand-300">{order.phone}</p>
+                        <p className="text-[10px] sm:text-xs text-brand-300">{order.phone}</p>
                       )}
                       {order.city && (
-                        <p className="text-xs text-brand-300">{order.city}</p>
+                        <p className="text-[10px] sm:text-xs text-brand-300">{order.city}</p>
                       )}
                     </td>
-                    <td className="px-4 py-3">
-                      <p className="text-sm text-brand-700">
+                    <td className="px-3 sm:px-4 py-2.5 sm:py-3">
+                      <p className="text-xs sm:text-sm text-brand-700">
                         {order.shippingOption || order.courier || "-"}
                       </p>
                       {order.trackingNumber && (
-                        <p className="text-xs text-brand-500 font-mono">
+                        <p className="text-[10px] sm:text-xs text-brand-500 font-mono">
                           {order.trackingNumber}
                         </p>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 sm:px-4 py-2.5 sm:py-3">
                       {order.mustShipBefore ? (
                         <div className={cn(
                           "inline-flex items-center gap-1 px-2 py-1 rounded text-xs",
@@ -596,23 +597,22 @@ export default function OrderTable({ orders }: OrderTableProps) {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="px-5 py-4 border-t border-brand-200 flex items-center justify-between">
-          <p className="text-sm text-brand-400">
-            Menampilkan {(currentPage - 1) * ITEMS_PER_PAGE + 1} -{" "}
-            {Math.min(currentPage * ITEMS_PER_PAGE, filteredAndSortedOrders.length)}{" "}
-            dari {filteredAndSortedOrders.length} pesanan
+        <div className="px-3 sm:px-5 py-3 sm:py-4 border-t border-brand-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <p className="text-xs sm:text-sm text-brand-400 order-2 sm:order-1">
+            {(currentPage - 1) * ITEMS_PER_PAGE + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, filteredAndSortedOrders.length)}{" "}
+            dari {filteredAndSortedOrders.length}
           </p>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 order-1 sm:order-2">
             <button
               onClick={() => setCurrentPage(currentPage - 1)}
               disabled={currentPage === 1}
-              className="p-2 rounded-lg border border-brand-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-cream-100"
+              className="p-1.5 sm:p-2 rounded-lg border border-brand-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-cream-100"
             >
               <ChevronLeft className="w-4 h-4 text-brand-400" />
             </button>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5 sm:gap-1">
               {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                 let pageNum;
                 if (totalPages <= 5) {
@@ -630,7 +630,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
                     key={pageNum}
                     onClick={() => setCurrentPage(pageNum)}
                     className={cn(
-                      "w-8 h-8 rounded-lg text-sm font-medium transition-colors",
+                      "w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-xs sm:text-sm font-medium transition-colors",
                       currentPage === pageNum
                         ? "bg-brand-500 text-white"
                         : "hover:bg-cream-200 text-brand-400"
@@ -645,7 +645,7 @@ export default function OrderTable({ orders }: OrderTableProps) {
             <button
               onClick={() => setCurrentPage(currentPage + 1)}
               disabled={currentPage === totalPages}
-              className="p-2 rounded-lg border border-brand-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-cream-100"
+              className="p-1.5 sm:p-2 rounded-lg border border-brand-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-cream-100"
             >
               <ChevronRight className="w-4 h-4 text-brand-400" />
             </button>

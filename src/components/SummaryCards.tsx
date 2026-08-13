@@ -83,19 +83,19 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
         {mainCards.map((card) => (
           <div
             key={card.title}
-            className="bg-white rounded-xl shadow-sm border border-brand-200 p-5"
+            className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5"
           >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-brand-400 font-medium">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs sm:text-sm text-brand-400 font-medium">
                   {card.title}
                 </p>
-                <p className="text-2xl font-bold text-brand-800 mt-1">
+                <p className="text-lg sm:text-2xl font-bold text-brand-800 mt-1 truncate">
                   {card.value}
                 </p>
               </div>
-              <div className={cn("p-3 rounded-xl", card.bgColor)}>
-                <card.icon className={cn("w-6 h-6", card.textColor)} />
+              <div className={cn("p-2 sm:p-3 rounded-xl shrink-0", card.bgColor)}>
+                <card.icon className={cn("w-5 h-5 sm:w-6 sm:h-6", card.textColor)} />
               </div>
             </div>
           </div>
@@ -103,7 +103,7 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
       </div>
 
       {/* Platform Breakdown */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
         {platformCards.map((card) => {
           const data = card.data;
           const percentage =
@@ -115,13 +115,13 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
             <div
               key={card.platform}
               className={cn(
-                "bg-white rounded-xl shadow-sm border p-5",
+                "bg-white rounded-xl shadow-sm border p-4 sm:p-5",
                 card.borderColor
               )}
             >
-              <div className="flex items-center gap-3 mb-4">
-                <div className={cn("w-3 h-3 rounded-full", card.dotColor)} />
-                <h3 className="font-semibold text-brand-800">{card.name}</h3>
+              <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
+                <div className={cn("w-3 h-3 rounded-full shrink-0", card.dotColor)} />
+                <h3 className="font-semibold text-brand-800 text-sm sm:text-base">{card.name}</h3>
               </div>
 
               <div className="space-y-3">

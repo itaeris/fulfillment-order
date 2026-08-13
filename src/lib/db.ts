@@ -1,89 +1,98 @@
-import Database from "better-sqlite3";
-import path from "path";
+import { supabase } from "./supabase";
 
-const dbPath = path.join(process.cwd(), "data", "orders.db");
+// ── Order operations ──
 
-// Ensure data directory exists
-import fs from "fs";
-const dataDir = path.join(process.cwd(), "data");
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+export async function getAllOrders() {
+  const { data, error } = await supabase
+    .from("orders")
+    .select("*")
+    .order("order_date", { ascending: false });
+
+  if (error) throw error;
+  return (data ?? []).map(rowToOrder);
 }
 
-const db = new Database(dbPath);
+export async function getOrdersByPlatform(platform: string) {
+  const { data, error } = await supabase
+    .from("orders")
+    .select("*")
+    .eq("platform", platform)
+    .order("order_date", { ascending: false });
 
-// Enable WAL mode for better performance
-db.pragma("journal_mode = WAL");
+  if (error) throw error;
+  return (data ?? []).map(rowToOrder);
+}
 
-// Create tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS orders (
-    id TEXT PRIMARY KEY,
-    orderNumber TEXT NOT NULL,
-    platform TEXT NOT NULL,
-    customerName TEXT,
-    recipientName TEXT,
-    productName TEXT,
-    variation TEXT,
-    sku TEXT,
-    quantity INTEGER DEFAULT 1,
-    originalPrice REAL,
-    price REAL,
-    totalAmount REAL,
-    status TEXT,
-    orderDate TEXT,
-    paidTime TEXT,
-    shippedTime TEXT,
-    mustShipBefore TEXT,
-    shippingAddress TEXT,
-    city TEXT,
-    province TEXT,
-    trackingNumber TEXT,
-    shippingOption TEXT,
-    courier TEXT,
-    phone TEXT,
-    notes TEXT,
-    weight REAL,
-    channelName TEXT,
-    storeName TEXT,
-    createdAt TEXT DEFAULT CURRENT_TIMESTAMP
+export async function insertOrder(order: OrderInput) {
+  const row = orderToRow(order);
+  const { error } = await supabase.from("orders").upsert(row);
+  if (error) throw error;
+}
+
+export async function insertOrders(orders: OrderInput[]) {
+  if (orders.length === 0) return;
+  const rows = orders.map(orderToRow);
+
+  const BATCH = 500;
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const batch = rows.slice(i, i + BATCH);
+    const { error } = await supabase.from("orders").upsert(batch);
+    if (error) throw error;
+  }
+}
+
+export async function deleteAllOrders() {
+  const { error } = await supabase.from("orders").delete().neq("id", "");
+  if (error) throw error;
+}
+
+export async function deleteOrdersByPlatform(platform: string) {
+  const { error } = await supabase.from("orders").delete().eq("platform", platform);
+  if (error) throw error;
+}
+
+// ── Uploaded files operations ──
+
+export async function getAllUploadedFiles() {
+  const { data, error } = await supabase
+    .from("uploaded_files")
+    .select("*")
+    .order("uploaded_at", { ascending: false });
+
+  if (error) throw error;
+  return (data ?? []).map(rowToFile);
+}
+
+export async function insertUploadedFile(file: {
+  name: string;
+  platform: string;
+  orderCount: number;
+}) {
+  const { error } = await supabase.from("uploaded_files").upsert(
+    {
+      name: file.name,
+      platform: file.platform,
+      order_count: file.orderCount,
+      uploaded_at: new Date().toISOString(),
+    },
+    { onConflict: "name" }
   );
-
-  CREATE TABLE IF NOT EXISTS uploaded_files (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT UNIQUE NOT NULL,
-    platform TEXT NOT NULL,
-    uploadedAt TEXT DEFAULT CURRENT_TIMESTAMP,
-    orderCount INTEGER DEFAULT 0
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_orders_platform ON orders(platform);
-  CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
-  CREATE INDEX IF NOT EXISTS idx_orders_orderDate ON orders(orderDate);
-`);
-
-// Migrate: add new columns if they don't exist yet
-try {
-  db.exec(`ALTER TABLE orders ADD COLUMN channelName TEXT`);
-} catch { /* column already exists */ }
-try {
-  db.exec(`ALTER TABLE orders ADD COLUMN storeName TEXT`);
-} catch { /* column already exists */ }
-
-export default db;
-
-// Order operations
-export function getAllOrders() {
-  const stmt = db.prepare("SELECT * FROM orders ORDER BY orderDate DESC");
-  return stmt.all();
+  if (error) throw error;
 }
 
-export function getOrdersByPlatform(platform: string) {
-  const stmt = db.prepare("SELECT * FROM orders WHERE platform = ? ORDER BY orderDate DESC");
-  return stmt.all(platform);
+export async function deleteUploadedFile(name: string) {
+  const { error } = await supabase.from("uploaded_files").delete().eq("name", name);
+  if (error) throw error;
 }
 
-export function insertOrder(order: {
+export async function deleteAllUploadedFiles() {
+  const { error } = await supabase.from("uploaded_files").delete().neq("id", "0");
+  if (error) throw error;
+}
+
+// ── Row ↔ App mapping helpers ──
+
+interface OrderInput {
   id: string;
   orderNumber: string;
   platform: string;
@@ -112,103 +121,80 @@ export function insertOrder(order: {
   weight?: number;
   channelName?: string;
   storeName?: string;
-}) {
-  // Normalize undefined values to null for SQLite
-  const normalizedOrder = {
-    id: order.id,
-    orderNumber: order.orderNumber,
-    platform: order.platform,
-    customerName: order.customerName ?? null,
-    recipientName: order.recipientName ?? null,
-    productName: order.productName ?? null,
-    variation: order.variation ?? null,
-    sku: order.sku ?? null,
-    quantity: order.quantity ?? 1,
-    originalPrice: order.originalPrice ?? null,
-    price: order.price ?? null,
-    totalAmount: order.totalAmount ?? null,
-    status: order.status ?? null,
-    orderDate: order.orderDate ?? null,
-    paidTime: order.paidTime ?? null,
-    shippedTime: order.shippedTime ?? null,
-    mustShipBefore: order.mustShipBefore ?? null,
-    shippingAddress: order.shippingAddress ?? null,
-    city: order.city ?? null,
-    province: order.province ?? null,
-    trackingNumber: order.trackingNumber ?? null,
-    shippingOption: order.shippingOption ?? null,
-    courier: order.courier ?? null,
-    phone: order.phone ?? null,
-    notes: order.notes ?? null,
-    weight: order.weight ?? null,
-    channelName: order.channelName ?? null,
-    storeName: order.storeName ?? null,
+}
+
+function orderToRow(o: OrderInput) {
+  return {
+    id: o.id,
+    order_number: o.orderNumber,
+    platform: o.platform,
+    customer_name: o.customerName ?? null,
+    recipient_name: o.recipientName ?? null,
+    product_name: o.productName ?? null,
+    variation: o.variation ?? null,
+    sku: o.sku ?? null,
+    quantity: o.quantity ?? 1,
+    original_price: o.originalPrice ?? null,
+    price: o.price ?? null,
+    total_amount: o.totalAmount ?? null,
+    status: o.status ?? null,
+    order_date: o.orderDate ?? null,
+    paid_time: o.paidTime ?? null,
+    shipped_time: o.shippedTime ?? null,
+    must_ship_before: o.mustShipBefore ?? null,
+    shipping_address: o.shippingAddress ?? null,
+    city: o.city ?? null,
+    province: o.province ?? null,
+    tracking_number: o.trackingNumber ?? null,
+    shipping_option: o.shippingOption ?? null,
+    courier: o.courier ?? null,
+    phone: o.phone ?? null,
+    notes: o.notes ?? null,
+    weight: o.weight ?? null,
+    channel_name: o.channelName ?? null,
+    store_name: o.storeName ?? null,
   };
-
-  const stmt = db.prepare(`
-    INSERT OR REPLACE INTO orders (
-      id, orderNumber, platform, customerName, recipientName, productName,
-      variation, sku, quantity, originalPrice, price, totalAmount, status,
-      orderDate, paidTime, shippedTime, mustShipBefore, shippingAddress,
-      city, province, trackingNumber, shippingOption, courier, phone, notes, weight,
-      channelName, storeName
-    ) VALUES (
-      @id, @orderNumber, @platform, @customerName, @recipientName, @productName,
-      @variation, @sku, @quantity, @originalPrice, @price, @totalAmount, @status,
-      @orderDate, @paidTime, @shippedTime, @mustShipBefore, @shippingAddress,
-      @city, @province, @trackingNumber, @shippingOption, @courier, @phone, @notes, @weight,
-      @channelName, @storeName
-    )
-  `);
-  return stmt.run(normalizedOrder);
 }
 
-export function insertOrders(orders: Parameters<typeof insertOrder>[0][]) {
-  const insertMany = db.transaction((orders) => {
-    for (const order of orders) {
-      insertOrder(order);
-    }
-  });
-  return insertMany(orders);
+function rowToOrder(r: any) {
+  return {
+    id: r.id,
+    orderNumber: r.order_number,
+    platform: r.platform,
+    customerName: r.customer_name,
+    recipientName: r.recipient_name,
+    productName: r.product_name,
+    variation: r.variation,
+    sku: r.sku,
+    quantity: r.quantity,
+    originalPrice: r.original_price,
+    price: r.price,
+    totalAmount: r.total_amount,
+    status: r.status,
+    orderDate: r.order_date,
+    paidTime: r.paid_time,
+    shippedTime: r.shipped_time,
+    mustShipBefore: r.must_ship_before,
+    shippingAddress: r.shipping_address,
+    city: r.city,
+    province: r.province,
+    trackingNumber: r.tracking_number,
+    shippingOption: r.shipping_option,
+    courier: r.courier,
+    phone: r.phone,
+    notes: r.notes,
+    weight: r.weight,
+    channelName: r.channel_name,
+    storeName: r.store_name,
+    createdAt: r.created_at,
+  };
 }
 
-export function deleteOrdersByPlatform(platform: string) {
-  const stmt = db.prepare("DELETE FROM orders WHERE platform = ?");
-  return stmt.run(platform);
-}
-
-export function deleteAllOrders() {
-  const stmt = db.prepare("DELETE FROM orders");
-  return stmt.run();
-}
-
-export function deleteOrdersByFile(fileName: string, platform: string) {
-  // We'll delete orders that were imported from this file
-  // Since we don't track file per order, we'll delete by platform
-  const stmt = db.prepare("DELETE FROM orders WHERE platform = ?");
-  return stmt.run(platform);
-}
-
-// Uploaded files operations
-export function getAllUploadedFiles() {
-  const stmt = db.prepare("SELECT * FROM uploaded_files ORDER BY uploadedAt DESC");
-  return stmt.all();
-}
-
-export function insertUploadedFile(file: { name: string; platform: string; orderCount: number }) {
-  const stmt = db.prepare(`
-    INSERT OR REPLACE INTO uploaded_files (name, platform, orderCount, uploadedAt)
-    VALUES (@name, @platform, @orderCount, datetime('now'))
-  `);
-  return stmt.run(file);
-}
-
-export function deleteUploadedFile(name: string) {
-  const stmt = db.prepare("DELETE FROM uploaded_files WHERE name = ?");
-  return stmt.run(name);
-}
-
-export function deleteAllUploadedFiles() {
-  const stmt = db.prepare("DELETE FROM uploaded_files");
-  return stmt.run();
+function rowToFile(r: any) {
+  return {
+    name: r.name,
+    platform: r.platform,
+    uploadedAt: r.uploaded_at,
+    orderCount: r.order_count,
+  };
 }

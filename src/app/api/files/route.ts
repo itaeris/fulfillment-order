@@ -8,14 +8,13 @@ import {
 
 export async function GET() {
   try {
-    const files = getAllUploadedFiles();
-    
-    // Convert date strings to Date objects
+    const files = await getAllUploadedFiles();
+
     const formattedFiles = files.map((file: any) => ({
       ...file,
       uploadedAt: file.uploadedAt ? new Date(file.uploadedAt) : new Date(),
     }));
-    
+
     return NextResponse.json({ files: formattedFiles });
   } catch (error) {
     console.error("Error fetching files:", error);
@@ -29,7 +28,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const file = await request.json();
-    insertUploadedFile(file);
+    await insertUploadedFile(file);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error saving file:", error);
@@ -44,13 +43,13 @@ export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const fileName = searchParams.get("name");
-    
+
     if (fileName) {
-      deleteUploadedFile(fileName);
+      await deleteUploadedFile(fileName);
     } else {
-      deleteAllUploadedFiles();
+      await deleteAllUploadedFiles();
     }
-    
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error deleting file:", error);
