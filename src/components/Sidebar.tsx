@@ -12,6 +12,7 @@ import {
   User,
   Settings,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useAuth, type UserProfile } from "@/contexts/AuthContext";
 
@@ -82,12 +83,18 @@ export default function Sidebar({
   return (
     <>
       {/* Mobile backdrop */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 z-40 lg:hidden"
-          onClick={onClose}
-        />
-      )}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            className="fixed inset-0 bg-black/40 z-40 lg:hidden"
+            onClick={onClose}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Sidebar */}
       <aside
@@ -114,8 +121,13 @@ export default function Sidebar({
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-2 space-y-5 overflow-y-auto">
-          {Object.entries(grouped).map(([section, items]) => (
-            <div key={section}>
+          {Object.entries(grouped).map(([section, items], sectionIdx) => (
+            <motion.div
+              key={section}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.05 * sectionIdx }}
+            >
               <p className="px-3 mb-2 text-[10px] font-semibold tracking-widest text-brand-400 uppercase">
                 {section}
               </p>
@@ -127,7 +139,7 @@ export default function Sidebar({
                       key={item.id}
                       onClick={() => handleNav(item.id)}
                       className={cn(
-                        "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                        "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 relative",
                         isActive
                           ? "bg-brand-700 text-cream-50"
                           : "text-brand-300 hover:bg-brand-800 hover:text-cream-100"
@@ -149,7 +161,7 @@ export default function Sidebar({
                   );
                 })}
               </div>
-            </div>
+            </motion.div>
           ))}
         </nav>
 

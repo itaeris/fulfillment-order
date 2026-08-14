@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useMemo } from "react";
 import { Upload, FileSpreadsheet, X, CheckCircle } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Platform, UploadedFile } from "@/types/order";
 import { cn, getPlatformName } from "@/lib/utils";
 
@@ -153,22 +154,112 @@ export default function FileUpload({
         </div>
       </div>
 
-      {/* Uploaded Files List */}
+      {/* Uploaded Files List - Grouped by Platform */}
       {uploadedFiles.length > 0 && (
-        <div className="mt-4">
-          <h3 className="text-sm font-medium text-brand-400 mb-2">
-            File yang diupload
-          </h3>
-          <div className="space-y-2">
-            {uploadedFiles.map((file) => (
+        <UploadedFilesTabs
+          uploadedFiles={uploadedFiles}
+          onRemoveFile={onRemoveFile}
+          platforms={platforms}
+        />
+      )}
+    </div>
+  );
+}
+
+function UploadedFilesTabs({
+  uploadedFiles,
+  onRemoveFile,
+  platforms,
+}: {
+  uploadedFiles: UploadedFile[];
+  onRemoveFile: (fileName: string) => void;
+  platforms: { value: Platform; label: string; color: string }[];
+}) {
+  const [activeFileTab, setActiveFileTab] = useState<Platform | "all">("all");
+
+  const grouped = useMemo(() => {
+    const map: Record<string, UploadedFile[]> = {};
+    for (const p of platforms) {
+      map[p.value] = uploadedFiles.filter((f) => f.platform === p.value);
+    }
+    return map;
+  }, [uploadedFiles, platforms]);
+
+  const visibleFiles =
+    activeFileTab === "all"
+      ? uploadedFiles
+      : grouped[activeFileTab] ?? [];
+
+  const fileTabs: { id: Platform | "all"; label: string; count: number; dotColor?: string }[] = [
+    { id: "all", label: "Semua", count: uploadedFiles.length },
+    ...platforms.map((p) => ({
+      id: p.value as Platform | "all",
+      label: p.label,
+      count: grouped[p.value]?.length ?? 0,
+      dotColor: p.color,
+    })),
+  ];
+
+  return (
+    <div className="mt-4">
+      <h3 className="text-sm font-medium text-brand-400 mb-3">
+        File yang diupload
+      </h3>
+
+      {/* Platform Tabs */}
+      <div className="flex gap-1.5 mb-3 overflow-x-auto scrollbar-hide">
+        {fileTabs.map((tab) => {
+          const isActive = activeFileTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveFileTab(tab.id)}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all",
+                isActive
+                  ? "bg-brand-600 text-white shadow-sm"
+                  : "bg-cream-200 text-brand-400 hover:bg-cream-300"
+              )}
+            >
+              {tab.dotColor && (
+                <span className={cn("w-2 h-2 rounded-full shrink-0", isActive ? "bg-white/70" : tab.dotColor)} />
+              )}
+              {tab.label}
+              <span className={cn(
+                "text-[10px] px-1.5 py-0.5 rounded-full font-semibold",
+                isActive ? "bg-white/20 text-white" : "bg-brand-200/60 text-brand-400"
+              )}>
+                {tab.count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* File List */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={activeFileTab}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -4 }}
+          transition={{ duration: 0.15 }}
+          className="space-y-2"
+        >
+          {visibleFiles.length === 0 ? (
+            <div className="text-center py-6 text-sm text-brand-300">
+              Belum ada file untuk platform ini
+            </div>
+          ) : (
+            visibleFiles.map((file) => (
               <div
                 key={file.name}
                 className="flex items-center justify-between p-3 bg-cream-100 rounded-lg border border-brand-200"
               >
-                <div className="flex items-center gap-3">
-                  <FileSpreadsheet className="w-5 h-5 text-brand-500" />
-                  <div>
-                    <p className="text-sm font-medium text-brand-700">
+                <div className="flex items-center gap-3 min-w-0">
+                  <FileSpreadsheet className="w-5 h-5 text-brand-500 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-brand-700 truncate">
                       {file.name}
                     </p>
                     <p className="text-xs text-brand-400">
@@ -176,20 +267,20 @@ export default function FileUpload({
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   <CheckCircle className="w-4 h-4 text-green-500" />
                   <button
                     onClick={() => onRemoveFile(file.name)}
-                    className="p-1 hover:bg-cream-300 rounded"
+                    className="p-1 hover:bg-cream-300 rounded transition-colors"
                   >
                     <X className="w-4 h-4 text-brand-300" />
                   </button>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+            ))
+          )}
+        </motion.div>
+      </AnimatePresence>
     </div>
   );
 }

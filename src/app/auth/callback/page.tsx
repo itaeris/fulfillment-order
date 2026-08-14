@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 
 const ALLOWED_DOMAINS = ["aerisbeaute.com", "fromthisisland.com"];
@@ -65,7 +66,12 @@ export default function AuthCallbackPage() {
   if (error) {
     return (
       <div className="min-h-screen bg-cream-100 flex items-center justify-center p-4">
-        <div className="w-full max-w-md text-center">
+        <motion.div
+          className="w-full max-w-md text-center"
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.3 }}
+        >
           <div className="bg-white rounded-2xl shadow-sm border border-brand-200 p-8">
             <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <svg className="w-7 h-7 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -81,17 +87,21 @@ export default function AuthCallbackPage() {
               Kembali ke Login
             </a>
           </div>
-        </div>
+        </motion.div>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-cream-100 flex items-center justify-center">
-      <div className="flex flex-col items-center gap-4">
+      <motion.div
+        className="flex flex-col items-center gap-4"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+      >
         <div className="loader" />
         <p className="text-brand-400 text-sm">Memverifikasi akun...</p>
-      </div>
+      </motion.div>
     </div>
   );
 }

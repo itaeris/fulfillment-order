@@ -14,6 +14,7 @@ import {
   Package,
   ShoppingBag,
 } from "lucide-react";
+import { motion } from "framer-motion";
 import { Order } from "@/types/order";
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 import type { UserRole } from "@/contexts/AuthContext";
@@ -348,38 +349,24 @@ export default function ComparisonView({ orders, userRole }: ComparisonViewProps
     <div className="space-y-4 sm:space-y-6">
       {/* Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-        <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-4">
-          <p className="text-xs text-brand-400 font-medium">Jubelio</p>
-          <p className="text-xl sm:text-2xl font-bold text-brand-800 mt-1">
-            {formatNumber(summary.jubelioCount)}
-          </p>
-          <p className="text-[10px] sm:text-xs text-brand-300 mt-1">order</p>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-4">
-          <p className="text-xs text-brand-400 font-medium">Platform</p>
-          <p className="text-xl sm:text-2xl font-bold text-brand-800 mt-1">
-            {formatNumber(summary.platformCount)}
-          </p>
-          <p className="text-[10px] sm:text-xs text-brand-300 mt-1">Shopee + TikTok</p>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-green-200 p-4">
-          <p className="text-xs text-green-600 font-medium">Tercocokkan</p>
-          <p className="text-xl sm:text-2xl font-bold text-green-700 mt-1">
-            {formatNumber(summary.matched + summary.mismatch)}
-          </p>
-          <p className="text-[10px] sm:text-xs text-green-500 mt-1">
-            {matchRate.toFixed(1)}% match rate
-          </p>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-red-200 p-4">
-          <p className="text-xs text-red-600 font-medium">Tidak Cocok</p>
-          <p className="text-xl sm:text-2xl font-bold text-red-700 mt-1">
-            {formatNumber(summary.jubelioOnly + summary.platformOnly)}
-          </p>
-          <p className="text-[10px] sm:text-xs text-red-400 mt-1">
-            perlu dicek
-          </p>
-        </div>
+        {[
+          { label: "Jubelio", value: formatNumber(summary.jubelioCount), sub: "order", border: "border-brand-200", valueColor: "text-brand-800", labelColor: "text-brand-400", subColor: "text-brand-300" },
+          { label: "Platform", value: formatNumber(summary.platformCount), sub: "Shopee + TikTok", border: "border-brand-200", valueColor: "text-brand-800", labelColor: "text-brand-400", subColor: "text-brand-300" },
+          { label: "Tercocokkan", value: formatNumber(summary.matched + summary.mismatch), sub: `${matchRate.toFixed(1)}% match rate`, border: "border-green-200", valueColor: "text-green-700", labelColor: "text-green-600", subColor: "text-green-500" },
+          { label: "Tidak Cocok", value: formatNumber(summary.jubelioOnly + summary.platformOnly), sub: "perlu dicek", border: "border-red-200", valueColor: "text-red-700", labelColor: "text-red-600", subColor: "text-red-400" },
+        ].map((card, i) => (
+          <motion.div
+            key={card.label}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.06, duration: 0.3 }}
+            className={cn("bg-white rounded-xl shadow-sm border p-4", card.border)}
+          >
+            <p className={cn("text-xs font-medium", card.labelColor)}>{card.label}</p>
+            <p className={cn("text-xl sm:text-2xl font-bold mt-1", card.valueColor)}>{card.value}</p>
+            <p className={cn("text-[10px] sm:text-xs mt-1", card.subColor)}>{card.sub}</p>
+          </motion.div>
+        ))}
       </div>
 
       {/* Matching info */}

@@ -2,6 +2,7 @@
 
 import { useState, FormEvent, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   ShoppingBag,
   ArrowLeft,
@@ -94,9 +95,19 @@ export default function ResetPasswordPage() {
 
   return (
     <div className="min-h-screen bg-cream-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+      <motion.div
+        className="w-full max-w-md"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+      >
         {/* Brand */}
-        <div className="text-center mb-8">
+        <motion.div
+          className="text-center mb-8"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+        >
           <div className="w-16 h-16 bg-brand-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
             <ShoppingBag className="w-8 h-8 text-cream-100" />
           </div>
@@ -106,12 +117,18 @@ export default function ResetPasswordPage() {
             {mode === "update" && "Buat password baru"}
             {mode === "done" && "Link reset sudah dikirim"}
           </p>
-        </div>
+        </motion.div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-brand-200 p-8">
+        <motion.div
+          className="bg-white rounded-2xl shadow-sm border border-brand-200 p-8"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+        >
+          <AnimatePresence mode="wait">
           {/* Request Reset Form */}
           {mode === "request" && (
-            <form onSubmit={handleRequestReset} className="space-y-5">
+            <motion.form key="request" onSubmit={handleRequestReset} className="space-y-5" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.2 }}>
               {error && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
                   {error}
@@ -142,12 +159,12 @@ export default function ResetPasswordPage() {
               >
                 {isSubmitting ? "Mengirim..." : "Kirim Link Reset"}
               </button>
-            </form>
+            </motion.form>
           )}
 
           {/* Update Password Form */}
           {mode === "update" && (
-            <form onSubmit={handleUpdatePassword} className="space-y-5">
+            <motion.form key="update" onSubmit={handleUpdatePassword} className="space-y-5" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.2 }}>
               {error && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
                   {error}
@@ -208,12 +225,12 @@ export default function ResetPasswordPage() {
               >
                 {isSubmitting ? "Menyimpan..." : "Simpan Password Baru"}
               </button>
-            </form>
+            </motion.form>
           )}
 
           {/* Success State */}
           {mode === "done" && (
-            <div className="text-center py-4">
+            <motion.div key="done" className="text-center py-4" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
               <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <CheckCircle className="w-7 h-7 text-green-600" />
               </div>
@@ -223,8 +240,9 @@ export default function ResetPasswordPage() {
               <p className="text-brand-400 text-xs">
                 Cek inbox email kamu dan klik link untuk membuat password baru.
               </p>
-            </div>
+            </motion.div>
           )}
+          </AnimatePresence>
 
           <div className="mt-5 text-center">
             <a
@@ -235,8 +253,8 @@ export default function ResetPasswordPage() {
               Kembali ke Login
             </a>
           </div>
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
     </div>
   );
 }

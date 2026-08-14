@@ -1,6 +1,7 @@
 "use client";
 
 import { Package, TrendingUp, ShoppingBag, DollarSign } from "lucide-react";
+import { motion } from "framer-motion";
 import { OrderSummary } from "@/types/order";
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 import type { UserRole } from "@/contexts/AuthContext";
@@ -91,9 +92,12 @@ export default function SummaryCards({ summary, userRole }: SummaryCardsProps) {
     <div className="space-y-6">
       {/* Main Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {mainCards.map((card) => (
-          <div
+        {mainCards.map((card, i) => (
+          <motion.div
             key={card.title}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.06, duration: 0.3 }}
             className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5"
           >
             <div className="flex items-center justify-between gap-2">
@@ -109,13 +113,13 @@ export default function SummaryCards({ summary, userRole }: SummaryCardsProps) {
                 <card.icon className={cn("w-5 h-5 sm:w-6 sm:h-6", card.textColor)} />
               </div>
             </div>
-          </div>
+          </motion.div>
         ))}
       </div>
 
       {/* Platform Breakdown */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-        {platformCards.map((card) => {
+        {platformCards.map((card, i) => {
           const data = card.data;
           const percentage =
             summary.totalRevenue > 0
@@ -123,8 +127,11 @@ export default function SummaryCards({ summary, userRole }: SummaryCardsProps) {
               : 0;
 
           return (
-            <div
+            <motion.div
               key={card.platform}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25 + i * 0.06, duration: 0.3 }}
               className={cn(
                 "bg-white rounded-xl shadow-sm border p-4 sm:p-5",
                 card.borderColor
@@ -166,7 +173,7 @@ export default function SummaryCards({ summary, userRole }: SummaryCardsProps) {
                   </>
                 )}
               </div>
-            </div>
+            </motion.div>
           );
         })}
       </div>

@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
   Menu,
@@ -228,12 +229,22 @@ export default function Dashboard() {
 
   if (authLoading || !user || isLoading) {
     return (
-      <div className="h-screen bg-cream-100 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
+      <motion.div
+        className="h-screen bg-cream-100 flex items-center justify-center"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        <motion.div
+          className="flex flex-col items-center gap-4"
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ delay: 0.1 }}
+        >
           <div className="loader" />
           <p className="text-brand-400">Memuat data...</p>
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
     );
   }
 
@@ -292,98 +303,145 @@ export default function Dashboard() {
 
         {/* Scrollable content */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6">
-          {activeTab === "upload" && (
-            <div className="max-w-5xl space-y-4 sm:space-y-6">
-              <FileUpload
-                onFileUpload={handleFileUpload}
-                uploadedFiles={uploadedFiles}
-                onRemoveFile={handleRemoveFile}
-              />
+          <AnimatePresence mode="wait">
+            {activeTab === "upload" && (
+              <motion.div
+                key="upload"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2 }}
+                className="max-w-5xl space-y-4 sm:space-y-6"
+              >
+                <FileUpload
+                  onFileUpload={handleFileUpload}
+                  uploadedFiles={uploadedFiles}
+                  onRemoveFile={handleRemoveFile}
+                />
 
-              {orders.length > 0 && (
-                <div className="bg-brand-50 border border-brand-200 rounded-xl p-4">
-                  <p className="text-brand-700 text-sm">
-                    <span className="font-semibold">{orders.length} order</span>{" "}
-                    tersimpan di database. Klik{" "}
-                    <button
-                      onClick={() => setActiveTab("dashboard")}
-                      className="font-semibold underline"
-                    >
-                      Dashboard
-                    </button>{" "}
-                    untuk melihat data.
-                  </p>
-                </div>
-              )}
-
-              {/* Quick Tips */}
-              <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-6">
-                <h3 className="text-base sm:text-lg font-semibold text-brand-800 mb-4">
-                  Panduan Import
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
-                  <div className="p-3 sm:p-4 bg-cream-200 rounded-lg border border-brand-200">
-                    <h4 className="font-semibold text-brand-700 mb-1 sm:mb-2 text-sm sm:text-base">Shopee</h4>
-                    <p className="text-xs sm:text-sm text-brand-400">
-                      Export dari Seller Centre &gt; Pesanan &gt; Export. Pilih format Excel/CSV.
-                    </p>
-                  </div>
-                  <div className="p-3 sm:p-4 bg-cream-200 rounded-lg border border-brand-200">
-                    <h4 className="font-semibold text-brand-700 mb-1 sm:mb-2 text-sm sm:text-base">
-                      TikTok &amp; Tokopedia
-                    </h4>
-                    <p className="text-xs sm:text-sm text-brand-400">
-                      Export dari Seller Center &gt; Orders &gt; Export Orders. Pilih format XLSX.
-                    </p>
-                  </div>
-                  <div className="p-3 sm:p-4 bg-cream-200 rounded-lg border border-brand-200">
-                    <h4 className="font-semibold text-brand-700 mb-1 sm:mb-2 text-sm sm:text-base">Jubelio</h4>
-                    <p className="text-xs sm:text-sm text-brand-400">
-                      Export dari Jubelio &gt; Sales Order &gt; Export. Pilih format Excel/XLSX.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "compare" && (
-            <ComparisonView orders={orders} userRole={userRole} />
-          )}
-
-          {activeTab === "settings" && (
-            <SettingsView />
-          )}
-
-          {activeTab === "dashboard" && (
-            <div className="space-y-4 sm:space-y-6">
-              {orders.length === 0 ? (
-                <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-8 sm:p-12 text-center">
-                  <div className="w-16 sm:w-20 h-16 sm:h-20 bg-cream-200 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <LayoutDashboard className="w-8 sm:w-10 h-8 sm:h-10 text-brand-300" />
-                  </div>
-                  <h3 className="text-lg sm:text-xl font-semibold text-brand-700 mb-2">
-                    Belum Ada Data
-                  </h3>
-                  <p className="text-brand-400 mb-4 text-sm sm:text-base">
-                    Import file Excel dari marketplace untuk memulai.
-                  </p>
-                  <button
-                    onClick={() => setActiveTab("upload")}
-                    className="px-6 py-3 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors font-medium text-sm sm:text-base"
+                {orders.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 }}
+                    className="bg-brand-50 border border-brand-200 rounded-xl p-4"
                   >
-                    Import Data
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <SummaryCards summary={summary} userRole={userRole} />
-                  <Charts dailyStats={dailyStats} summary={summary} userRole={userRole} />
-                  <OrderTable orders={orders} userRole={userRole} />
-                </>
-              )}
-            </div>
-          )}
+                    <p className="text-brand-700 text-sm">
+                      <span className="font-semibold">{orders.length} order</span>{" "}
+                      tersimpan di database. Klik{" "}
+                      <button
+                        onClick={() => setActiveTab("dashboard")}
+                        className="font-semibold underline"
+                      >
+                        Dashboard
+                      </button>{" "}
+                      untuk melihat data.
+                    </p>
+                  </motion.div>
+                )}
+
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.15 }}
+                  className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-6"
+                >
+                  <h3 className="text-base sm:text-lg font-semibold text-brand-800 mb-4">
+                    Panduan Import
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
+                    {[
+                      { title: "Shopee", desc: "Export dari Seller Centre > Pesanan > Export. Pilih format Excel/CSV." },
+                      { title: "TikTok & Tokopedia", desc: "Export dari Seller Center > Orders > Export Orders. Pilih format XLSX." },
+                      { title: "Jubelio", desc: "Export dari Jubelio > Sales Order > Export. Pilih format Excel/XLSX." },
+                    ].map((tip, i) => (
+                      <motion.div
+                        key={tip.title}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2 + i * 0.05 }}
+                        className="p-3 sm:p-4 bg-cream-200 rounded-lg border border-brand-200"
+                      >
+                        <h4 className="font-semibold text-brand-700 mb-1 sm:mb-2 text-sm sm:text-base">{tip.title}</h4>
+                        <p className="text-xs sm:text-sm text-brand-400">{tip.desc}</p>
+                      </motion.div>
+                    ))}
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+
+            {activeTab === "compare" && (
+              <motion.div
+                key="compare"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2 }}
+              >
+                <ComparisonView orders={orders} userRole={userRole} />
+              </motion.div>
+            )}
+
+            {activeTab === "settings" && (
+              <motion.div
+                key="settings"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2 }}
+              >
+                <SettingsView />
+              </motion.div>
+            )}
+
+            {activeTab === "dashboard" && (
+              <motion.div
+                key="dashboard"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2 }}
+                className="space-y-4 sm:space-y-6"
+              >
+                {orders.length === 0 ? (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="bg-white rounded-xl shadow-sm border border-brand-200 p-8 sm:p-12 text-center"
+                  >
+                    <div className="w-16 sm:w-20 h-16 sm:h-20 bg-cream-200 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <LayoutDashboard className="w-8 sm:w-10 h-8 sm:h-10 text-brand-300" />
+                    </div>
+                    <h3 className="text-lg sm:text-xl font-semibold text-brand-700 mb-2">
+                      Belum Ada Data
+                    </h3>
+                    <p className="text-brand-400 mb-4 text-sm sm:text-base">
+                      Import file Excel dari marketplace untuk memulai.
+                    </p>
+                    <button
+                      onClick={() => setActiveTab("upload")}
+                      className="px-6 py-3 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors font-medium text-sm sm:text-base"
+                    >
+                      Import Data
+                    </button>
+                  </motion.div>
+                ) : (
+                  <>
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+                      <SummaryCards summary={summary} userRole={userRole} />
+                    </motion.div>
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+                      <Charts dailyStats={dailyStats} summary={summary} userRole={userRole} />
+                    </motion.div>
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
+                      <OrderTable orders={orders} userRole={userRole} />
+                    </motion.div>
+                  </>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </main>
       </div>
     </div>

@@ -16,6 +16,7 @@ import {
   ChevronDown,
   AlertTriangle,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 function Spinner({ className = "w-4 h-4" }: { className?: string }) {
@@ -78,9 +79,23 @@ export default function SettingsView() {
         })}
       </div>
 
-      {activeSection === "profile" && <ProfileSection />}
-      {activeSection === "password" && <PasswordSection />}
-      {activeSection === "users" && profile?.role === "admin" && <UserManagementSection />}
+      <AnimatePresence mode="wait">
+        {activeSection === "profile" && (
+          <motion.div key="profile" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
+            <ProfileSection />
+          </motion.div>
+        )}
+        {activeSection === "password" && (
+          <motion.div key="password" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
+            <PasswordSection />
+          </motion.div>
+        )}
+        {activeSection === "users" && profile?.role === "admin" && (
+          <motion.div key="users" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
+            <UserManagementSection />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -301,35 +316,49 @@ function ConfirmModal({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/40" onClick={onCancel} />
-      <div className="relative bg-white rounded-2xl shadow-xl border border-brand-200 p-6 w-full max-w-sm">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center shrink-0">
-            <AlertTriangle className="w-5 h-5 text-red-500" />
-          </div>
-          <h3 className="text-base font-semibold text-brand-800">{title}</h3>
-        </div>
-        <p className="text-sm text-brand-500 mb-6">{message}</p>
-        <div className="flex justify-end gap-2">
-          <button
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
+          <motion.div
+            className="fixed inset-0 bg-black/40"
             onClick={onCancel}
-            className="px-4 py-2 rounded-xl text-sm font-medium text-brand-600 bg-cream-100 hover:bg-cream-200 transition-all"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          />
+          <motion.div
+            className="relative bg-white rounded-2xl shadow-xl border border-brand-200 p-6 w-full max-w-sm"
+            initial={{ opacity: 0, scale: 0.9, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 5 }}
+            transition={{ type: "spring", damping: 25, stiffness: 350 }}
           >
-            Batal
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-4 py-2 rounded-xl text-sm font-medium text-white bg-red-500 hover:bg-red-600 transition-all"
-          >
-            Hapus
-          </button>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-red-500" />
+              </div>
+              <h3 className="text-base font-semibold text-brand-800">{title}</h3>
+            </div>
+            <p className="text-sm text-brand-500 mb-6">{message}</p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={onCancel}
+                className="px-4 py-2 rounded-xl text-sm font-medium text-brand-600 bg-cream-100 hover:bg-cream-200 transition-all"
+              >
+                Batal
+              </button>
+              <button
+                onClick={onConfirm}
+                className="px-4 py-2 rounded-xl text-sm font-medium text-white bg-red-500 hover:bg-red-600 transition-all"
+              >
+                Hapus
+              </button>
+            </div>
+          </motion.div>
         </div>
-      </div>
-    </div>
+      )}
+    </AnimatePresence>
   );
 }
 

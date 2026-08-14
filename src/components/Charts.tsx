@@ -15,6 +15,7 @@ import {
   Bar,
   Legend,
 } from "recharts";
+import { motion } from "framer-motion";
 import { DailyStats, OrderSummary } from "@/types/order";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
@@ -134,7 +135,7 @@ export default function Charts({ dailyStats, summary, userRole }: ChartsProps) {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Revenue Trend Chart (hidden for warehouse) */}
       {!hideMoney && dailyStats.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5">
           <h3 className="text-base sm:text-lg font-semibold text-brand-800 mb-3 sm:mb-4">
             Tren Pendapatan
           </h3>
@@ -226,12 +227,12 @@ export default function Charts({ dailyStats, summary, userRole }: ChartsProps) {
               </AreaChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* Platform Distribution Pie Chart (hidden for warehouse) */}
       {!hideMoney && platformPieData.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5">
           <h3 className="text-base sm:text-lg font-semibold text-brand-800 mb-3 sm:mb-4">
             Distribusi per Platform
           </h3>
@@ -262,12 +263,12 @@ export default function Charts({ dailyStats, summary, userRole }: ChartsProps) {
               </PieChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* Status Distribution Bar Chart */}
       {statusBarData.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5 lg:col-span-2">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5 lg:col-span-2">
           <h3 className="text-base sm:text-lg font-semibold text-brand-800 mb-3 sm:mb-4">
             Status Order
           </h3>
@@ -299,7 +300,7 @@ export default function Charts({ dailyStats, summary, userRole }: ChartsProps) {
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </motion.div>
       )}
     </div>
   );

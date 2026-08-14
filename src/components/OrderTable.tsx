@@ -21,6 +21,7 @@ import {
   ArrowUpFromLine,
   Send,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Order, Platform, OrderStatus } from "@/types/order";
 import {
   cn,
@@ -520,8 +521,9 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
 
       {/* Table */}
       <div className="overflow-x-auto">
+        <AnimatePresence mode="wait">
         {orders.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 px-4">
+          <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center justify-center py-16 px-4">
             <div className="w-16 h-16 bg-cream-200 rounded-full flex items-center justify-center mb-4">
               <Package className="w-8 h-8 text-brand-300" />
             </div>
@@ -530,9 +532,9 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
               <br />
               Import file Excel untuk memulai.
             </p>
-          </div>
+          </motion.div>
         ) : filteredAndSortedOrders.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 px-4">
+          <motion.div key="no-results" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center justify-center py-16 px-4">
             <div className="w-16 h-16 bg-cream-200 rounded-full flex items-center justify-center mb-4">
               <Search className="w-8 h-8 text-brand-300" />
             </div>
@@ -541,8 +543,9 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
               <br />
               Coba ubah filter atau kata kunci pencarian.
             </p>
-          </div>
+          </motion.div>
         ) : (
+          <motion.div key="table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
           <table className="w-full min-w-[800px]">
             <thead className="bg-cream-100">
               <tr>
@@ -775,7 +778,9 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
               })}
             </tbody>
           </table>
+          </motion.div>
         )}
+        </AnimatePresence>
       </div>
 
       {/* Pagination */}
