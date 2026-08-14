@@ -2,15 +2,17 @@ import { supabase } from "./supabase";
 
 // ── Order operations ──
 
+const ORDER_COLUMNS = "id,order_number,platform,customer_name,recipient_name,product_name,variation,sku,quantity,original_price,price,total_amount,status,order_date,paid_time,shipped_time,must_ship_before,shipping_address,city,province,tracking_number,shipping_option,courier,phone,notes,weight,channel_name,store_name,ref_no,pickup_time,created_at";
+
 export async function getAllOrders() {
   const allRows: any[] = [];
-  const PAGE_SIZE = 1000;
+  const PAGE_SIZE = 5000;
   let from = 0;
 
   while (true) {
     const { data, error } = await supabase
       .from("orders")
-      .select("*")
+      .select(ORDER_COLUMNS)
       .order("order_date", { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
 
@@ -27,13 +29,13 @@ export async function getAllOrders() {
 
 export async function getOrdersByPlatform(platform: string) {
   const allRows: any[] = [];
-  const PAGE_SIZE = 1000;
+  const PAGE_SIZE = 5000;
   let from = 0;
 
   while (true) {
     const { data, error } = await supabase
       .from("orders")
-      .select("*")
+      .select(ORDER_COLUMNS)
       .eq("platform", platform)
       .order("order_date", { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
