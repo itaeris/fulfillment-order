@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -24,12 +24,28 @@ export default function Dashboard() {
   const router = useRouter();
   const userRole = profile?.role ?? "warehouse";
 
+  type TabId = "dashboard" | "upload" | "compare" | "settings";
+  const VALID_TABS: TabId[] = ["dashboard", "upload", "compare", "settings"];
+  const TAB_STORAGE_KEY = "activeTab";
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "upload" | "compare" | "settings">("upload");
+  const [activeTab, setActiveTabState] = useState<TabId>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(TAB_STORAGE_KEY) as TabId | null;
+      if (saved && VALID_TABS.includes(saved)) return saved;
+    }
+    return "upload";
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const restoredTab = useRef(false);
+
+  const setActiveTab = useCallback((tab: TabId) => {
+    setActiveTabState(tab);
+    localStorage.setItem(TAB_STORAGE_KEY, tab);
+  }, []);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -61,7 +77,8 @@ export default function Dashboard() {
           }));
           setOrders(loadedOrders);
 
-          if (loadedOrders.length > 0) {
+          const savedTab = localStorage.getItem(TAB_STORAGE_KEY) as TabId | null;
+          if (loadedOrders.length > 0 && (!savedTab || !VALID_TABS.includes(savedTab))) {
             setActiveTab("dashboard");
           }
         }
