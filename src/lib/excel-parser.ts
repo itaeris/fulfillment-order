@@ -19,6 +19,16 @@ const COLUMN_MAPPINGS: Record<Platform, Record<string, string>> = {
     "Waktu Pembayaran Dilakukan": "paidTime",
     "Waktu Pesanan Selesai": "completedTime",
     
+    // Pickup time columns (various Shopee export versions)
+    "Waktu Pickup": "pickupTime",
+    "Waktu Pick Up": "pickupTime",
+    "Tanggal Pickup": "pickupTime",
+    "Jadwal Pickup": "pickupTime",
+    "Waktu Penjemputan": "pickupTime",
+    "Pickup Time": "pickupTime",
+    "Tanggal Penjemputan": "pickupTime",
+    "Waktu Kurir Menjemput": "pickupTime",
+    
     // Order info
     "Tipe Pesanan": "orderType",
     "Metode Pembayaran": "paymentMethod",
@@ -569,6 +579,28 @@ function findColumnMapping(
       }
     }
   });
+
+  // Fuzzy fallback: auto-detect pickup-related columns not yet mapped
+  if (mapping.pickupTime === undefined) {
+    headers.forEach((header, index) => {
+      if (!header || mapping.pickupTime !== undefined) return;
+      const lower = header.toString().trim().toLowerCase();
+      if (
+        (lower.includes("pickup") || lower.includes("pick up") || lower.includes("jemput") || lower.includes("penjemputan")) &&
+        (lower.includes("waktu") || lower.includes("tanggal") || lower.includes("jadwal") || lower.includes("time") || lower.includes("date"))
+      ) {
+        mapping.pickupTime = index;
+        console.log("Auto-detected pickup column:", header, "at index", index);
+      }
+    });
+  }
+
+  // Log unmapped headers for debugging
+  const mappedIndices = new Set(Object.values(mapping));
+  const unmapped = headers.filter((h, i) => h && !mappedIndices.has(i));
+  if (unmapped.length > 0) {
+    console.log("Unmapped headers:", unmapped.join(" | "));
+  }
   
   return mapping;
 }
@@ -658,6 +690,11 @@ export function parseExcelFile(
   
   const columnMapping = findColumnMapping(headers, finalPlatform);
   console.log("Column mapping:", columnMapping);
+  console.log("Pickup-related mappings:", {
+    pickupTime: columnMapping.pickupTime !== undefined ? `col ${columnMapping.pickupTime} = "${headers[columnMapping.pickupTime]}"` : "NOT FOUND",
+    rtsTime: columnMapping.rtsTime !== undefined ? `col ${columnMapping.rtsTime} = "${headers[columnMapping.rtsTime]}"` : "NOT FOUND",
+    shippingScheduled: columnMapping.shippingScheduled !== undefined ? `col ${columnMapping.shippingScheduled} = "${headers[columnMapping.shippingScheduled]}"` : "NOT FOUND",
+  });
   
   // If no orderNumber column found, try to find any ID-like column
   if (columnMapping.orderNumber === undefined) {
@@ -686,6 +723,16 @@ export function parseExcelFile(
       const colIndex = columnMapping[field];
       return colIndex !== undefined ? row[colIndex] : undefined;
     };
+
+    // Debug: log pickup values for first 3 rows
+    if (i <= headerRowIndex + 3) {
+      console.log(`Row ${i - headerRowIndex} pickup debug:`, {
+        pickupTime: getValue("pickupTime"),
+        rtsTime: getValue("rtsTime"),
+        shippingScheduled: getValue("shippingScheduled"),
+        mustShipBefore: getValue("mustShipBefore"),
+      });
+    }
     
     let orderNumber = getValue("orderNumber")?.toString()?.trim() || "";
     // Jubelio: fallback to salesorderId if no salesorder_no
@@ -728,7 +775,12 @@ export function parseExcelFile(
       orderDate: parseDate(getValue("orderDate")),
       paidTime: getValue("paidTime") ? parseDate(getValue("paidTime")) : undefined,
       shippedTime: getValue("shippedTime") ? parseDate(getValue("shippedTime")) : undefined,
-      mustShipBefore: getValue("mustShipBefore") ? parseDate(getValue("mustShipBefore")) : undefined,
+      mustShipBefore: (() => {
+        const raw = getValue("mustShipBefore");
+        if (raw) return parseDate(raw);
+        // TikTok doesn't have a "must ship before" column — not applicable
+        return undefined;
+      })(),
       shippingAddress: getValue("shippingAddress")?.toString()?.trim(),
       city: getValue("city")?.toString()?.trim(),
       province: getValue("province")?.toString()?.trim(),
@@ -742,8 +794,23 @@ export function parseExcelFile(
       storeName: getValue("storeName")?.toString()?.trim(),
       refNo: getValue("refNo")?.toString()?.trim() || getValue("invoiceNo")?.toString()?.trim(),
       pickupTime: (() => {
-        const raw = getValue("pickupTime") || getValue("rtsTime") || getValue("shippingScheduled");
-        return raw ? parseDate(raw) : undefined;
+        const candidates = [
+          getValue("pickupTime"),
+          getValue("rtsTime"),
+          getValue("shippingScheduled"),
+        ];
+        // For Shopee: "Waktu Pengiriman Diatur" is our best pickup source
+        // For TikTok: "RTS Time" is the pickup time
+        // For Jubelio: "pickup_time_store" is the pickup time
+        for (const raw of candidates) {
+          if (!raw) continue;
+          const str = String(raw).trim();
+          if (!str || str === "-" || str === "0" || str.toLowerCase() === "n/a") continue;
+          const parsed = parseDate(raw);
+          if (isNaN(parsed.getTime())) continue;
+          return parsed;
+        }
+        return undefined;
       })(),
     };
     
