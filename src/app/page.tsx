@@ -44,15 +44,11 @@ export default function Dashboard() {
       try {
         setIsLoading(true);
 
-        const [ordersRes, filesRes] = await Promise.all([
-          fetch("/api/orders"),
-          fetch("/api/files"),
-        ]);
+        const ordersRes = await fetch("/api/orders");
+        const ordersData = await ordersRes.json();
 
-        const [ordersData, filesData] = await Promise.all([
-          ordersRes.json(),
-          filesRes.json(),
-        ]);
+        const filesRes = await fetch("/api/files");
+        const filesData = await filesRes.json();
 
         if (ordersData.orders) {
           const loadedOrders = ordersData.orders.map((order: any) => ({

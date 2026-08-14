@@ -8,9 +8,16 @@ import {
 export async function GET() {
   try {
     const orders = await getAllOrders();
-    return NextResponse.json({ orders }, {
-      headers: { "Cache-Control": "private, max-age=0, s-maxage=10, stale-while-revalidate=30" },
-    });
+
+    const formattedOrders = orders.map((order: any) => ({
+      ...order,
+      orderDate: order.orderDate ? new Date(order.orderDate) : new Date(),
+      paidTime: order.paidTime ? new Date(order.paidTime) : undefined,
+      shippedTime: order.shippedTime ? new Date(order.shippedTime) : undefined,
+      mustShipBefore: order.mustShipBefore ? new Date(order.mustShipBefore) : undefined,
+    }));
+
+    return NextResponse.json({ orders: formattedOrders });
   } catch (error) {
     console.error("Error fetching orders:", error);
     return NextResponse.json(

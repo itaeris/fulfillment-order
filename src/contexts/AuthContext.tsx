@@ -23,6 +23,8 @@ export interface UserProfile {
 }
 
 const ALLOWED_DOMAINS = ["aerisbeaute.com", "fromthisisland.com"];
+const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
+const SESSION_KEY = "login_timestamp";
 
 interface AuthContextType {
   user: User | null;
@@ -83,12 +85,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return false;
   }, []);
 
+  const checkSessionExpiry = useCallback(async () => {
+    const loginTime = localStorage.getItem(SESSION_KEY);
+    if (!loginTime) return;
+
+    const elapsed = Date.now() - parseInt(loginTime, 10);
+    if (elapsed >= SESSION_DURATION_MS) {
+      localStorage.removeItem(SESSION_KEY);
+      await supabase.auth.signOut();
+      setUser(null);
+      setProfile(null);
+    }
+  }, []);
+
   useEffect(() => {
     const init = async () => {
       const {
         data: { session },
       } = await supabase.auth.getSession();
       if (session?.user) {
+        const loginTime = localStorage.getItem(SESSION_KEY);
+        if (loginTime) {
+          const elapsed = Date.now() - parseInt(loginTime, 10);
+          if (elapsed >= SESSION_DURATION_MS) {
+            localStorage.removeItem(SESSION_KEY);
+            await supabase.auth.signOut();
+            setIsLoading(false);
+            return;
+          }
+        } else {
+          localStorage.setItem(SESSION_KEY, Date.now().toString());
+        }
+
         setUser(session.user);
         await fetchProfile(session.user.id, session.user.email!);
       }
@@ -111,16 +139,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
+        if (!localStorage.getItem(SESSION_KEY)) {
+          localStorage.setItem(SESSION_KEY, Date.now().toString());
+        }
+
         setUser(session.user);
         await fetchProfile(session.user.id, email);
       } else {
         setUser(null);
         setProfile(null);
+        localStorage.removeItem(SESSION_KEY);
       }
     });
 
-    return () => subscription.unsubscribe();
-  }, [fetchProfile]);
+    const expiryInterval = setInterval(checkSessionExpiry, 60 * 1000);
+
+    return () => {
+      subscription.unsubscribe();
+      clearInterval(expiryInterval);
+    };
+  }, [fetchProfile, checkSessionExpiry]);
 
   const signIn = useCallback(
     async (
@@ -175,6 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    localStorage.removeItem(SESSION_KEY);
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);

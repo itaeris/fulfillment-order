@@ -9,9 +9,13 @@ import {
 export async function GET() {
   try {
     const files = await getAllUploadedFiles();
-    return NextResponse.json({ files }, {
-      headers: { "Cache-Control": "private, max-age=0, s-maxage=10, stale-while-revalidate=30" },
-    });
+
+    const formattedFiles = files.map((file: any) => ({
+      ...file,
+      uploadedAt: file.uploadedAt ? new Date(file.uploadedAt) : new Date(),
+    }));
+
+    return NextResponse.json({ files: formattedFiles });
   } catch (error) {
     console.error("Error fetching files:", error);
     return NextResponse.json(
