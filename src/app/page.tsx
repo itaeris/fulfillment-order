@@ -8,7 +8,6 @@ import {
   Menu,
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
-import FileUpload from "@/components/FileUpload";
 import SummaryCards from "@/components/SummaryCards";
 import OrderTable from "@/components/OrderTable";
 import Charts from "@/components/Charts";
@@ -24,8 +23,8 @@ export default function Dashboard() {
   const router = useRouter();
   const userRole = profile?.role ?? "warehouse";
 
-  type TabId = "dashboard" | "upload" | "compare" | "settings";
-  const VALID_TABS: TabId[] = ["dashboard", "upload", "compare", "settings"];
+  type TabId = "dashboard" | "compare" | "settings";
+  const VALID_TABS: TabId[] = ["dashboard", "compare", "settings"];
   const TAB_STORAGE_KEY = "activeTab";
 
   const [orders, setOrders] = useState<Order[]>([]);
@@ -35,7 +34,7 @@ export default function Dashboard() {
       const saved = localStorage.getItem(TAB_STORAGE_KEY) as TabId | null;
       if (saved && VALID_TABS.includes(saved)) return saved;
     }
-    return "upload";
+    return "settings";
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -267,9 +266,8 @@ export default function Dashboard() {
 
   const pageTitles: Record<string, { title: string; subtitle: string }> = {
     dashboard: { title: "Dashboard", subtitle: "Ringkasan performa order dari semua platform" },
-    upload: { title: "Import Data", subtitle: "Upload file Excel dari marketplace" },
     compare: { title: "Komparasi", subtitle: "Bandingkan data Jubelio dengan Shopee / TikTok" },
-    settings: { title: "Settings", subtitle: "Kelola profil, password, dan user" },
+    settings: { title: "Settings", subtitle: "Kelola data, profil, password, dan user" },
   };
   const pageTitle = pageTitles[activeTab].title;
   const pageSubtitle = pageTitles[activeTab].subtitle;
@@ -281,8 +279,6 @@ export default function Dashboard() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         orderCount={orders.length}
-        onExportCSV={handleExportCSV}
-        onClearAll={handleClearAll}
         isSaving={isSaving}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
@@ -321,73 +317,6 @@ export default function Dashboard() {
         {/* Scrollable content */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6">
           <AnimatePresence mode="wait">
-            {activeTab === "upload" && (
-              <motion.div
-                key="upload"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.2 }}
-                className="max-w-5xl space-y-4 sm:space-y-6"
-              >
-                <FileUpload
-                  onFileUpload={handleFileUpload}
-                  uploadedFiles={uploadedFiles}
-                  onRemoveFile={handleRemoveFile}
-                />
-
-                {orders.length > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                    className="bg-brand-50 border border-brand-200 rounded-xl p-4"
-                  >
-                    <p className="text-brand-700 text-sm">
-                      <span className="font-semibold">{orders.length} order</span>{" "}
-                      tersimpan di database. Klik{" "}
-                      <button
-                        onClick={() => setActiveTab("dashboard")}
-                        className="font-semibold underline"
-                      >
-                        Dashboard
-                      </button>{" "}
-                      untuk melihat data.
-                    </p>
-                  </motion.div>
-                )}
-
-                <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.15 }}
-                  className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-6"
-                >
-                  <h3 className="text-base sm:text-lg font-semibold text-brand-800 mb-4">
-                    Panduan Import
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
-                    {[
-                      { title: "Shopee", desc: "Export dari Seller Centre > Pesanan > Export. Pilih format Excel/CSV." },
-                      { title: "TikTok & Tokopedia", desc: "Export dari Seller Center > Orders > Export Orders. Pilih format XLSX." },
-                      { title: "Jubelio", desc: "Export dari Jubelio > Sales Order > Export. Pilih format Excel/XLSX." },
-                    ].map((tip, i) => (
-                      <motion.div
-                        key={tip.title}
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.2 + i * 0.05 }}
-                        className="p-3 sm:p-4 bg-cream-200 rounded-lg border border-brand-200"
-                      >
-                        <h4 className="font-semibold text-brand-700 mb-1 sm:mb-2 text-sm sm:text-base">{tip.title}</h4>
-                        <p className="text-xs sm:text-sm text-brand-400">{tip.desc}</p>
-                      </motion.div>
-                    ))}
-                  </div>
-                </motion.div>
-              </motion.div>
-            )}
-
             {activeTab === "compare" && (
               <motion.div
                 key="compare"
@@ -408,7 +337,14 @@ export default function Dashboard() {
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.2 }}
               >
-                <SettingsView />
+                <SettingsView
+                  onFileUpload={handleFileUpload}
+                  uploadedFiles={uploadedFiles}
+                  onRemoveFile={handleRemoveFile}
+                  onExportCSV={handleExportCSV}
+                  onClearAll={handleClearAll}
+                  orderCount={orders.length}
+                />
               </motion.div>
             )}
 

@@ -1,29 +1,26 @@
 "use client";
 
+import { useState } from "react";
 import {
   LayoutDashboard,
-  Download,
-  RefreshCw,
   ShoppingBag,
-  Upload,
   GitCompareArrows,
   X,
   LogOut,
   User,
   Settings,
+  ChevronUp,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useAuth, type UserProfile } from "@/contexts/AuthContext";
 
-type TabId = "dashboard" | "upload" | "compare" | "settings";
+type TabId = "dashboard" | "compare" | "settings";
 
 interface SidebarProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
   orderCount: number;
-  onExportCSV: () => void;
-  onClearAll: () => void;
   isSaving: boolean;
   isOpen: boolean;
   onClose: () => void;
@@ -34,14 +31,14 @@ export default function Sidebar({
   activeTab,
   onTabChange,
   orderCount,
-  onExportCSV,
-  onClearAll,
   isSaving,
   isOpen,
   onClose,
   profile,
 }: SidebarProps) {
   const { signOut } = useAuth();
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  
   const navItems = [
     {
       id: "dashboard" as const,
@@ -54,12 +51,6 @@ export default function Sidebar({
       label: "Komparasi",
       icon: GitCompareArrows,
       section: "OVERVIEW",
-    },
-    {
-      id: "upload" as const,
-      label: "Import Data",
-      icon: Upload,
-      section: "DATA",
     },
     {
       id: "settings" as const,
@@ -165,9 +156,9 @@ export default function Sidebar({
           ))}
         </nav>
 
-        {/* Bottom actions */}
-        <div className="px-3 py-4 border-t border-brand-800 space-y-1">
-          {isSaving && (
+        {/* Saving indicator */}
+        {isSaving && (
+          <div className="px-3 py-3 border-t border-brand-800">
             <div className="flex items-center gap-2 px-3 py-2 text-xs text-brand-400">
               <svg className="w-3.5 h-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -175,48 +166,50 @@ export default function Sidebar({
               </svg>
               Menyimpan...
             </div>
-          )}
-          {orderCount > 0 && (
-            <>
-              <button
-                onClick={() => { onExportCSV(); onClose(); }}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-brand-300 hover:bg-brand-800 hover:text-cream-100 transition-colors"
-              >
-                <Download className="w-[18px] h-[18px] shrink-0" />
-                Export CSV
-              </button>
-              <button
-                onClick={() => { onClearAll(); onClose(); }}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-brand-300 hover:bg-brand-800 hover:text-cream-100 transition-colors"
-              >
-                <RefreshCw className="w-[18px] h-[18px] shrink-0" />
-                Reset Data
-              </button>
-            </>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* User info & Logout */}
+        {/* User Dropdown */}
         {profile && (
           <div className="px-3 py-3 border-t border-brand-800">
-            <div className="flex items-center gap-3 px-3 py-2">
+            <button
+              onClick={() => setUserMenuOpen(!userMenuOpen)}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-brand-800 transition-colors"
+            >
               <div className="w-8 h-8 bg-brand-700 rounded-full flex items-center justify-center shrink-0">
                 <User className="w-4 h-4 text-cream-200" />
               </div>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 text-left">
                 <p className="text-sm font-medium text-cream-100 truncate">{profile.name}</p>
                 <p className="text-[10px] text-brand-400 truncate">
                   {profile.role === "admin" ? "Admin" : "Warehouse"}
                 </p>
               </div>
-            </div>
-            <button
-              onClick={() => { signOut(); onClose(); }}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-brand-400 hover:bg-brand-800 hover:text-red-400 transition-colors mt-1"
-            >
-              <LogOut className="w-[18px] h-[18px] shrink-0" />
-              Keluar
+              <ChevronUp className={cn(
+                "w-4 h-4 text-brand-400 transition-transform duration-200",
+                userMenuOpen ? "rotate-0" : "rotate-180"
+              )} />
             </button>
+            
+            <AnimatePresence>
+              {userMenuOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.15 }}
+                  className="overflow-hidden"
+                >
+                  <button
+                    onClick={() => { signOut(); onClose(); }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-brand-400 hover:bg-brand-800 hover:text-red-400 transition-colors mt-1"
+                  >
+                    <LogOut className="w-[18px] h-[18px] shrink-0" />
+                    Keluar
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
       </aside>

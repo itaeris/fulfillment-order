@@ -15,9 +15,14 @@ import {
   Warehouse,
   ChevronDown,
   AlertTriangle,
+  Database,
+  Download,
+  RefreshCw,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import FileUpload from "./FileUpload";
+import { Platform, UploadedFile } from "@/types/order";
 
 function Spinner({ className = "w-4 h-4" }: { className?: string }) {
   return (
@@ -30,7 +35,7 @@ function Spinner({ className = "w-4 h-4" }: { className?: string }) {
 import { useAuth, type UserProfile, type UserRole } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 
-type SettingsTab = "profile" | "password" | "users";
+type SettingsTab = "data" | "profile" | "password" | "users";
 
 interface AllUser {
   id: string;
@@ -41,11 +46,28 @@ interface AllUser {
   created_at: string;
 }
 
-export default function SettingsView() {
+interface SettingsViewProps {
+  onFileUpload: (file: File, platform: Platform) => Promise<number>;
+  uploadedFiles: UploadedFile[];
+  onRemoveFile: (fileName: string) => void;
+  onExportCSV: () => void;
+  onClearAll: () => void;
+  orderCount: number;
+}
+
+export default function SettingsView({
+  onFileUpload,
+  uploadedFiles,
+  onRemoveFile,
+  onExportCSV,
+  onClearAll,
+  orderCount,
+}: SettingsViewProps) {
   const { profile, updatePassword } = useAuth();
-  const [activeSection, setActiveSection] = useState<SettingsTab>("profile");
+  const [activeSection, setActiveSection] = useState<SettingsTab>("data");
 
   const sections: { id: SettingsTab; label: string; icon: any; adminOnly?: boolean }[] = [
+    { id: "data", label: "Kelola Data", icon: Database },
     { id: "profile", label: "Profil", icon: User },
     { id: "password", label: "Ubah Password", icon: Lock },
     { id: "users", label: "Kelola User", icon: Users, adminOnly: true },
@@ -80,6 +102,18 @@ export default function SettingsView() {
       </div>
 
       <AnimatePresence mode="wait">
+        {activeSection === "data" && (
+          <motion.div key="data" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
+            <DataSection
+              onFileUpload={onFileUpload}
+              uploadedFiles={uploadedFiles}
+              onRemoveFile={onRemoveFile}
+              onExportCSV={onExportCSV}
+              onClearAll={onClearAll}
+              orderCount={orderCount}
+            />
+          </motion.div>
+        )}
         {activeSection === "profile" && (
           <motion.div key="profile" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
             <ProfileSection />
@@ -299,6 +333,70 @@ function PasswordSection() {
           Ubah Password
         </button>
       </form>
+    </div>
+  );
+}
+
+function DataSection({
+  onFileUpload,
+  uploadedFiles,
+  onRemoveFile,
+  onExportCSV,
+  onClearAll,
+  orderCount,
+}: {
+  onFileUpload: (file: File, platform: Platform) => Promise<number>;
+  uploadedFiles: UploadedFile[];
+  onRemoveFile: (fileName: string) => void;
+  onExportCSV: () => void;
+  onClearAll: () => void;
+  orderCount: number;
+}) {
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  return (
+    <div className="space-y-6">
+      <FileUpload
+        onFileUpload={onFileUpload}
+        uploadedFiles={uploadedFiles}
+        onRemoveFile={onRemoveFile}
+      />
+
+      {orderCount > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-6">
+          <h3 className="text-lg font-semibold text-brand-800 mb-4">Aksi Data</h3>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={onExportCSV}
+              className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 transition-all"
+            >
+              <Download className="w-4 h-4" />
+              Export CSV
+            </button>
+            <button
+              onClick={() => setShowResetConfirm(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-red-50 text-red-600 border border-red-200 rounded-xl text-sm font-medium hover:bg-red-100 transition-all"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Reset Semua Data
+            </button>
+          </div>
+          <p className="text-xs text-brand-400 mt-3">
+            Total {orderCount} order tersimpan di database.
+          </p>
+        </div>
+      )}
+
+      <ConfirmModal
+        open={showResetConfirm}
+        title="Reset Semua Data"
+        message="Yakin ingin menghapus semua data order? Aksi ini tidak bisa dibatalkan."
+        onConfirm={() => {
+          onClearAll();
+          setShowResetConfirm(false);
+        }}
+        onCancel={() => setShowResetConfirm(false)}
+      />
     </div>
   );
 }
