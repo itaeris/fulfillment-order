@@ -373,7 +373,7 @@ export default function Dashboard() {
                       Import file Excel dari marketplace untuk memulai.
                     </p>
                     <button
-                      onClick={() => setActiveTab("upload")}
+                      onClick={() => setActiveTab("settings")}
                       className="px-6 py-3 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors font-medium text-sm sm:text-base"
                     >
                       Import Data
