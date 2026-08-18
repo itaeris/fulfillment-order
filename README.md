@@ -105,13 +105,14 @@ TIKTOK_BASE_URL=https://open-api.tiktokglobalshop.com
 TIKTOK_API_VERSION=202309
 ```
 
-Di Partner Center, set Redirect URL aplikasi ke:
+Di Partner Center, Redirect URL boleh:
 
 ```
-http://localhost:3000/api/tiktok/callback
+https://fulfillment-order.vercel.app/
+https://fulfillment-order.vercel.app/api/tiktok/callback
 ```
 
-Untuk production, ganti origin (contoh: `https://fulfillment-order.vercel.app/api/tiktok/callback`).
+Keduanya ditangani (callback ke `/` diteruskan ke `/api/tiktok/callback`). Lokal: `http://localhost:3000/` atau `http://localhost:3000/api/tiktok/callback`.
 
 Di **Vercel Environment Variables** hanya simpan kredensial statis: `TIKTOK_APP_KEY`, `TIKTOK_APP_SECRET`, `TIKTOK_SHOP_CIPHER`, `TIKTOK_SERVICE_ID`. Access token yang berganti tiap 4 jam **tidak** ditulis ulang ke env Vercel (itu butuh redeploy). Setelah **Hubungkan TikTok** / sync, token baru disimpan di Supabase `tiktok_tokens` dan dipakai di production.
 

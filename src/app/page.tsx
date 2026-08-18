@@ -58,6 +58,18 @@ export default function Dashboard() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
+    const code = params.get("code") || params.get("auth_code");
+    if (
+      code &&
+      !params.has("tiktok") &&
+      (params.has("app_key") || code.startsWith("ROW_"))
+    ) {
+      const qs = new URLSearchParams({ code });
+      const state = params.get("state");
+      if (state) qs.set("state", state);
+      window.location.replace(`/api/tiktok/callback?${qs.toString()}`);
+      return;
+    }
     if (params.has("tiktok")) setActiveTab("settings");
     if (params.get("tiktok") === "connected") {
       sessionStorage.removeItem("tiktok_reauth_attempted");
@@ -69,6 +81,7 @@ export default function Dashboard() {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.has("tiktok")) return;
+    if (params.has("code") || params.has("auth_code")) return;
     if (sessionStorage.getItem("tiktok_reauth_attempted")) return;
 
     fetch("/api/tiktok/token")
