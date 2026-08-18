@@ -93,11 +93,13 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
 # TikTok Shop Open API
 # sign & timestamp dihitung otomatis per-request (jangan disimpan)
+#
+# Di Vercel, access_token TIDAK di-update lewat Environment Variables
+# (env statis, ganti env = redeploy). Token hasil refresh disimpan di
+# tabel Supabase `tiktok_tokens` dan dipakai otomatis di production.
 TIKTOK_APP_KEY=
 TIKTOK_APP_SECRET=
 TIKTOK_SHOP_CIPHER=
-TIKTOK_ACCESS_TOKEN=          # opsional; setelah Hubungkan TikTok disimpan otomatis
-TIKTOK_REFRESH_TOKEN=         # opsional; sama, disimpan otomatis
 TIKTOK_SERVICE_ID=            # opsional, dari "Copy authorization link"
 TIKTOK_BASE_URL=https://open-api.tiktokglobalshop.com
 TIKTOK_API_VERSION=202309
@@ -110,6 +112,8 @@ http://localhost:3000/api/tiktok/callback
 ```
 
 Untuk production, ganti origin (contoh: `https://fulfillment-order.vercel.app/api/tiktok/callback`).
+
+Di **Vercel Environment Variables** hanya simpan kredensial statis: `TIKTOK_APP_KEY`, `TIKTOK_APP_SECRET`, `TIKTOK_SHOP_CIPHER`, `TIKTOK_SERVICE_ID`. Access token yang berganti tiap 4 jam **tidak** ditulis ulang ke env Vercel (itu butuh redeploy). Setelah **Hubungkan TikTok** / sync, token baru disimpan di Supabase `tiktok_tokens` dan dipakai di production.
 
 ### Database Setup
 

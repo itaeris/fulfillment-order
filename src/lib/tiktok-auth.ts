@@ -13,11 +13,16 @@ import { getSupabaseAdmin } from "./supabase-admin";
  */
 
 const TOKEN_ROW_ID = "default";
-const TOKEN_FILE = path.join(process.cwd(), "data", "tiktok-tokens.json");
 const AUTH_BASE = process.env.TIKTOK_AUTH_BASE_URL || "https://auth.tiktok-shops.com";
 const ACCESS_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 const REFRESH_TOKEN_ROTATE_MS = 30 * 24 * 60 * 60 * 1000;
 const REFRESH_TOKEN_REAUTH_MS = 7 * 24 * 60 * 60 * 1000;
+
+function tokenFilePath() {
+  // Vercel filesystem read-only kecuali /tmp — token production disimpan di Supabase
+  if (process.env.VERCEL) return path.join("/tmp", "tiktok-tokens.json");
+  return path.join(process.cwd(), "data", "tiktok-tokens.json");
+}
 
 export interface TikTokStoredTokens {
   accessToken: string;
@@ -93,7 +98,7 @@ function toStatus(
 
 async function readFileTokens(): Promise<TikTokStoredTokens | null> {
   try {
-    const raw = await readFile(TOKEN_FILE, "utf8");
+    const raw = await readFile(tokenFilePath(), "utf8");
     const parsed = JSON.parse(raw) as TikTokStoredTokens;
     if (!parsed?.accessToken && !parsed?.refreshToken) return null;
     return parsed;
@@ -103,46 +108,53 @@ async function readFileTokens(): Promise<TikTokStoredTokens | null> {
 }
 
 async function writeFileTokens(tokens: TikTokStoredTokens): Promise<void> {
-  await mkdir(path.dirname(TOKEN_FILE), { recursive: true });
-  await writeFile(TOKEN_FILE, JSON.stringify(tokens, null, 2), "utf8");
+  const file = tokenFilePath();
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, JSON.stringify(tokens, null, 2), "utf8");
 }
 
 async function readDbTokens(): Promise<TikTokStoredTokens | null> {
   const admin = getSupabaseAdmin();
   if (!admin) return null;
-  try {
-    const { data, error } = await admin
-      .from("tiktok_tokens")
-      .select("*")
-      .eq("id", TOKEN_ROW_ID)
-      .maybeSingle();
-    if (error || !data) return null;
-    return {
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token,
-      accessTokenExpireAt: data.access_token_expire_at ?? undefined,
-      refreshTokenExpireAt: data.refresh_token_expire_at ?? undefined,
-      updatedAt: data.updated_at,
-    };
-  } catch {
-    return null;
-  }
+  const { data, error } = await admin
+    .from("tiktok_tokens")
+    .select("*")
+    .eq("id", TOKEN_ROW_ID)
+    .maybeSingle();
+  if (error || !data) return null;
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    accessTokenExpireAt: data.access_token_expire_at ?? undefined,
+    refreshTokenExpireAt: data.refresh_token_expire_at ?? undefined,
+    updatedAt: data.updated_at,
+  };
 }
 
 async function writeDbTokens(tokens: TikTokStoredTokens): Promise<void> {
   const admin = getSupabaseAdmin();
-  if (!admin) return;
-  try {
-    await admin.from("tiktok_tokens").upsert({
-      id: TOKEN_ROW_ID,
-      access_token: tokens.accessToken,
-      refresh_token: tokens.refreshToken,
-      access_token_expire_at: tokens.accessTokenExpireAt ?? null,
-      refresh_token_expire_at: tokens.refreshTokenExpireAt ?? null,
-      updated_at: tokens.updatedAt,
-    });
-  } catch {
-    // Tabel belum ada — file store tetap dipakai
+  if (!admin) {
+    if (process.env.VERCEL) {
+      throw new Error(
+        "SUPABASE_SERVICE_ROLE_KEY wajib di Vercel supaya access token hasil refresh tersimpan."
+      );
+    }
+    return;
+  }
+
+  const { error } = await admin.from("tiktok_tokens").upsert({
+    id: TOKEN_ROW_ID,
+    access_token: tokens.accessToken,
+    refresh_token: tokens.refreshToken,
+    access_token_expire_at: tokens.accessTokenExpireAt ?? null,
+    refresh_token_expire_at: tokens.refreshTokenExpireAt ?? null,
+    updated_at: tokens.updatedAt,
+  });
+
+  if (error) {
+    throw new Error(
+      `Gagal menyimpan token TikTok ke database (${error.message}). Jalankan tabel tiktok_tokens di supabase/migration.sql.`
+    );
   }
 }
 
@@ -159,7 +171,7 @@ function tokensFromEnv(): TikTokStoredTokens | null {
 
 export async function loadStoredTokens(): Promise<TikTokStoredTokens | null> {
   const db = await readDbTokens();
-  if (db?.refreshToken) return db;
+  if (db?.refreshToken || db?.accessToken) return db;
   const file = await readFileTokens();
   if (file?.refreshToken || file?.accessToken) return file;
   return tokensFromEnv();
@@ -170,8 +182,12 @@ export async function saveStoredTokens(tokens: TikTokStoredTokens): Promise<void
     ...tokens,
     updatedAt: new Date().toISOString(),
   };
-  await writeFileTokens(payload);
   await writeDbTokens(payload);
+  try {
+    await writeFileTokens(payload);
+  } catch {
+    // File hanya cache lokal /tmp di Vercel
+  }
 }
 
 export async function getTokenStatus(): Promise<TikTokTokenStatus> {
