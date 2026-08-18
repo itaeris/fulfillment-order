@@ -12,6 +12,10 @@ interface FileUploadProps {
   onRemoveFile: (fileName: string) => void;
 }
 
+function isManualUpload(file: UploadedFile) {
+  return file.platform !== "tiktok" && file.platform !== "tokopedia";
+}
+
 export default function FileUpload({
   onFileUpload,
   uploadedFiles,
@@ -20,6 +24,10 @@ export default function FileUpload({
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>("shopee");
+  const manualFiles = useMemo(
+    () => uploadedFiles.filter(isManualUpload),
+    [uploadedFiles]
+  );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -71,7 +79,6 @@ export default function FileUpload({
 
   const platforms: { value: Platform; label: string; color: string }[] = [
     { value: "shopee", label: "Shopee", color: "bg-shopee-500" },
-    { value: "tiktok", label: "TikTok & Tokopedia", color: "bg-brand-800" },
     { value: "jubelio", label: "Jubelio", color: "bg-brand-500" },
   ];
 
@@ -155,9 +162,9 @@ export default function FileUpload({
       </div>
 
       {/* Uploaded Files List - Grouped by Platform */}
-      {uploadedFiles.length > 0 && (
+      {manualFiles.length > 0 && (
         <UploadedFilesTabs
-          uploadedFiles={uploadedFiles}
+          uploadedFiles={manualFiles}
           onRemoveFile={onRemoveFile}
           platforms={platforms}
         />

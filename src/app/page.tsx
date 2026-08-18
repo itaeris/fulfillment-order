@@ -13,6 +13,7 @@ import OrderTable from "@/components/OrderTable";
 import Charts from "@/components/Charts";
 import ComparisonView from "@/components/ComparisonView";
 import SettingsView from "@/components/SettingsView";
+import { DashboardSkeleton, CardsSkeleton, TableSkeleton } from "@/components/Skeleton";
 import { Order, Platform, UploadedFile, OrderSummary, DailyStats } from "@/types/order";
 import { parseExcelFile, detectPlatform } from "@/lib/excel-parser";
 import { calculateSummary, calculateDailyStats } from "@/lib/utils";
@@ -23,8 +24,8 @@ export default function Dashboard() {
   const router = useRouter();
   const userRole = profile?.role ?? "warehouse";
 
-  type TabId = "dashboard" | "compare" | "settings";
-  const VALID_TABS: TabId[] = ["dashboard", "compare", "settings"];
+  type TabId = "dashboard" | "orders" | "compare" | "settings";
+  const VALID_TABS: TabId[] = ["dashboard", "orders", "compare", "settings"];
   const TAB_STORAGE_KEY = "activeTab";
 
   const [orders, setOrders] = useState<Order[]>([]);
@@ -37,9 +38,11 @@ export default function Dashboard() {
     return "settings";
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const restoredTab = useRef(false);
+  const hasLoaded = useRef(false);
 
   const setActiveTab = useCallback((tab: TabId) => {
     setActiveTabState(tab);
@@ -52,52 +55,83 @@ export default function Dashboard() {
     }
   }, [authLoading, user, router]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("tiktok")) setActiveTab("settings");
+    if (params.get("tiktok") === "connected") {
+      sessionStorage.removeItem("tiktok_reauth_attempted");
+    }
+  }, [setActiveTab]);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("tiktok")) return;
+    if (sessionStorage.getItem("tiktok_reauth_attempted")) return;
+
+    fetch("/api/tiktok/token")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.needsReauth) {
+          sessionStorage.setItem("tiktok_reauth_attempted", "1");
+          window.location.href = "/api/tiktok/authorize";
+        }
+      })
+      .catch(() => {});
+  }, [authLoading, user]);
+
   const summary: OrderSummary = calculateSummary(orders);
   const dailyStats: DailyStats[] = calculateDailyStats(orders);
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsLoading(true);
+  const loadData = useCallback(async () => {
+    try {
+      if (hasLoaded.current) setIsRefreshing(true);
+      else setIsLoading(true);
 
-        const ordersRes = await fetch("/api/orders");
-        const ordersData = await ordersRes.json();
+      const ordersRes = await fetch("/api/orders");
+      const ordersData = await ordersRes.json();
 
-        const filesRes = await fetch("/api/files");
-        const filesData = await filesRes.json();
+      const filesRes = await fetch("/api/files");
+      const filesData = await filesRes.json();
 
-        if (ordersData.orders) {
-          const loadedOrders = ordersData.orders.map((order: any) => ({
-            ...order,
-            orderDate: new Date(order.orderDate),
-            paidTime: order.paidTime ? new Date(order.paidTime) : undefined,
-            shippedTime: order.shippedTime ? new Date(order.shippedTime) : undefined,
-            mustShipBefore: order.mustShipBefore ? new Date(order.mustShipBefore) : undefined,
-          }));
-          setOrders(loadedOrders);
+      if (ordersData.orders) {
+        const loadedOrders = ordersData.orders.map((order: any) => ({
+          ...order,
+          orderDate: new Date(order.orderDate),
+          paidTime: order.paidTime ? new Date(order.paidTime) : undefined,
+          shippedTime: order.shippedTime ? new Date(order.shippedTime) : undefined,
+          mustShipBefore: order.mustShipBefore ? new Date(order.mustShipBefore) : undefined,
+        }));
+        setOrders(loadedOrders);
 
-          const savedTab = localStorage.getItem(TAB_STORAGE_KEY) as TabId | null;
-          if (loadedOrders.length > 0 && (!savedTab || !VALID_TABS.includes(savedTab))) {
-            setActiveTab("dashboard");
-          }
+        const savedTab = localStorage.getItem(TAB_STORAGE_KEY) as TabId | null;
+        if (loadedOrders.length > 0 && (!savedTab || !VALID_TABS.includes(savedTab))) {
+          setActiveTab("dashboard");
         }
-
-        if (filesData.files) {
-          const loadedFiles = filesData.files.map((file: any) => ({
-            ...file,
-            uploadedAt: new Date(file.uploadedAt),
-          }));
-          setUploadedFiles(loadedFiles);
-        }
-      } catch (error) {
-        console.error("Error loading data:", error);
-      } finally {
-        setIsLoading(false);
       }
-    };
 
+      if (filesData.files) {
+        const loadedFiles = filesData.files.map((file: any) => ({
+          ...file,
+          uploadedAt: new Date(file.uploadedAt),
+        }));
+        setUploadedFiles(loadedFiles);
+      }
+    } catch (error) {
+      console.error("Error loading data:", error);
+    } finally {
+      hasLoaded.current = true;
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setActiveTab]);
+
+  useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const saveOrdersToDb = async (newOrders: Order[]) => {
     try {
@@ -243,29 +277,17 @@ export default function Dashboard() {
     URL.revokeObjectURL(url);
   }, [orders]);
 
-  if (authLoading || !user || isLoading) {
-    return (
-      <motion.div
-        className="h-screen bg-cream-100 flex items-center justify-center"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-      >
-        <motion.div
-          className="flex flex-col items-center gap-4"
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ delay: 0.1 }}
-        >
-          <div className="loader" />
-          <p className="text-brand-400">Memuat data...</p>
-        </motion.div>
-      </motion.div>
-    );
+  if (!authLoading && !user) {
+    return null;
+  }
+
+  if (authLoading || isLoading) {
+    return <DashboardSkeleton />;
   }
 
   const pageTitles: Record<string, { title: string; subtitle: string }> = {
     dashboard: { title: "Dashboard", subtitle: "Ringkasan performa order dari semua platform" },
+    orders: { title: "Pesanan", subtitle: "Daftar pesanan dari semua platform" },
     compare: { title: "Komparasi", subtitle: "Bandingkan data Jubelio dengan Shopee / TikTok" },
     settings: { title: "Settings", subtitle: "Kelola data, profil, password, dan user" },
   };
@@ -303,7 +325,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {activeTab === "dashboard" && orders.length > 0 && (
+            {(activeTab === "dashboard" || activeTab === "orders") && orders.length > 0 && (
               <div className="flex items-center gap-2 text-sm shrink-0">
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-cream-200 rounded-lg border border-brand-200">
                   <span className="text-brand-400 hidden sm:inline">Total Order</span>
@@ -320,22 +342,28 @@ export default function Dashboard() {
             {activeTab === "compare" && (
               <motion.div
                 key="compare"
-                initial={{ opacity: 0, y: 12 }}
+                initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.2 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.1 }}
               >
-                <ComparisonView orders={orders} userRole={userRole} />
+                <ComparisonView
+                  orders={orders}
+                  userRole={userRole}
+                  uploadedFiles={uploadedFiles}
+                  onSyncComplete={loadData}
+                  isRefreshing={isRefreshing}
+                />
               </motion.div>
             )}
 
             {activeTab === "settings" && (
               <motion.div
                 key="settings"
-                initial={{ opacity: 0, y: 12 }}
+                initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.2 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.1 }}
               >
                 <SettingsView
                   onFileUpload={handleFileUpload}
@@ -344,6 +372,8 @@ export default function Dashboard() {
                   onExportCSV={handleExportCSV}
                   onClearAll={handleClearAll}
                   orderCount={orders.length}
+                  onSyncComplete={loadData}
+                  isRefreshing={isRefreshing}
                 />
               </motion.div>
             )}
@@ -351,46 +381,43 @@ export default function Dashboard() {
             {activeTab === "dashboard" && (
               <motion.div
                 key="dashboard"
-                initial={{ opacity: 0, y: 12 }}
+                initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.2 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.1 }}
                 className="space-y-4 sm:space-y-6"
               >
                 {orders.length === 0 ? (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="bg-white rounded-xl shadow-sm border border-brand-200 p-8 sm:p-12 text-center"
-                  >
-                    <div className="w-16 sm:w-20 h-16 sm:h-20 bg-cream-200 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <LayoutDashboard className="w-8 sm:w-10 h-8 sm:h-10 text-brand-300" />
-                    </div>
-                    <h3 className="text-lg sm:text-xl font-semibold text-brand-700 mb-2">
-                      Belum Ada Data
-                    </h3>
-                    <p className="text-brand-400 mb-4 text-sm sm:text-base">
-                      Import file Excel dari marketplace untuk memulai.
-                    </p>
-                    <button
-                      onClick={() => setActiveTab("settings")}
-                      className="px-6 py-3 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors font-medium text-sm sm:text-base"
-                    >
-                      Import Data
-                    </button>
-                  </motion.div>
+                  <EmptyDataState onImport={() => setActiveTab("settings")} />
+                ) : isRefreshing ? (
+                  <CardsSkeleton />
                 ) : (
                   <>
-                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+                    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.02, duration: 0.12 }}>
                       <SummaryCards summary={summary} userRole={userRole} />
                     </motion.div>
-                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+                    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05, duration: 0.12 }}>
                       <Charts dailyStats={dailyStats} summary={summary} userRole={userRole} />
                     </motion.div>
-                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
-                      <OrderTable orders={orders} userRole={userRole} />
-                    </motion.div>
                   </>
+                )}
+              </motion.div>
+            )}
+
+            {activeTab === "orders" && (
+              <motion.div
+                key="orders"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.1 }}
+              >
+                {orders.length === 0 ? (
+                  <EmptyDataState onImport={() => setActiveTab("settings")} />
+                ) : isRefreshing ? (
+                  <TableSkeleton rows={8} columns={6} />
+                ) : (
+                  <OrderTable orders={orders} userRole={userRole} />
                 )}
               </motion.div>
             )}
@@ -398,5 +425,31 @@ export default function Dashboard() {
         </main>
       </div>
     </div>
+  );
+}
+
+function EmptyDataState({ onImport }: { onImport: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="bg-white rounded-xl shadow-sm border border-brand-200 p-8 sm:p-12 text-center"
+    >
+      <div className="w-16 sm:w-20 h-16 sm:h-20 bg-cream-200 rounded-full flex items-center justify-center mx-auto mb-4">
+        <LayoutDashboard className="w-8 sm:w-10 h-8 sm:h-10 text-brand-300" />
+      </div>
+      <h3 className="text-lg sm:text-xl font-semibold text-brand-700 mb-2">
+        Belum Ada Data
+      </h3>
+      <p className="text-brand-400 mb-4 text-sm sm:text-base">
+        Import file Excel dari marketplace untuk memulai.
+      </p>
+      <button
+        onClick={onImport}
+        className="px-6 py-3 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors font-medium text-sm sm:text-base"
+      >
+        Import Data
+      </button>
+    </motion.div>
   );
 }

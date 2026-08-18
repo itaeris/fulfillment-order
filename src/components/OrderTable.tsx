@@ -23,21 +23,15 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Order, Platform, OrderStatus } from "@/types/order";
-import {
-  cn,
-  formatCurrency,
-  formatDate,
-  formatDateTime,
-  getPlatformName,
-  getStatusColor,
-  getStatusLabel,
-} from "@/lib/utils";
+import { cn, formatCurrency, formatDate, formatDateTime, getPlatformName, getStatusColor, getStatusLabel } from "@/lib/utils";
 import { isBefore, addHours } from "date-fns";
 import type { UserRole } from "@/contexts/AuthContext";
+import { TableSkeleton } from "@/components/Skeleton";
 
 interface OrderTableProps {
   orders: Order[];
   userRole: UserRole;
+  isLoading?: boolean;
 }
 
 type SortField = "platform" | "orderNumber" | "status" | "productName" | "quantity" | "totalAmount" | "customerName" | "trackingNumber" | "pickupTime" | "mustShipBefore" | "orderDate";
@@ -46,6 +40,7 @@ type StatusTab = "all" | "pending" | "processing" | "shipped" | "delivered" | "c
 
 type ShippingFilter = "all" | "instant" | "reguler";
 type PickupStage = "all" | "before_pickup" | "after_pickup" | "ready_to_ship";
+type TtsChannelFilter = "all" | "tts" | "tokopedia";
 
 const ITEMS_PER_PAGE = 15;
 
@@ -72,10 +67,33 @@ function classifyPickupStage(order: Order): PickupStage {
   return "before_pickup";
 }
 
-export default function OrderTable({ orders, userRole }: OrderTableProps) {
+function ttsChannelOf(order: Order): Exclude<TtsChannelFilter, "all"> {
+  if (order.platform === "tokopedia") return "tokopedia";
+  const hint = [order.channelName, order.storeName].filter(Boolean).join(" ").toLowerCase();
+  if (hint.includes("tiktok")) return "tts";
+  if (hint.includes("tokopedia") || hint.includes("tokped")) return "tokopedia";
+  return "tts";
+}
+
+function matchesPlatform(
+  order: Order,
+  selectedPlatform: Platform | "all",
+  ttsChannelFilter: TtsChannelFilter
+) {
+  if (selectedPlatform === "all") return true;
+  if (selectedPlatform === "tiktok") {
+    if (order.platform !== "tiktok" && order.platform !== "tokopedia") return false;
+    if (ttsChannelFilter !== "all" && ttsChannelOf(order) !== ttsChannelFilter) return false;
+    return true;
+  }
+  return order.platform === selectedPlatform;
+}
+
+export default function OrderTable({ orders, userRole, isLoading = false }: OrderTableProps) {
   const hideMoney = userRole === "warehouse";
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPlatform, setSelectedPlatform] = useState<Platform | "all">("all");
+  const [ttsChannelFilter, setTtsChannelFilter] = useState<TtsChannelFilter>("all");
   const [selectedStatusTab, setSelectedStatusTab] = useState<StatusTab>("all");
   const [shippingFilter, setShippingFilter] = useState<ShippingFilter>("all");
   const [pickupStage, setPickupStage] = useState<PickupStage>("all");
@@ -94,11 +112,9 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
       returned: 0,
     };
 
-    const filteredByPlatform = selectedPlatform === "all" 
-      ? orders 
-      : selectedPlatform === "tiktok"
-        ? orders.filter(o => o.platform === "tiktok" || o.platform === "tokopedia")
-        : orders.filter(o => o.platform === selectedPlatform);
+    const filteredByPlatform = orders.filter((o) =>
+      matchesPlatform(o, selectedPlatform, ttsChannelFilter)
+    );
 
     filteredByPlatform.forEach((order) => {
       counts.all++;
@@ -108,35 +124,29 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
     counts.cancelled = counts.cancelled + counts.returned;
 
     return counts;
-  }, [orders, selectedPlatform]);
+  }, [orders, selectedPlatform, ttsChannelFilter]);
 
   // Shipping type counts (for "processing" and "shipped" tabs)
   const shippingCounts = useMemo(() => {
     const targetStatus = selectedStatusTab === "shipped" ? "shipped" : "processing";
-    const baseOrders = (selectedPlatform === "all"
-      ? orders
-      : selectedPlatform === "tiktok"
-        ? orders.filter(o => o.platform === "tiktok" || o.platform === "tokopedia")
-        : orders.filter(o => o.platform === selectedPlatform)
-    ).filter(o => o.status === targetStatus);
+    const baseOrders = orders
+      .filter((o) => matchesPlatform(o, selectedPlatform, ttsChannelFilter))
+      .filter((o) => o.status === targetStatus);
 
     return {
       all: baseOrders.length,
-      instant: baseOrders.filter(o => classifyShipping(o) === "instant").length,
-      reguler: baseOrders.filter(o => classifyShipping(o) === "reguler").length,
+      instant: baseOrders.filter((o) => classifyShipping(o) === "instant").length,
+      reguler: baseOrders.filter((o) => classifyShipping(o) === "reguler").length,
     };
-  }, [orders, selectedPlatform, selectedStatusTab]);
+  }, [orders, selectedPlatform, selectedStatusTab, ttsChannelFilter]);
 
   const pickupStageCounts = useMemo(() => {
     const targetStatus = selectedStatusTab === "shipped" ? "shipped" : "processing";
-    const baseOrders = (selectedPlatform === "all"
-      ? orders
-      : selectedPlatform === "tiktok"
-        ? orders.filter(o => o.platform === "tiktok" || o.platform === "tokopedia")
-        : orders.filter(o => o.platform === selectedPlatform)
-    ).filter(o => o.status === targetStatus);
+    const baseOrders = orders
+      .filter((o) => matchesPlatform(o, selectedPlatform, ttsChannelFilter))
+      .filter((o) => o.status === targetStatus);
 
-    const regulerOrders = baseOrders.filter(o => classifyShipping(o) === "reguler");
+    const regulerOrders = baseOrders.filter((o) => classifyShipping(o) === "reguler");
 
     return {
       all: regulerOrders.length,
@@ -144,7 +154,7 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
       after_pickup: regulerOrders.filter(o => classifyPickupStage(o) === "after_pickup").length,
       ready_to_ship: regulerOrders.filter(o => classifyPickupStage(o) === "ready_to_ship").length,
     };
-  }, [orders, selectedPlatform, selectedStatusTab]);
+  }, [orders, selectedPlatform, selectedStatusTab, ttsChannelFilter]);
 
   const platformCounts: Record<string, number> = useMemo(() => {
     return {
@@ -152,6 +162,15 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
       shopee: orders.filter(o => o.platform === "shopee").length,
       tiktok: orders.filter(o => o.platform === "tiktok" || o.platform === "tokopedia").length,
       jubelio: orders.filter(o => o.platform === "jubelio").length,
+    };
+  }, [orders]);
+
+  const ttsChannelCounts = useMemo(() => {
+    const ttsOrders = orders.filter((o) => o.platform === "tiktok" || o.platform === "tokopedia");
+    return {
+      all: ttsOrders.length,
+      tts: ttsOrders.filter((o) => ttsChannelOf(o) === "tts").length,
+      tokopedia: ttsOrders.filter((o) => ttsChannelOf(o) === "tokopedia").length,
     };
   }, [orders]);
 
@@ -171,13 +190,9 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
       );
     }
 
-    if (selectedPlatform !== "all") {
-      if (selectedPlatform === "tiktok") {
-        filtered = filtered.filter((order) => order.platform === "tiktok" || order.platform === "tokopedia");
-      } else {
-        filtered = filtered.filter((order) => order.platform === selectedPlatform);
-      }
-    }
+    filtered = filtered.filter((order) =>
+      matchesPlatform(order, selectedPlatform, ttsChannelFilter)
+    );
 
     if (selectedStatusTab !== "all") {
       if (selectedStatusTab === "cancelled") {
@@ -192,13 +207,13 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
       filtered = filtered.filter((order) => classifyShipping(order) === shippingFilter);
     }
 
-    // Pickup stage filter (Reguler sub-filter, or Instant auto-filters to ready_to_ship)
-    if (selectedStatusTab === "processing" || selectedStatusTab === "shipped") {
-      if (shippingFilter === "instant") {
-        filtered = filtered.filter((order) => classifyPickupStage(order) === "ready_to_ship");
-      } else if (shippingFilter === "reguler" && pickupStage !== "all") {
-        filtered = filtered.filter((order) => classifyPickupStage(order) === pickupStage);
-      }
+    // Pickup stage filter — hanya untuk Reguler
+    if (
+      (selectedStatusTab === "processing" || selectedStatusTab === "shipped") &&
+      shippingFilter === "reguler" &&
+      pickupStage !== "all"
+    ) {
+      filtered = filtered.filter((order) => classifyPickupStage(order) === pickupStage);
     }
 
     filtered.sort((a, b) => {
@@ -250,7 +265,7 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
     });
 
     return filtered;
-  }, [orders, searchQuery, selectedPlatform, selectedStatusTab, shippingFilter, pickupStage, sortField, sortDirection]);
+  }, [orders, searchQuery, selectedPlatform, ttsChannelFilter, selectedStatusTab, shippingFilter, pickupStage, sortField, sortDirection]);
 
   const totalPages = Math.ceil(filteredAndSortedOrders.length / ITEMS_PER_PAGE);
   const paginatedOrders = filteredAndSortedOrders.slice(
@@ -322,6 +337,10 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
     { value: "jubelio", label: "Jubelio", color: "bg-brand-500" },
   ];
 
+  if (isLoading) {
+    return <TableSkeleton rows={10} columns={7} />;
+  }
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-brand-200">
       {/* Platform Tabs */}
@@ -335,6 +354,7 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
                 key={tab.value}
                 onClick={() => {
                   setSelectedPlatform(tab.value);
+                  setTtsChannelFilter("all");
                   setCurrentPage(1);
                 }}
                 className={cn(
@@ -355,6 +375,44 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
             );
           })}
         </div>
+        {selectedPlatform === "tiktok" && (
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pb-3">
+            <span className="text-[10px] sm:text-xs font-medium text-brand-400 mr-0.5">Platform:</span>
+            {([
+              { value: "all" as TtsChannelFilter, label: "Semua" },
+              { value: "tts" as TtsChannelFilter, label: "TikTok Shop by Tokopedia" },
+              { value: "tokopedia" as TtsChannelFilter, label: "Tokopedia" },
+            ]).map((item) => {
+              const isActive = ttsChannelFilter === item.value;
+              const count = ttsChannelCounts[item.value];
+              return (
+                <button
+                  key={item.value}
+                  onClick={() => {
+                    setTtsChannelFilter(item.value);
+                    setCurrentPage(1);
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                    isActive
+                      ? "bg-brand-600 text-white shadow-sm"
+                      : "bg-cream-200 text-brand-400 hover:bg-cream-300"
+                  )}
+                >
+                  {item.label}
+                  <span
+                    className={cn(
+                      "px-1.5 py-0.5 rounded-full text-[10px]",
+                      isActive ? "bg-white/20" : "bg-brand-200 text-brand-500"
+                    )}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Status Tabs */}
@@ -476,16 +534,6 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
               </button>
             );
           })}
-        </div>
-      )}
-
-      {/* Instant info note */}
-      {(selectedStatusTab === "processing" || selectedStatusTab === "shipped") && shippingFilter === "instant" && (
-        <div className="px-3 sm:px-4 py-2 border-b border-brand-100">
-          <div className="flex items-center gap-2 text-xs text-brand-400">
-            <Zap className="w-3.5 h-3.5 text-yellow-500" />
-            <span>Instant langsung masuk ke <strong className="text-brand-600">Siap Dikirim</strong></span>
-          </div>
         </div>
       )}
 
@@ -676,16 +724,16 @@ export default function OrderTable({ orders, userRole }: OrderTableProps) {
                       </span>
                     </td>
                     <td className="px-3 sm:px-4 py-2.5 sm:py-3">
-                      <p className="text-xs sm:text-sm text-brand-700 max-w-[160px] sm:max-w-[200px] truncate" title={order.productName}>
+                      <p className="text-xs sm:text-sm text-brand-700 whitespace-normal break-words">
                         {order.productName}
                       </p>
                       {order.variation && (
-                        <p className="text-[10px] sm:text-xs text-brand-300 truncate max-w-[160px] sm:max-w-[200px]" title={order.variation}>
+                        <p className="text-[10px] sm:text-xs text-brand-300 whitespace-normal break-words">
                           {order.variation}
                         </p>
                       )}
                       {order.sku && (
-                        <p className="text-[10px] sm:text-xs text-brand-500 font-mono">
+                        <p className="text-[10px] sm:text-xs text-brand-500 font-mono break-all">
                           SKU: {order.sku}
                         </p>
                       )}

@@ -116,6 +116,11 @@ export async function deleteAllUploadedFiles() {
   if (error) throw error;
 }
 
+export async function deleteUploadedFilesByPlatform(platform: string) {
+  const { error } = await supabase.from("uploaded_files").delete().eq("platform", platform);
+  if (error) throw error;
+}
+
 // ── Row ↔ App mapping helpers ──
 
 interface OrderInput {

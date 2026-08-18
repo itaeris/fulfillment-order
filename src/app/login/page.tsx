@@ -2,7 +2,6 @@
 
 import { useState, FormEvent, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
 import { ShoppingBag, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -55,19 +54,9 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-cream-100 flex items-center justify-center p-4">
-      <motion.div
-        className="w-full max-w-md"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: "easeOut" }}
-      >
+      <div className="w-full max-w-md">
         {/* Brand */}
-        <motion.div
-          className="text-center mb-8"
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-        >
+        <div className="text-center mb-8">
           <div className="w-16 h-16 bg-brand-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
             <ShoppingBag className="w-8 h-8 text-cream-100" />
           </div>
@@ -75,15 +64,10 @@ export default function LoginPage() {
           <p className="text-brand-400 mt-1 text-sm">
             Masuk untuk mengakses dashboard
           </p>
-        </motion.div>
+        </div>
 
         {/* Login Card */}
-        <motion.div
-          className="bg-white rounded-2xl shadow-sm border border-brand-200 p-8"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
+        <div className="bg-white rounded-2xl shadow-sm border border-brand-200 p-8">
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
@@ -187,12 +171,12 @@ export default function LoginPage() {
               Lupa password?
             </a>
           </div>
-        </motion.div>
+        </div>
 
         <p className="text-center text-xs text-brand-300 mt-6">
           Aeris Beaute &mdash; Fulfillment Dashboard
         </p>
-      </motion.div>
+      </div>
     </div>
   );
 }

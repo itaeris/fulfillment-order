@@ -1,47 +1,59 @@
 # Order Dashboard - Aeris Beaute Fulfillment
 
-Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **Shopee**, **TikTok Shop / Tokopedia**, dan **Jubelio**. Data diimport dari file Excel dan disimpan di **Supabase** (PostgreSQL).
+Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **Shopee**, **TikTok Shop / Tokopedia**, dan **Jubelio**. Data Shopee & Jubelio diimport dari Excel; order TikTok & Tokopedia ditarik langsung dari **TikTok Shop Open API**. Penyimpanan di **Supabase** (PostgreSQL).
 
 **Live**: [fulfillment-order.vercel.app](https://fulfillment-order.vercel.app)
 
 ## Fitur
 
-### Dashboard & Data
-- **Import Excel/CSV**: Upload file export dari Shopee, TikTok Shop / Tokopedia, atau Jubelio (drag & drop atau pilih file)
-- **Auto-detect Platform**: Otomatis mendeteksi platform berdasarkan nama file dan header kolom
-- **Dashboard Summary**: Total order, pendapatan, item terjual, dan rata-rata order
-- **Breakdown per Platform**: Statistik terpisah untuk Shopee, TikTok & Tokopedia, dan Jubelio
-- **Visualisasi Data**: Grafik tren pendapatan, distribusi platform (pie chart), distribusi status (bar chart)
-- **Komparasi Data**: Bandingkan data Jubelio dengan Shopee/TikTok via order number, ref number, atau tracking number
+### Navigasi
+- **Dashboard**: Kartu ringkasan + grafik (tren, platform, status)
+- **Pesanan**: Tabel order dengan filter, pencarian, dan pagination
+- **Komparasi**: Bandingkan Jubelio dengan Shopee / TikTok
+- **Settings**: Import Excel, sync TikTok, export, reset data, profil, password, kelola user
 
-### Tabel Order
-- Filter per platform dan status (Belum Bayar, Perlu Dikirim, Dikirim, Selesai, Batal/Retur)
+### Sumber Data
+- **Shopee & Jubelio**: Import Excel/CSV (drag & drop), auto-detect platform dari nama file dan header
+- **TikTok & Tokopedia**: Sync API — tarik order siap dikirim (`AWAITING_SHIPMENT` + `AWAITING_COLLECTION`) tanpa export Excel
+- Channel TikTok vs Tokopedia dibaca dari `commerce_platform` (`TIKTOK_SHOP` / `TOKOPEDIA`)
+
+### Dashboard
+- Total order, pendapatan, item terjual, dan rata-rata order
+- Breakdown per platform (Shopee, TikTok & Tokopedia, Jubelio)
+- Grafik tren pendapatan, distribusi platform, distribusi status
+
+### Pesanan
+- Filter platform: Semua | Shopee | TikTok & Tokopedia | Jubelio
+- Sub-filter TikTok & Tokopedia: Semua | TikTok Shop by Tokopedia | Tokopedia
+- Filter status: Belum Bayar, Perlu Dikirim, Dikirim, Selesai, Batal/Retur
 - Sub-filter pengiriman: Instant / Reguler
-- Sub-filter pickup stage: Sebelum Pickup, Sesudah Pickup, Siap Dikirim
-- Sorting di semua kolom (A-Z, terbaru-terlama, dll)
-- Pencarian berdasarkan no. pesanan, customer, SKU, atau no. resi
-- Indikator visual batas waktu pengiriman
-- Pagination
-- Export CSV
+- Sub-filter pickup: Sebelum Pickup, Sesudah Pickup, Siap Dikirim
+- Sorting, pencarian (no. pesanan, customer, SKU, resi), indikator batas kirim, pagination
+- Export CSV (Settings)
+
+### Komparasi
+- Cocokkan Jubelio vs marketplace via order number, ref number, atau tracking number
+- Filter Platform Only: Semua | TikTok & Tokopedia | Shopee, plus sub-filter TTS vs Tokopedia
+- Tombol Sync TikTok di halaman yang sama
 
 ### Autentikasi & Keamanan
-- **Login**: Email/username + password, atau Google OAuth
-- **Google OAuth**: Hanya domain `@aerisbeaute.com` dan `@fromthisisland.com` yang diizinkan
-- **User Approval**: User harus didaftarkan oleh admin sebelum bisa login (termasuk via Google)
-- **Role-Based Access**:
-  - **Admin**: Akses penuh ke semua fitur
-  - **Warehouse**: Akses penuh, tapi data keuangan (pendapatan, total, selisih) disembunyikan
-- **Reset Password**: Via email link atau langsung dari Settings
+- Login: email/username + password, atau Google OAuth
+- Google OAuth hanya untuk domain `@aerisbeaute.com` dan `@fromthisisland.com`
+- User harus didaftarkan admin sebelum bisa login (termasuk Google)
+- **Admin**: akses penuh
+- **Warehouse**: akses penuh, data keuangan disembunyikan
+- Reset password via email atau Settings
 
-### Settings
-- Edit profil (nama, username)
-- Ubah password
-- Kelola user (admin only): tambah, ubah role, hapus user
+### TikTok Shop API
+- Hubungkan toko sekali di Settings → **Hubungkan TikTok** (OAuth seller, bukan tempel token)
+- Izin aplikasi ke toko bisa **Unlimited**; access token API tetap habis ~4 jam
+- App memperbarui access token otomatis lewat `refresh_token`
+- Redirect URL di aplikasi TikTok: `{origin}/api/tiktok/callback`
 
 ### Lainnya
-- **PWA**: Bisa di-install sebagai app di desktop/mobile
-- **Responsive**: Desktop-first dengan sidebar, responsif di mobile
-- **Tema**: Warm brown/cream color palette
+- PWA (install di desktop/mobile)
+- Skeleton loader
+- Responsive, tema warm brown/cream
 
 ## Tech Stack
 
@@ -62,6 +74,7 @@ Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **
 - Node.js 18+
 - npm
 - Supabase project ([supabase.com](https://supabase.com))
+- Aplikasi TikTok Shop di [Partner Center](https://partner.tiktokshop.com/) (untuk sync API)
 
 ### Installation
 
@@ -77,11 +90,30 @@ Buat file `.env.local`:
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+
+# TikTok Shop Open API
+# sign & timestamp dihitung otomatis per-request (jangan disimpan)
+TIKTOK_APP_KEY=
+TIKTOK_APP_SECRET=
+TIKTOK_SHOP_CIPHER=
+TIKTOK_ACCESS_TOKEN=          # opsional; setelah Hubungkan TikTok disimpan otomatis
+TIKTOK_REFRESH_TOKEN=         # opsional; sama, disimpan otomatis
+TIKTOK_SERVICE_ID=            # opsional, dari "Copy authorization link"
+TIKTOK_BASE_URL=https://open-api.tiktokglobalshop.com
+TIKTOK_API_VERSION=202309
 ```
+
+Di Partner Center, set Redirect URL aplikasi ke:
+
+```
+http://localhost:3000/api/tiktok/callback
+```
+
+Untuk production, ganti origin (contoh: `https://fulfillment-order.vercel.app/api/tiktok/callback`).
 
 ### Database Setup
 
-Jalankan `supabase/migration.sql` di **Supabase Dashboard > SQL Editor** untuk membuat tabel dan trigger.
+Jalankan `supabase/migration.sql` di **Supabase Dashboard > SQL Editor** (tabel orders, files, profiles, tiktok_tokens, trigger auth).
 
 ### Run
 
@@ -102,13 +134,15 @@ Untuk Vercel: push ke GitHub, import di Vercel, set environment variables di Set
 
 ## Cara Penggunaan
 
-### Import Data
+### Import & Sync
 
-| Platform | Sumber Export | Format |
-|----------|-------------|--------|
-| Shopee | Seller Centre > Pesanan > Export | Excel/CSV |
-| TikTok & Tokopedia | Seller Center > Orders > Export Orders | XLSX |
-| Jubelio | Jubelio > Sales Order > Export | Excel/XLSX |
+| Platform | Sumber | Cara |
+|----------|--------|------|
+| Shopee | Seller Centre > Pesanan > Export | Settings → upload Excel/CSV |
+| Jubelio | Jubelio > Sales Order > Export | Settings → upload Excel/XLSX |
+| TikTok & Tokopedia | TikTok Shop API (To Ship) | Settings → Hubungkan TikTok (sekali) → Sync dari TikTok |
+
+Sync TikTok mengganti seluruh snapshot order TikTok/Tokopedia dengan order siap dikirim terbaru.
 
 ### Google OAuth Setup
 
@@ -119,8 +153,8 @@ Untuk Vercel: push ke GitHub, import di Vercel, set environment variables di Set
 
 ### User Management
 
-- Admin membuat user baru di **Settings > Kelola User > Tambah User**
-- User yang belum didaftarkan tidak bisa login (termasuk via Google OAuth)
+- Admin membuat user di **Settings > Kelola User > Tambah User**
+- User yang belum didaftarkan tidak bisa login (termasuk Google)
 - Admin bisa mengubah role dan menghapus user
 
 ## Struktur Project
@@ -129,45 +163,55 @@ Untuk Vercel: push ke GitHub, import di Vercel, set environment variables di Set
 src/
 ├── app/
 │   ├── api/
-│   │   ├── auth/create-user/  # API create user (admin, server-side)
-│   │   ├── orders/            # API CRUD order
-│   │   └── files/             # API riwayat file upload
-│   ├── auth/callback/         # OAuth callback page
-│   ├── login/                 # Login page
-│   ├── reset-password/        # Reset password page
+│   │   ├── auth/create-user/    # Create user (admin, server-side)
+│   │   ├── orders/              # CRUD order
+│   │   ├── files/               # Riwayat file upload
+│   │   └── tiktok/
+│   │       ├── authorize/       # Mulai OAuth seller
+│   │       ├── callback/        # Tukar auth code → token
+│   │       ├── token/           # Status + jaga token tetap fresh
+│   │       └── sync/            # Tarik order siap dikirim
+│   ├── auth/callback/           # Google OAuth callback
+│   ├── login/
+│   ├── reset-password/
 │   ├── globals.css
 │   ├── layout.tsx
-│   └── page.tsx               # Main dashboard
+│   └── page.tsx                 # Dashboard / Pesanan / Komparasi / Settings
 ├── components/
-│   ├── Charts.tsx             # Visualisasi data (Recharts)
-│   ├── ComparisonView.tsx     # Komparasi Jubelio vs marketplace
-│   ├── FileUpload.tsx         # Drag & drop upload
-│   ├── OrderTable.tsx         # Tabel order dengan filter & sorting
-│   ├── SettingsView.tsx       # Profil, password, kelola user
-│   ├── Sidebar.tsx            # Navigasi sidebar
-│   ├── SummaryCards.tsx       # Ringkasan statistik
+│   ├── Charts.tsx
+│   ├── ComparisonView.tsx
+│   ├── FileUpload.tsx           # Import Shopee & Jubelio
+│   ├── OrderTable.tsx
+│   ├── SettingsView.tsx
+│   ├── Sidebar.tsx
+│   ├── Skeleton.tsx
+│   ├── SummaryCards.tsx
 │   └── ServiceWorkerRegistrar.tsx
 ├── contexts/
-│   └── AuthContext.tsx        # Auth state & functions
+│   └── AuthContext.tsx
 ├── lib/
-│   ├── db.ts                  # Operasi database Supabase
-│   ├── excel-parser.ts        # Parser Excel per platform
-│   ├── supabase.ts            # Supabase client (lazy init)
-│   └── utils.ts               # Utilitas (format, kalkulasi)
+│   ├── db.ts
+│   ├── excel-parser.ts
+│   ├── supabase.ts
+│   ├── supabase-admin.ts
+│   ├── tiktok-api.ts            # Client API + mapping order
+│   ├── tiktok-auth.ts           # OAuth, refresh token, penyimpanan token
+│   └── utils.ts
 └── types/
-    └── order.ts               # TypeScript interfaces
+    └── order.ts
 public/
-├── manifest.json              # PWA manifest
-├── sw.js                      # Service worker
-└── icons/                     # PWA icons (192x192, 512x512)
+├── manifest.json
+├── sw.js
+└── icons/
 supabase/
-└── migration.sql              # Schema & trigger SQL
+├── migration.sql
+└── seed-admin.sql
 ```
 
-## Format Kolom yang Didukung
+## Format Kolom Excel yang Didukung
 
-| Field | Shopee | TikTok Shop | Jubelio |
-|-------|--------|-------------|---------|
+| Field | Shopee | TikTok Shop (legacy export) | Jubelio |
+|-------|--------|-----------------------------|---------|
 | No. Pesanan | No. Pesanan | Order ID | salesorder_no |
 | Status | Status Pesanan | Order Status | channel_status |
 | Customer | Username (Pembeli) | Buyer Username | customer_name |

@@ -121,3 +121,15 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+
+-- ── TikTok Shop token (auto-refresh access_token) ──
+CREATE TABLE IF NOT EXISTS tiktok_tokens (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  access_token TEXT NOT NULL,
+  refresh_token TEXT NOT NULL,
+  access_token_expire_at TIMESTAMPTZ,
+  refresh_token_expire_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE tiktok_tokens ENABLE ROW LEVEL SECURITY;

@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   ShoppingBag,
   GitCompareArrows,
+  Table2,
   X,
   LogOut,
   User,
@@ -15,7 +16,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useAuth, type UserProfile } from "@/contexts/AuthContext";
 
-type TabId = "dashboard" | "compare" | "settings";
+type TabId = "dashboard" | "orders" | "compare" | "settings";
 
 interface SidebarProps {
   activeTab: TabId;
@@ -44,6 +45,12 @@ export default function Sidebar({
       id: "dashboard" as const,
       label: "Dashboard",
       icon: LayoutDashboard,
+      section: "OVERVIEW",
+    },
+    {
+      id: "orders" as const,
+      label: "Pesanan",
+      icon: Table2,
       section: "OVERVIEW",
     },
     {
@@ -138,7 +145,7 @@ export default function Sidebar({
                     >
                       <item.icon className="w-[18px] h-[18px] shrink-0" />
                       <span className="truncate">{item.label}</span>
-                      {item.id === "dashboard" && orderCount > 0 && (
+                      {item.id === "orders" && orderCount > 0 && (
                         <span className={cn(
                           "ml-auto text-[10px] px-1.5 py-0.5 rounded-full font-semibold",
                           isActive
@@ -201,7 +208,7 @@ export default function Sidebar({
                   className="overflow-hidden"
                 >
                   <button
-                    onClick={() => { signOut(); onClose(); }}
+                    onClick={() => { signOut(); }}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-brand-400 hover:bg-brand-800 hover:text-red-400 transition-colors mt-1"
                   >
                     <LogOut className="w-[18px] h-[18px] shrink-0" />

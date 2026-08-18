@@ -13,15 +13,21 @@ import {
   ArrowRightLeft,
   Package,
   ShoppingBag,
+  RefreshCw,
+  CloudOff,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { Order } from "@/types/order";
+import { Order, UploadedFile } from "@/types/order";
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 import type { UserRole } from "@/contexts/AuthContext";
+import { CardsSkeleton, TableSkeleton } from "@/components/Skeleton";
 
 interface ComparisonViewProps {
   orders: Order[];
   userRole: UserRole;
+  uploadedFiles?: UploadedFile[];
+  onSyncComplete?: () => void | Promise<void>;
+  isRefreshing?: boolean;
 }
 
 type MatchStatus = "matched" | "jubelio_only" | "platform_only" | "mismatch";
@@ -45,13 +51,77 @@ function normalize(s: string): string {
   return s.replace(/[\s\-_.#]+/g, "").toUpperCase();
 }
 
-export default function ComparisonView({ orders, userRole }: ComparisonViewProps) {
+type MarketplaceFilter = "all" | "tiktok" | "shopee";
+type TtsChannelFilter = "all" | "tts" | "tokopedia";
+
+function marketplaceOf(order?: Order): Exclude<MarketplaceFilter, "all"> {
+  if (!order) return "tiktok";
+  if (order.platform === "shopee") return "shopee";
+  return "tiktok";
+}
+
+function ttsChannelOf(order?: Order): Exclude<TtsChannelFilter, "all"> {
+  if (!order) return "tts";
+  if (order.platform === "tokopedia") return "tokopedia";
+
+  const hint = [order.channelName, order.storeName]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (hint.includes("tiktok")) return "tts";
+  if (hint.includes("tokopedia") || hint.includes("tokped")) return "tokopedia";
+  return "tts";
+}
+
+function marketplaceLabel(order?: Order): string {
+  if (!order) return "-";
+  if (order.platform === "shopee") return "Shopee";
+  return ttsChannelOf(order) === "tokopedia" ? "Tokopedia" : "TikTok Shop by Tokopedia";
+}
+
+export default function ComparisonView({ orders, userRole, uploadedFiles = [], onSyncComplete, isRefreshing = false }: ComparisonViewProps) {
   const hideMoney = userRole === "warehouse";
   const [filterTab, setFilterTab] = useState<FilterTab>("all");
+  const [marketplaceFilter, setMarketplaceFilter] = useState<MarketplaceFilter>("all");
+  const [ttsChannelFilter, setTtsChannelFilter] = useState<TtsChannelFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState<CompSortField>("status");
   const [sortDir, setSortDir] = useState<CompSortDir>("asc");
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState("");
+
+  const tiktokSyncFile = [...uploadedFiles]
+    .filter((f) => f.platform === "tiktok" || f.platform === "tokopedia")
+    .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())[0];
+  const lastSyncLabel = tiktokSyncFile?.uploadedAt
+    ? new Date(tiktokSyncFile.uploadedAt).toLocaleString("id-ID", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+
+  const handleSyncTikTok = async () => {
+    setSyncing(true);
+    setSyncError("");
+    try {
+      const res = await fetch("/api/tiktok/sync", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setSyncError(data.error || "Gagal sinkronisasi TikTok");
+      } else if (onSyncComplete) {
+        await onSyncComplete();
+      }
+    } catch (err: any) {
+      setSyncError(err.message || "Terjadi kesalahan jaringan");
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const { rows, summary } = useMemo(() => {
     const jubelioOrders = orders.filter((o) => o.platform === "jubelio");
@@ -204,6 +274,18 @@ export default function ComparisonView({ orders, userRole }: ComparisonViewProps
       result = result.filter((r) => r.status === filterTab);
     }
 
+    if (filterTab === "platform_only" && marketplaceFilter !== "all") {
+      result = result.filter((r) => marketplaceOf(r.platformOrder) === marketplaceFilter);
+    }
+
+    if (
+      filterTab === "platform_only" &&
+      marketplaceFilter === "tiktok" &&
+      ttsChannelFilter !== "all"
+    ) {
+      result = result.filter((r) => ttsChannelOf(r.platformOrder) === ttsChannelFilter);
+    }
+
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
@@ -254,7 +336,7 @@ export default function ComparisonView({ orders, userRole }: ComparisonViewProps
     });
 
     return result;
-  }, [rows, filterTab, searchQuery, sortField, sortDir]);
+  }, [rows, filterTab, marketplaceFilter, ttsChannelFilter, searchQuery, sortField, sortDir]);
 
   const totalPages = Math.ceil(filteredRows.length / ITEMS_PER_PAGE);
   const paginatedRows = filteredRows.slice(
@@ -334,6 +416,26 @@ export default function ComparisonView({ orders, userRole }: ComparisonViewProps
     }
   };
 
+  const marketplaceCounts = useMemo(() => {
+    const only = rows.filter((r) => r.status === "platform_only");
+    return {
+      all: only.length,
+      tiktok: only.filter((r) => marketplaceOf(r.platformOrder) === "tiktok").length,
+      shopee: only.filter((r) => marketplaceOf(r.platformOrder) === "shopee").length,
+    };
+  }, [rows]);
+
+  const ttsChannelCounts = useMemo(() => {
+    const only = rows.filter(
+      (r) => r.status === "platform_only" && marketplaceOf(r.platformOrder) === "tiktok"
+    );
+    return {
+      all: only.length,
+      tts: only.filter((r) => ttsChannelOf(r.platformOrder) === "tts").length,
+      tokopedia: only.filter((r) => ttsChannelOf(r.platformOrder) === "tokopedia").length,
+    };
+  }, [rows]);
+
   const filterTabs: { value: FilterTab; label: string; count: number; color: string }[] = [
     { value: "all", label: "Semua", count: summary.total, color: "text-brand-700" },
     { value: "matched", label: "Cocok", count: summary.matched, color: "text-green-600" },
@@ -347,6 +449,39 @@ export default function ComparisonView({ orders, userRole }: ComparisonViewProps
 
   return (
     <div className="space-y-4 sm:space-y-6">
+      {/* Header + Sync */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-xs sm:text-sm text-brand-400">
+          Data TikTok &amp; Tokopedia ditarik dari <strong className="text-brand-600">TikTok Shop API</strong> (siap dikirim).
+        </p>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            onClick={handleSyncTikTok}
+            disabled={syncing || isRefreshing}
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-all"
+          >
+            <RefreshCw className={cn("w-4 h-4", syncing && "animate-spin")} />
+            {syncing ? "Menyinkronkan..." : "Sync TikTok"}
+          </button>
+          {syncError ? (
+            <span className="flex items-center gap-1 text-xs text-red-600">
+              <CloudOff className="w-3.5 h-3.5" /> {syncError}
+            </span>
+          ) : (
+            <span className="text-xs text-brand-400">
+              {lastSyncLabel ? `Terakhir di-sync: ${lastSyncLabel}` : "Belum pernah di-sync"}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {syncing || isRefreshing ? (
+        <>
+          <CardsSkeleton />
+          <TableSkeleton rows={8} columns={7} />
+        </>
+      ) : (
+      <>
       {/* Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         {[
@@ -389,6 +524,7 @@ export default function ComparisonView({ orders, userRole }: ComparisonViewProps
                   key={tab.value}
                   onClick={() => {
                     setFilterTab(tab.value);
+                    setMarketplaceFilter("all");
                     setCurrentPage(1);
                   }}
                   className={cn(
@@ -412,6 +548,85 @@ export default function ComparisonView({ orders, userRole }: ComparisonViewProps
             })}
           </div>
         </div>
+
+        {filterTab === "platform_only" && (
+          <div className="px-3 sm:px-4 py-2 sm:py-2.5 border-b border-brand-100 flex flex-wrap items-center gap-1.5 sm:gap-2">
+            <span className="text-[10px] sm:text-xs font-medium text-brand-400 mr-0.5 sm:mr-1">Marketplace:</span>
+            {([
+              { value: "all" as MarketplaceFilter, label: "Semua" },
+              { value: "tiktok" as MarketplaceFilter, label: "TikTok & Tokopedia" },
+              { value: "shopee" as MarketplaceFilter, label: "Shopee" },
+            ]).map((item) => {
+              const isActive = marketplaceFilter === item.value;
+              const count = marketplaceCounts[item.value];
+              return (
+                <button
+                  key={item.value}
+                  onClick={() => {
+                    setMarketplaceFilter(item.value);
+                    setTtsChannelFilter("all");
+                    setCurrentPage(1);
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                    isActive
+                      ? "bg-brand-500 text-white shadow-sm"
+                      : "bg-cream-200 text-brand-400 hover:bg-cream-300"
+                  )}
+                >
+                  {item.label}
+                  <span
+                    className={cn(
+                      "px-1.5 py-0.5 rounded-full text-[10px]",
+                      isActive ? "bg-white/20" : "bg-brand-200 text-brand-500"
+                    )}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {filterTab === "platform_only" && marketplaceFilter === "tiktok" && (
+          <div className="px-3 sm:px-4 py-2 sm:py-2.5 border-b border-brand-100 flex flex-wrap items-center gap-1.5 sm:gap-2">
+            <span className="text-[10px] sm:text-xs font-medium text-brand-400 mr-0.5 sm:mr-1">Platform:</span>
+            {([
+              { value: "all" as TtsChannelFilter, label: "Semua" },
+              { value: "tts" as TtsChannelFilter, label: "TikTok Shop by Tokopedia" },
+              { value: "tokopedia" as TtsChannelFilter, label: "Tokopedia" },
+            ]).map((item) => {
+              const isActive = ttsChannelFilter === item.value;
+              const count = ttsChannelCounts[item.value];
+              return (
+                <button
+                  key={item.value}
+                  onClick={() => {
+                    setTtsChannelFilter(item.value);
+                    setCurrentPage(1);
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                    isActive
+                      ? "bg-brand-600 text-white shadow-sm"
+                      : "bg-cream-200 text-brand-400 hover:bg-cream-300"
+                  )}
+                >
+                  {item.label}
+                  <span
+                    className={cn(
+                      "px-1.5 py-0.5 rounded-full text-[10px]",
+                      isActive ? "bg-white/20" : "bg-brand-200 text-brand-500"
+                    )}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Search */}
         <div className="p-3 sm:p-4 border-b border-brand-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
@@ -551,7 +766,7 @@ export default function ComparisonView({ orders, userRole }: ComparisonViewProps
                         )}
                         {row.platformOrder && (
                           <p className="text-[10px] text-brand-300 mt-0.5">
-                            {row.platformOrder.platform === "shopee" ? "Shopee" : "TikTok"}
+                            {marketplaceLabel(row.platformOrder)}
                           </p>
                         )}
                       </td>
@@ -703,6 +918,8 @@ export default function ComparisonView({ orders, userRole }: ComparisonViewProps
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

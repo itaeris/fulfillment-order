@@ -18,10 +18,14 @@ import {
   Database,
   Download,
   RefreshCw,
+  Cloud,
+  CloudOff,
+  Link2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import FileUpload from "./FileUpload";
+import { TableSkeleton } from "@/components/Skeleton";
 import { Platform, UploadedFile } from "@/types/order";
 
 function Spinner({ className = "w-4 h-4" }: { className?: string }) {
@@ -53,6 +57,8 @@ interface SettingsViewProps {
   onExportCSV: () => void;
   onClearAll: () => void;
   orderCount: number;
+  onSyncComplete: () => void | Promise<void>;
+  isRefreshing?: boolean;
 }
 
 export default function SettingsView({
@@ -62,6 +68,8 @@ export default function SettingsView({
   onExportCSV,
   onClearAll,
   orderCount,
+  onSyncComplete,
+  isRefreshing,
 }: SettingsViewProps) {
   const { profile, updatePassword } = useAuth();
   const [activeSection, setActiveSection] = useState<SettingsTab>("data");
@@ -103,7 +111,7 @@ export default function SettingsView({
 
       <AnimatePresence mode="wait">
         {activeSection === "data" && (
-          <motion.div key="data" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
+          <motion.div key="data" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.1 }}>
             <DataSection
               onFileUpload={onFileUpload}
               uploadedFiles={uploadedFiles}
@@ -111,21 +119,23 @@ export default function SettingsView({
               onExportCSV={onExportCSV}
               onClearAll={onClearAll}
               orderCount={orderCount}
+              onSyncComplete={onSyncComplete}
+              isRefreshing={!!isRefreshing}
             />
           </motion.div>
         )}
         {activeSection === "profile" && (
-          <motion.div key="profile" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
+          <motion.div key="profile" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.1 }}>
             <ProfileSection />
           </motion.div>
         )}
         {activeSection === "password" && (
-          <motion.div key="password" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
+          <motion.div key="password" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.1 }}>
             <PasswordSection />
           </motion.div>
         )}
         {activeSection === "users" && profile?.role === "admin" && (
-          <motion.div key="users" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
+          <motion.div key="users" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.1 }}>
             <UserManagementSection />
           </motion.div>
         )}
@@ -344,6 +354,8 @@ function DataSection({
   onExportCSV,
   onClearAll,
   orderCount,
+  onSyncComplete,
+  isRefreshing,
 }: {
   onFileUpload: (file: File, platform: Platform) => Promise<number>;
   uploadedFiles: UploadedFile[];
@@ -351,11 +363,193 @@ function DataSection({
   onExportCSV: () => void;
   onClearAll: () => void;
   orderCount: number;
+  onSyncComplete: () => void | Promise<void>;
+  isRefreshing: boolean;
 }) {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState("");
+  const [syncCount, setSyncCount] = useState<number | null>(null);
+  const [tokenStatus, setTokenStatus] = useState<{
+    hasRefreshToken: boolean;
+    hasAccessToken: boolean;
+    accessTokenExpireAt?: string;
+    refreshTokenExpireAt?: string;
+    needsRefresh: boolean;
+  } | null>(null);
+  const [tokenError, setTokenError] = useState("");
+  const [tokenSaved, setTokenSaved] = useState(false);
+
+  const loadTokenStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tiktok/token");
+      const data = await res.json();
+      if (res.ok) setTokenStatus(data);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    loadTokenStatus();
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("tiktok") === "connected") {
+      setTokenSaved(true);
+      setTokenError("");
+    } else if (params.get("tiktok") === "error") {
+      setTokenError(params.get("message") || "Gagal menghubungkan TikTok");
+    }
+    if (params.has("tiktok")) {
+      params.delete("tiktok");
+      params.delete("message");
+      const next = params.toString();
+      window.history.replaceState({}, "", next ? `?${next}` : window.location.pathname);
+    }
+  }, [loadTokenStatus]);
+
+  const tiktokSyncFile = [...uploadedFiles]
+    .filter((f) => f.platform === "tiktok" || f.platform === "tokopedia")
+    .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())[0];
+
+  const lastSyncLabel = tiktokSyncFile?.uploadedAt
+    ? new Date(tiktokSyncFile.uploadedAt).toLocaleString("id-ID", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+  const lastSyncCount = syncCount ?? tiktokSyncFile?.orderCount;
+
+  const handleSyncTikTok = async () => {
+    setSyncing(true);
+    setSyncError("");
+    try {
+      const res = await fetch("/api/tiktok/sync", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setSyncError(data.error || "Gagal sinkronisasi");
+      } else {
+        if (typeof data.count === "number") setSyncCount(data.count);
+        await onSyncComplete();
+      }
+    } catch (err: any) {
+      setSyncError(err.message || "Terjadi kesalahan jaringan");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const formatExpire = (iso?: string) => {
+    if (!iso) return null;
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleString("id-ID", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const handleConnectTikTok = () => {
+    window.location.href = "/api/tiktok/authorize";
+  };
 
   return (
     <div className="space-y-6">
+      {/* TikTok API Sync */}
+      <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="min-w-0">
+            <h3 className="text-lg font-semibold text-brand-800 flex items-center gap-2">
+              <Cloud className="w-5 h-5 text-brand-600" />
+              TikTok &amp; Tokopedia (API)
+            </h3>
+            <p className="text-sm text-brand-400 mt-1 max-w-lg">
+              Tarik order <strong>siap dikirim</strong> langsung dari TikTok Shop tanpa export
+              Excel. Data lama TikTok akan diganti dengan snapshot terbaru.
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-1.5 shrink-0">
+            <button
+              onClick={handleSyncTikTok}
+              disabled={syncing}
+              className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-all"
+            >
+              {syncing ? <Spinner /> : <RefreshCw className="w-4 h-4" />}
+              {syncing ? "Menyinkronkan..." : "Sync dari TikTok"}
+            </button>
+            <p className="text-xs text-brand-400">
+              {lastSyncLabel ? (
+                <>
+                  Terakhir di-sync:{" "}
+                  <span className="font-medium text-brand-700">{lastSyncLabel}</span>
+                  {typeof lastSyncCount === "number" && (
+                    <span> · {lastSyncCount} order</span>
+                  )}
+                </>
+              ) : (
+                "Belum pernah di-sync"
+              )}
+            </p>
+          </div>
+        </div>
+
+        {syncError && (
+          <div className="mt-3 p-3 rounded-xl text-sm flex items-center gap-2 bg-red-50 border border-red-200 text-red-600">
+            <CloudOff className="w-4 h-4 shrink-0" />
+            {syncError}
+          </div>
+        )}
+
+        <div className="mt-5 pt-5 border-t border-brand-100 space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-brand-800">Koneksi TikTok Shop</p>
+              <p className="text-xs text-brand-400 mt-0.5 max-w-lg">
+                Izin aplikasi ke toko kamu sudah Unlimited. Access token API tetap
+                ganti tiap ±4 jam, tapi app memperbaruinya sendiri — tidak perlu
+                authorize ulang.
+              </p>
+              <p className="text-xs mt-1.5">
+                {tokenStatus?.hasRefreshToken ? (
+                  <span className="text-green-700">
+                    Terhubung
+                    {formatExpire(tokenStatus.accessTokenExpireAt) && (
+                      <> · token berlaku sampai {formatExpire(tokenStatus.accessTokenExpireAt)}</>
+                    )}
+                  </span>
+                ) : (
+                  <span className="text-amber-700">Belum terhubung</span>
+                )}
+              </p>
+            </div>
+            <button
+              onClick={handleConnectTikTok}
+              className="flex items-center gap-2 px-4 py-2 bg-cream-200 text-brand-700 rounded-xl text-sm font-medium hover:bg-cream-300 transition-all shrink-0"
+            >
+              <Link2 className="w-4 h-4" />
+              {tokenStatus?.hasRefreshToken ? "Hubungkan ulang" : "Hubungkan TikTok"}
+            </button>
+          </div>
+          {tokenSaved && (
+            <p className="text-xs text-green-700">TikTok terhubung. Sync berikutnya memakai token otomatis.</p>
+          )}
+          {tokenError && (
+            <p className="text-xs text-red-600">{tokenError}</p>
+          )}
+        </div>
+
+        {(syncing || isRefreshing) && (
+          <div className="mt-4">
+            <TableSkeleton rows={5} columns={4} showFilters={false} embedded />
+          </div>
+        )}
+      </div>
+
       <FileUpload
         onFileUpload={onFileUpload}
         uploadedFiles={uploadedFiles}
@@ -539,9 +733,7 @@ function UserManagementSection() {
         )}
 
         {loading ? (
-          <div className="flex items-center justify-center py-8">
-            <div className="loader" />
-          </div>
+          <TableSkeleton rows={5} columns={5} showFilters={false} embedded />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
