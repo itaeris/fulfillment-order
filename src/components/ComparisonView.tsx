@@ -461,7 +461,7 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
       <div className="bg-white rounded-xl shadow-sm border border-brand-200">
         {/* Filter Tabs */}
         <div className="px-3 sm:px-4 border-b border-brand-200">
-          <div className="flex gap-0.5 sm:gap-1 overflow-x-auto scrollbar-hide">
+          <div className="flex gap-0.5 sm:gap-1 overflow-x-auto scrollbar-hide min-w-0">
             {filterTabs.map((tab) => {
               const isActive = filterTab === tab.value;
               return (
@@ -473,7 +473,7 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
                     setCurrentPage(1);
                   }}
                   className={cn(
-                    "flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition-all",
+                    "flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition-all shrink-0",
                     isActive
                       ? `border-brand-500 ${tab.color}`
                       : "border-transparent text-brand-300 hover:text-brand-500"
@@ -594,7 +594,7 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
         </div>
 
         {/* Table */}
-        <div className="overflow-x-auto">
+        <div>
           {filteredRows.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 px-4">
               <div className="w-16 h-16 bg-cream-200 rounded-full flex items-center justify-center mb-4">
@@ -603,6 +603,51 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
               <p className="text-brand-400 text-center">Tidak ada data yang cocok dengan filter.</p>
             </div>
           ) : (
+            <>
+            <div className="md:hidden divide-y divide-cream-200">
+              {paginatedRows.map((row, idx) => {
+                const badge = getStatusBadge(row.status);
+                const BadgeIcon = badge.icon;
+                const name =
+                  row.jubelioOrder?.customerName ||
+                  row.platformOrder?.customerName ||
+                  "-";
+                return (
+                  <article key={`${row.orderNumber}-${idx}`} className="p-3 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium",
+                          badge.color
+                        )}
+                      >
+                        <BadgeIcon className="w-3 h-3" />
+                        {badge.label}
+                      </span>
+                      <span className="text-[10px] text-brand-400 bg-cream-200 px-1.5 py-0.5 rounded">
+                        {row.matchedBy}
+                      </span>
+                    </div>
+                    <p className="text-sm font-semibold text-brand-800 font-mono break-all">
+                      {row.orderNumber}
+                    </p>
+                    <p className="text-xs text-brand-500">{name}</p>
+                    {row.platformOrder && (
+                      <p className="text-[11px] text-brand-400">
+                        {marketplaceLabel(row.platformOrder)}
+                      </p>
+                    )}
+                    {!hideMoney && row.jubelioOrder && row.platformOrder ? (
+                      <p className="text-xs text-brand-600">
+                        J {formatCurrency(row.jubelioOrder.totalAmount)} · P{" "}
+                        {formatCurrency(row.platformOrder.totalAmount)}
+                      </p>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+            <div className="hidden md:block overflow-x-auto">
             <table className="w-full min-w-[950px]">
               <thead className="bg-cream-100">
                 <tr>
@@ -802,6 +847,8 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
                 })}
               </tbody>
             </table>
+            </div>
+            </>
           )}
         </div>
 

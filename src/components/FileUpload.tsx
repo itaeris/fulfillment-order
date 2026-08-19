@@ -82,17 +82,17 @@ export default function FileUpload({
   ];
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-6">
-      <h2 className="text-base sm:text-lg font-semibold text-brand-800 mb-4">
+    <div className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-brand-200 p-3 sm:p-6">
+      <h2 className="text-sm sm:text-lg font-semibold text-brand-800 mb-2 sm:mb-4">
         Import Data Shopee
       </h2>
 
       {/* Platform Selection */}
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-brand-400 mb-2">
+      <div className="mb-3 sm:mb-4">
+        <label className="block text-xs sm:text-sm font-medium text-brand-400 mb-1 sm:mb-2">
           Platform
         </label>
-        <p className="text-xs text-brand-400 mb-3">
+        <p className="text-[11px] sm:text-xs text-brand-400 mb-2 sm:mb-3 hidden sm:block">
           TikTok, Tokopedia, dan Jubelio memakai tombol Ambil data di atas. Excel hanya untuk Shopee.
         </p>
         <div className="flex flex-wrap gap-2">
@@ -101,7 +101,7 @@ export default function FileUpload({
               key={platform.value}
               onClick={() => setSelectedPlatform(platform.value)}
               className={cn(
-                "px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                "px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all",
                 selectedPlatform === platform.value
                   ? `${platform.color} text-white shadow-md`
                   : "bg-cream-200 text-brand-400 hover:bg-cream-300"
@@ -119,7 +119,7 @@ export default function FileUpload({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={cn(
-          "relative border-2 border-dashed rounded-xl p-6 sm:p-8 text-center transition-all",
+          "relative border-2 border-dashed rounded-lg sm:rounded-xl p-4 sm:p-8 text-center transition-all",
           isDragging
             ? "border-brand-500 bg-brand-50"
             : "border-brand-200 hover:border-brand-300",
@@ -135,28 +135,28 @@ export default function FileUpload({
           disabled={isUploading}
         />
 
-        <div className="flex flex-col items-center gap-3">
+        <div className="flex flex-col items-center gap-2 sm:gap-3">
           <div
             className={cn(
-              "w-14 h-14 rounded-full flex items-center justify-center",
+              "w-10 h-10 sm:w-14 sm:h-14 rounded-full flex items-center justify-center",
               isDragging ? "bg-brand-100" : "bg-cream-200"
             )}
           >
             <Upload
               className={cn(
-                "w-6 h-6",
+                "w-5 h-5 sm:w-6 sm:h-6",
                 isDragging ? "text-brand-500" : "text-brand-300"
               )}
             />
           </div>
 
           <div>
-            <p className="text-brand-700 font-medium">
+            <p className="text-sm sm:text-base text-brand-700 font-medium">
               {isUploading
                 ? "Mengunggah..."
                 : "Letakkan file Excel Shopee di sini"}
             </p>
-            <p className="text-sm text-brand-400 mt-1">
+            <p className="text-[11px] sm:text-sm text-brand-400 mt-0.5 sm:mt-1">
               atau klik untuk memilih file (.xlsx, .xls, .csv)
             </p>
           </div>

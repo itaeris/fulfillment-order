@@ -161,12 +161,13 @@ export default function Dashboard() {
       setSyncErrorSource(null);
       setSyncProgress(0);
       try {
-        if (source === "jubelio") {
+        if (source === "jubelio" || source === "tiktok") {
+          const label = source === "tiktok" ? "TikTok" : "Jubelio";
           let startPage = 1;
           let insertedSoFar = 0;
           let cursor: unknown;
           while (true) {
-            const res = await fetch("/api/jubelio/sync", {
+            const res = await fetch(source === "tiktok" ? "/api/tiktok/sync" : "/api/jubelio/sync", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ startPage, insertedSoFar, cursor }),
@@ -186,45 +187,24 @@ export default function Dashboard() {
               setSyncError(
                 res.status === 504 || res.status === 500
                   ? "Pengambilan data terlalu lama. Coba lagi."
-                  : "Gagal mengambil data Jubelio. Coba lagi."
+                  : `Gagal mengambil data ${label}. Coba lagi.`
               );
               return;
             }
             if (!res.ok) {
               setSyncErrorSource(source);
-              setSyncError(data.error || "Gagal mengambil data Jubelio");
+              setSyncError(data.error || `Gagal mengambil data ${label}`);
               return;
             }
             insertedSoFar = data.count || insertedSoFar;
             setSyncProgress(insertedSoFar);
             if (data.done) break;
-            if (!data.nextPage) break;
-            startPage = data.nextPage;
+            if (!data.nextPage && !data.cursor) break;
+            startPage = data.nextPage || startPage;
             cursor = data.cursor;
           }
           await loadData();
           return;
-        }
-
-        const res = await fetch("/api/tiktok/sync", { method: "POST" });
-        const text = await res.text();
-        let data: { error?: string };
-        try {
-          data = JSON.parse(text);
-        } catch {
-          setSyncErrorSource(source);
-          setSyncError(
-            res.status === 504 || res.status === 500
-              ? "Pengambilan data terlalu lama. Coba lagi."
-              : "Gagal mengambil data TikTok. Coba lagi."
-          );
-          return;
-        }
-        if (!res.ok) {
-          setSyncErrorSource(source);
-          setSyncError(data.error || "Gagal mengambil data TikTok");
-        } else {
-          await loadData();
         }
       } catch (err: any) {
         setSyncErrorSource(source);
@@ -450,7 +430,7 @@ export default function Dashboard() {
         </header>
 
         {/* Scrollable content */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-6">
           <AnimatePresence mode="wait">
             {activeTab === "compare" && (
               <motion.div
@@ -497,7 +477,7 @@ export default function Dashboard() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.1 }}
-                className="space-y-4 sm:space-y-6"
+                className="space-y-3 sm:space-y-6"
               >
                 {orders.length === 0 && !syncing ? (
                   <EmptyDataState onImport={() => setActiveTab("settings")} />
@@ -544,20 +524,20 @@ function EmptyDataState({ onImport }: { onImport: () => void }) {
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="bg-white rounded-xl shadow-sm border border-brand-200 p-8 sm:p-12 text-center"
+      className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-brand-200 p-5 sm:p-12 text-center"
     >
-      <div className="w-16 sm:w-20 h-16 sm:h-20 bg-cream-200 rounded-full flex items-center justify-center mx-auto mb-4">
-        <LayoutDashboard className="w-8 sm:w-10 h-8 sm:h-10 text-brand-300" />
+      <div className="w-12 sm:w-20 h-12 sm:h-20 bg-cream-200 rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4">
+        <LayoutDashboard className="w-6 sm:w-10 h-6 sm:h-10 text-brand-300" />
       </div>
-      <h3 className="text-lg sm:text-xl font-semibold text-brand-700 mb-2">
+      <h3 className="text-sm sm:text-xl font-semibold text-brand-700 mb-1.5 sm:mb-2">
         Belum Ada Data
       </h3>
-      <p className="text-brand-400 mb-4 text-sm sm:text-base">
+      <p className="text-brand-400 mb-3 sm:mb-4 text-xs sm:text-base">
         Ambil data TikTok atau Jubelio, atau unggah Excel Shopee di Settings.
       </p>
       <button
         onClick={onImport}
-        className="px-6 py-3 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors font-medium text-sm sm:text-base"
+        className="px-4 py-2 sm:px-6 sm:py-3 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors font-medium text-xs sm:text-base"
       >
         Buka Settings
       </button>

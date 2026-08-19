@@ -94,8 +94,8 @@ export default function Charts({ dailyStats, summary, userRole }: ChartsProps) {
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
-        <div className="bg-white p-3 rounded-lg shadow-lg border border-brand-200">
-          <p className="font-medium text-brand-700 mb-2">
+        <div className="bg-white p-2 sm:p-3 rounded-lg shadow-lg border border-brand-200">
+          <p className="text-xs sm:text-sm font-medium text-brand-700 mb-1 sm:mb-2">
             {formatChartDate(label)}
           </p>
           {payload.map((entry: any, index: number) => (
@@ -132,14 +132,14 @@ export default function Charts({ dailyStats, summary, userRole }: ChartsProps) {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-6">
       {/* Revenue Trend Chart (hidden for warehouse) */}
       {!hideMoney && dailyStats.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5">
-          <h3 className="text-base sm:text-lg font-semibold text-brand-800 mb-3 sm:mb-4">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-brand-200 p-3 sm:p-5">
+          <h3 className="text-sm sm:text-lg font-semibold text-brand-800 mb-2 sm:mb-4">
             Tren Pendapatan
           </h3>
-          <div className="h-[220px] sm:h-[300px]">
+          <div className="h-[180px] sm:h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={dailyStats}>
                 <defs>
@@ -185,7 +185,8 @@ export default function Charts({ dailyStats, summary, userRole }: ChartsProps) {
                   dataKey="date"
                   tickFormatter={formatChartDate}
                   stroke="#A8917E"
-                  fontSize={12}
+                  fontSize={10}
+                  tickMargin={4}
                 />
                 <YAxis
                   tickFormatter={(value) =>
@@ -196,10 +197,12 @@ export default function Charts({ dailyStats, summary, userRole }: ChartsProps) {
                       : value
                   }
                   stroke="#A8917E"
-                  fontSize={12}
+                  fontSize={10}
+                  width={42}
+                  tickMargin={2}
                 />
                 <Tooltip content={<CustomTooltip />} />
-                <Legend />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
                 <Area
                   type="monotone"
                   dataKey="shopee"
@@ -232,19 +235,19 @@ export default function Charts({ dailyStats, summary, userRole }: ChartsProps) {
 
       {/* Platform Distribution Pie Chart (hidden for warehouse) */}
       {!hideMoney && platformPieData.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5">
-          <h3 className="text-base sm:text-lg font-semibold text-brand-800 mb-3 sm:mb-4">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-brand-200 p-3 sm:p-5">
+          <h3 className="text-sm sm:text-lg font-semibold text-brand-800 mb-2 sm:mb-4">
             Distribusi per Platform
           </h3>
-          <div className="h-[220px] sm:h-[300px]">
+          <div className="h-[180px] sm:h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={platformPieData}
                   cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
+                  cy="45%"
+                  innerRadius="32%"
+                  outerRadius="62%"
                   paddingAngle={2}
                   dataKey="value"
                 >
@@ -257,7 +260,7 @@ export default function Charts({ dailyStats, summary, userRole }: ChartsProps) {
                   verticalAlign="bottom"
                   height={36}
                   formatter={(value) => (
-                    <span className="text-sm text-brand-500">{value}</span>
+                    <span className="text-[11px] sm:text-sm text-brand-500">{value}</span>
                   )}
                 />
               </PieChart>
@@ -268,21 +271,22 @@ export default function Charts({ dailyStats, summary, userRole }: ChartsProps) {
 
       {/* Status Distribution Bar Chart */}
       {statusBarData.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5 lg:col-span-2">
-          <h3 className="text-base sm:text-lg font-semibold text-brand-800 mb-3 sm:mb-4">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-brand-200 p-3 sm:p-5 lg:col-span-2">
+          <h3 className="text-sm sm:text-lg font-semibold text-brand-800 mb-2 sm:mb-4">
             Status Order
           </h3>
-          <div className="h-[200px] sm:h-[250px]">
+          <div className="h-[160px] sm:h-[250px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={statusBarData} layout="vertical">
+              <BarChart data={statusBarData} layout="vertical" margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E8DDD3" />
-                <XAxis type="number" stroke="#A8917E" fontSize={12} />
+                <XAxis type="number" stroke="#A8917E" fontSize={10} />
                 <YAxis
                   type="category"
                   dataKey="name"
                   stroke="#A8917E"
-                  fontSize={12}
-                  width={100}
+                  fontSize={10}
+                  width={72}
+                  tickMargin={4}
                 />
                 <Tooltip
                   formatter={(value: number) => [formatNumber(value), "Order"]}

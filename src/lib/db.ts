@@ -25,6 +25,133 @@ export async function getAllOrders() {
   return allRows.map(rowToOrder);
 }
 
+export async function countOrdersByPlatform(platform: string) {
+  const { count, error } = await supabase
+    .from("orders")
+    .select("*", { count: "exact", head: true })
+    .eq("platform", platform);
+  if (error) throw error;
+  return count ?? 0;
+}
+
+export async function getOrderIdsByPlatform(platform: string) {
+  const ids: string[] = [];
+  const PAGE_SIZE = 1000;
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("id")
+      .eq("platform", platform)
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    for (const row of data) {
+      if (row.id) ids.push(row.id);
+    }
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return ids;
+}
+
+export async function countOrdersByPlatforms(platforms: string[]) {
+  if (platforms.length === 0) return 0;
+  const { count, error } = await supabase
+    .from("orders")
+    .select("*", { count: "exact", head: true })
+    .in("platform", platforms);
+  if (error) throw error;
+  return count ?? 0;
+}
+
+export async function findExistingOrderIds(ids: string[]) {
+  const found = new Set<string>();
+  if (ids.length === 0) return found;
+  const CHUNK = 100;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    const { data, error } = await supabase.from("orders").select("id").in("id", chunk);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      if (row.id) found.add(row.id);
+    }
+  }
+  return found;
+}
+
+export async function findExistingOrderNumbers(platforms: string[], orderNumbers: string[]) {
+  const found = new Set<string>();
+  if (orderNumbers.length === 0 || platforms.length === 0) return found;
+  const CHUNK = 100;
+  for (let i = 0; i < orderNumbers.length; i += CHUNK) {
+    const chunk = orderNumbers.slice(i, i + CHUNK);
+    const { data, error } = await supabase
+      .from("orders")
+      .select("order_number")
+      .in("platform", platforms)
+      .in("order_number", chunk);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      if (row.order_number) found.add(row.order_number);
+    }
+  }
+  return found;
+}
+
+export async function getOrderNumbersByPlatforms(platforms: string[]) {
+  const numbers: string[] = [];
+  const PAGE_SIZE = 1000;
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("order_number")
+      .in("platform", platforms)
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    for (const row of data) {
+      if (row.order_number) numbers.push(row.order_number);
+    }
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return Array.from(new Set(numbers));
+}
+
+export async function deleteOrdersByIds(ids: string[]) {
+  if (ids.length === 0) return;
+  const CHUNK = 100;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    const { error } = await supabase.from("orders").delete().in("id", chunk);
+    if (error) throw error;
+  }
+}
+
+export async function deleteOrdersByOrderNumbers(platforms: string[], orderNumbers: string[]) {
+  if (orderNumbers.length === 0 || platforms.length === 0) return;
+  const CHUNK = 100;
+  for (let i = 0; i < orderNumbers.length; i += CHUNK) {
+    const chunk = orderNumbers.slice(i, i + CHUNK);
+    const { error } = await supabase
+      .from("orders")
+      .delete()
+      .in("platform", platforms)
+      .in("order_number", chunk);
+    if (error) throw error;
+  }
+}
+
 export async function getOrdersByPlatform(platform: string) {
   const allRows: any[] = [];
   const PAGE_SIZE = 1000;

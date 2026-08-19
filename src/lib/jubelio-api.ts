@@ -126,6 +126,14 @@ function toDate(value?: string | number): Date | undefined {
   return parsed;
 }
 
+function isClosedOrder(row: JubelioRawOrder): boolean {
+  const text = [row.channel_status, row.sub_status, row.status]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return CLOSED_STATUS_HINTS.some((hint) => text === hint || text.includes(hint));
+}
+
 function parseAmount(value?: number | string): number {
   if (value == null || value === "") return 0;
   const num = typeof value === "number" ? value : parseFloat(String(value).replace(/,/g, ""));
@@ -139,14 +147,45 @@ function asCount(value: unknown): number | undefined {
 
 function extractList<T = JubelioRawOrder>(json: unknown): T[] {
   if (Array.isArray(json)) return json as T[];
-  const obj = json as { data?: unknown; rows?: unknown; items?: unknown };
-  if (Array.isArray(obj?.data)) return obj.data as T[];
-  if (Array.isArray((obj?.data as { data?: unknown })?.data)) {
-    return (obj.data as { data: T[] }).data;
+  if (!json || typeof json !== "object") return [];
+  const obj = json as Record<string, unknown>;
+  const nested = obj.data && typeof obj.data === "object" ? (obj.data as Record<string, unknown>) : null;
+  const candidates = [
+    obj.data,
+    obj.rows,
+    obj.items,
+    obj.result,
+    obj.records,
+    nested?.data,
+    nested?.rows,
+    nested?.items,
+    nested?.result,
+    nested?.records,
+  ];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate as T[];
   }
-  if (Array.isArray(obj?.rows)) return obj.rows as T[];
-  if (Array.isArray(obj?.items)) return obj.items as T[];
   return [];
+}
+
+function rawOrderKey(row: JubelioRawOrder & { id?: number | string }): string {
+  return String(row.salesorder_id ?? row.salesorder_no ?? row.id ?? "").trim();
+}
+
+function flattenOrderRows(rows: JubelioRawOrder[]): JubelioRawOrder[] {
+  const out: JubelioRawOrder[] = [];
+  for (const row of rows) {
+    if (rawOrderKey(row)) {
+      out.push(row);
+      continue;
+    }
+    const nested = [row.items, row.salesorder_details]
+      .filter((value): value is JubelioItem[] => Array.isArray(value))
+      .flat() as unknown as JubelioRawOrder[];
+    const usable = nested.filter((item) => rawOrderKey(item));
+    if (usable.length > 0) out.push(...usable);
+  }
+  return out;
 }
 
 function extractTotal(json: unknown, fallback: number): number {
@@ -230,14 +269,21 @@ function dateRangeQuery(): Record<string, string> {
   };
 }
 
-function listQuery(page: number, extras: Record<string, string> = {}): Record<string, string> {
-  return {
+function listQuery(
+  page: number,
+  extras: Record<string, string> = {},
+  options: { sort?: boolean } = {}
+): Record<string, string> {
+  const query: Record<string, string> = {
     page: String(page),
     pageSize: String(PAGE_SIZE),
-    sortBy: "transaction_date",
-    sortDirection: "DESC",
     ...extras,
   };
+  if (options.sort !== false) {
+    query.sortBy = "transaction_date";
+    query.sortDirection = "DESC";
+  }
+  return query;
 }
 
 async function resolveLocation(): Promise<{ id?: string; name?: string }> {
@@ -271,7 +317,7 @@ async function resolveLocation(): Promise<{ id?: string; name?: string }> {
 }
 
 function mapRawOrder(raw: JubelioRawOrder): Order {
-  const orderNumber = String(raw.salesorder_no || raw.salesorder_id || "").trim();
+  const orderNumber = String(raw.salesorder_no || raw.salesorder_id || rawOrderKey(raw)).trim();
   const items = raw.items ?? raw.salesorder_details ?? [];
   const first = items[0];
   const quantity =
@@ -314,7 +360,7 @@ function dedupeOrders(rows: JubelioRawOrder[]): JubelioRawOrder[] {
   const seen = new Set<string>();
   const unique: JubelioRawOrder[] = [];
   for (const row of rows) {
-    const key = String(row.salesorder_id ?? row.salesorder_no ?? "").trim();
+    const key = rawOrderKey(row);
     if (!key || seen.has(key)) continue;
     seen.add(key);
     unique.push(row);
@@ -329,6 +375,8 @@ function locationOnly(extras: Record<string, string>): Record<string, string> {
   return slim;
 }
 
+export type JubelioSyncMode = "full" | "add" | "prune";
+
 export interface JubelioSyncCursor {
   path: string;
   extras: Record<string, string>;
@@ -336,35 +384,34 @@ export interface JubelioSyncCursor {
   totalPages: number;
   apiTotal: number;
   locationName?: string;
+  mode?: JubelioSyncMode;
+  seenIds?: string[];
+  sort?: boolean;
 }
 
 async function probeList(
   path: string,
-  extras: Record<string, string>
-): Promise<{ json: unknown; extras: Record<string, string> } | null> {
-  try {
-    const json = await jubelioGet(path, listQuery(1, extras));
-    return { json, extras };
-  } catch {
-    const slim = locationOnly(extras);
+  extras: Record<string, string>,
+  options: { sort?: boolean; once?: boolean } = {}
+): Promise<{ json: unknown; extras: Record<string, string> }> {
+  const attempts = options.once ? [extras] : [extras, locationOnly(extras), {}];
+  let lastError: Error | null = null;
+  for (const extra of attempts) {
     try {
-      const json = await jubelioGet(path, listQuery(1, slim));
-      return { json, extras: slim };
-    } catch {
-      try {
-        const json = await jubelioGet(path, listQuery(1, {}));
-        return { json, extras: {} };
-      } catch {
-        return null;
-      }
+      const json = await jubelioGet(path, listQuery(1, extra, options));
+      return { json, extras: extra };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
     }
   }
+  throw lastError ?? new Error("Gagal membaca antrian Jubelio");
 }
 
 export async function fetchJubelioReadyToShipBatch(input: {
   startPage: number;
   pageCount: number;
   cursor?: JubelioSyncCursor;
+  allowSalesFallback?: boolean;
 }): Promise<{
   orders: Order[];
   cursor: JubelioSyncCursor;
@@ -373,29 +420,63 @@ export async function fetchJubelioReadyToShipBatch(input: {
 }> {
   const startPage = Math.max(1, input.startPage);
   const pageCount = Math.max(1, input.pageCount);
+  const allowSalesFallback = input.allowSalesFallback !== false;
   let cursor = input.cursor;
 
   if (!cursor) {
     const location = await resolveLocation();
-    const extras: Record<string, string> = { ...dateRangeQuery() };
+    const locationExtras: Record<string, string> = {};
     if (location.id) {
-      extras.locationId = location.id;
-      extras.location_id = location.id;
+      locationExtras.locationId = location.id;
+      locationExtras.location_id = location.id;
+    }
+    const salesExtras: Record<string, string> = { ...dateRangeQuery(), ...locationExtras };
+
+    let packlist: { json: unknown; extras: Record<string, string> } | null = null;
+    try {
+      packlist = await probeList("/sales/unfullfilled/", {}, { sort: false, once: true });
+    } catch {
+      // Packlist Jubelio sering 400/500. Bukan error app — lanjut daftar sales.
     }
 
-    let probed = await probeList("/sales/unfullfilled/", extras);
     let path = "/sales/unfullfilled/";
-    if (!probed || extractList(probed.json).length === 0) {
-      const sales = await probeList("/sales/orders/", extras);
-      if (sales && extractList(sales.json).length > 0) {
+    let probed = packlist;
+    let useSort = false;
+    let firstRows = packlist
+      ? flattenOrderRows(extractList(packlist.json)).filter((row) => rawOrderKey(row))
+      : [];
+
+    if (firstRows.length === 0) {
+      const sales = await probeList("/sales/orders/", salesExtras, { sort: true });
+      const salesRows = flattenOrderRows(extractList(sales.json))
+        .filter((row) => rawOrderKey(row) && !isClosedOrder(row));
+      if (salesRows.length > 0) {
         probed = sales;
         path = "/sales/orders/";
+        useSort = true;
+        firstRows = salesRows;
       }
     }
 
-    const firstRows = probed ? extractList(probed.json) : [];
+    if (!probed) {
+      return {
+        orders: [],
+        cursor: {
+          path,
+          extras: locationExtras,
+          actualPageSize: PAGE_SIZE,
+          totalPages: 1,
+          apiTotal: 0,
+          locationName: location.name,
+          sort: false,
+        },
+        nextPage: null,
+        done: true,
+      };
+    }
+
     const actualPageSize = firstRows.length || PAGE_SIZE;
-    let apiTotal = probed ? extractTotal(probed.json, firstRows.length) : 0;
+    let apiTotal = extractTotal(probed.json, firstRows.length);
     if (apiTotal <= actualPageSize && firstRows.length >= PAGE_SIZE) {
       apiTotal = Number.POSITIVE_INFINITY;
     }
@@ -405,16 +486,15 @@ export async function fetchJubelioReadyToShipBatch(input: {
 
     cursor = {
       path,
-      extras: probed?.extras ?? extras,
+      extras: probed.extras,
       actualPageSize,
       totalPages,
       apiTotal: Number.isFinite(apiTotal) ? apiTotal : 0,
       locationName: location.name,
+      sort: useSort,
     };
 
-    // Request pertama cuma halaman 1: login + lokasi + hapus data lama
-    // harus muat di batas waktu Vercel (~10 detik di Hobby).
-    const rows = dedupeOrders(firstRows).filter((row) => row.salesorder_no || row.salesorder_id);
+    const rows = dedupeOrders(firstRows);
     const shortPage = firstRows.length === 0 || firstRows.length < cursor.actualPageSize;
     const nextPage = shortPage && cursor.totalPages <= 1 ? null : 2;
     return {
@@ -433,16 +513,20 @@ export async function fetchJubelioReadyToShipBatch(input: {
   for (let i = 0; i < pagesToFetch.length; i += PAGE_CONCURRENCY) {
     const chunk = pagesToFetch.slice(i, i + PAGE_CONCURRENCY);
     const pages = await Promise.all(
-      chunk.map((page) => jubelioGet(cursor.path, listQuery(page, cursor.extras)))
+      chunk.map((page) =>
+        jubelioGet(cursor.path, listQuery(page, cursor.extras, { sort: cursor.sort !== false }))
+      )
     );
     let short = false;
     for (const json of pages) {
-      const rows = extractList(json);
+      const rows = flattenOrderRows(extractList(json)).filter((row) =>
+        cursor.path.includes("unfullfilled") ? rawOrderKey(row) : rawOrderKey(row) && !isClosedOrder(row)
+      );
       collected.push(...rows);
       if (rows.length === 0 || rows.length < cursor.actualPageSize) short = true;
     }
     if (short) {
-      const rows = dedupeOrders(collected).filter((row) => row.salesorder_no || row.salesorder_id);
+      const rows = dedupeOrders(collected).filter((row) => rawOrderKey(row));
       return {
         orders: rows.map(mapRawOrder),
         cursor,
@@ -452,7 +536,7 @@ export async function fetchJubelioReadyToShipBatch(input: {
     }
   }
 
-  const rows = dedupeOrders(collected).filter((row) => row.salesorder_no || row.salesorder_id);
+  const rows = dedupeOrders(collected).filter((row) => rawOrderKey(row));
   const nextPage = endPage < cursor.totalPages ? endPage + 1 : null;
   return {
     orders: rows.map(mapRawOrder),

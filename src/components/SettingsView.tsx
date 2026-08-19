@@ -75,11 +75,11 @@ export default function SettingsView({
   const { profile, updatePassword } = useAuth();
   const [activeSection, setActiveSection] = useState<SettingsTab>("data");
 
-  const sections: { id: SettingsTab; label: string; icon: any; adminOnly?: boolean }[] = [
-    { id: "data", label: "Kelola Data", icon: Database },
-    { id: "profile", label: "Profil", icon: User },
-    { id: "password", label: "Ubah Password", icon: Lock },
-    { id: "users", label: "Kelola User", icon: Users, adminOnly: true },
+  const sections: { id: SettingsTab; label: string; shortLabel: string; icon: any; adminOnly?: boolean }[] = [
+    { id: "data", label: "Kelola Data", shortLabel: "Data", icon: Database },
+    { id: "profile", label: "Profil", shortLabel: "Profil", icon: User },
+    { id: "password", label: "Ubah Password", shortLabel: "Password", icon: Lock },
+    { id: "users", label: "Kelola User", shortLabel: "User", icon: Users, adminOnly: true },
   ];
 
   const visibleSections = sections.filter(
@@ -87,9 +87,9 @@ export default function SettingsView({
   );
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="max-w-4xl space-y-3 sm:space-y-6">
       {/* Section Tabs */}
-      <div className="flex gap-2 overflow-x-auto scrollbar-hide">
+      <div className="flex gap-1 sm:gap-2">
         {visibleSections.map((section) => {
           const isActive = activeSection === section.id;
           return (
@@ -97,14 +97,15 @@ export default function SettingsView({
               key={section.id}
               onClick={() => setActiveSection(section.id)}
               className={cn(
-                "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition-all",
+                "flex flex-1 sm:flex-none items-center justify-center gap-1 sm:gap-2 px-1.5 py-1.5 sm:px-4 sm:py-2.5 rounded-lg sm:rounded-xl text-[11px] sm:text-sm font-medium whitespace-nowrap transition-all min-w-0",
                 isActive
                   ? "bg-brand-600 text-white shadow-sm"
                   : "bg-white text-brand-500 border border-brand-200 hover:bg-cream-100"
               )}
             >
-              <section.icon className="w-4 h-4" />
-              {section.label}
+              <section.icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 hidden sm:block" />
+              <span className="sm:hidden">{section.shortLabel}</span>
+              <span className="hidden sm:inline">{section.label}</span>
             </button>
           );
         })}
@@ -180,52 +181,52 @@ function ProfileSection() {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-6">
-      <h3 className="text-lg font-semibold text-brand-800 mb-5">Profil Saya</h3>
-      <form onSubmit={handleSave} className="space-y-4 max-w-md">
+    <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-3 sm:p-6">
+      <h3 className="text-sm sm:text-lg font-semibold text-brand-800 mb-3 sm:mb-5">Profil Saya</h3>
+      <form onSubmit={handleSave} className="space-y-3 sm:space-y-4 max-w-md">
         {error && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">{error}</div>
+          <div className="p-2.5 sm:p-3 bg-red-50 border border-red-200 rounded-lg sm:rounded-xl text-xs sm:text-sm text-red-600">{error}</div>
         )}
         {success && (
-          <div className="p-3 bg-green-50 border border-green-200 rounded-xl text-sm text-green-600 flex items-center gap-2">
+          <div className="p-2.5 sm:p-3 bg-green-50 border border-green-200 rounded-lg sm:rounded-xl text-xs sm:text-sm text-green-600 flex items-center gap-2">
             <CheckCircle className="w-4 h-4" /> Profil berhasil diperbarui
           </div>
         )}
 
         <div>
-          <label className="block text-sm font-medium text-brand-700 mb-1.5">Nama</label>
+          <label className="block text-xs sm:text-sm font-medium text-brand-700 mb-1 sm:mb-1.5">Nama</label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full px-4 py-2.5 border border-brand-200 rounded-xl text-sm text-brand-800 bg-cream-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+            className="w-full px-3 py-2 sm:px-4 sm:py-2.5 border border-brand-200 rounded-lg sm:rounded-xl text-sm text-brand-800 bg-cream-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-brand-700 mb-1.5">Username</label>
+          <label className="block text-xs sm:text-sm font-medium text-brand-700 mb-1 sm:mb-1.5">Username</label>
           <input
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="w-full px-4 py-2.5 border border-brand-200 rounded-xl text-sm text-brand-800 bg-cream-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+            className="w-full px-3 py-2 sm:px-4 sm:py-2.5 border border-brand-200 rounded-lg sm:rounded-xl text-sm text-brand-800 bg-cream-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-brand-700 mb-1.5">Email</label>
+          <label className="block text-xs sm:text-sm font-medium text-brand-700 mb-1 sm:mb-1.5">Email</label>
           <input
             type="text"
             value={profile?.email ?? ""}
             disabled
-            className="w-full px-4 py-2.5 border border-brand-200 rounded-xl text-sm text-brand-400 bg-cream-200 cursor-not-allowed"
+            className="w-full px-3 py-2 sm:px-4 sm:py-2.5 border border-brand-200 rounded-lg sm:rounded-xl text-sm text-brand-400 bg-cream-200 cursor-not-allowed"
           />
           <p className="text-[11px] text-brand-300 mt-1">Email tidak bisa diubah</p>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-brand-700 mb-1.5">Role</label>
-          <div className="flex items-center gap-2 px-4 py-2.5 border border-brand-200 rounded-xl bg-cream-200">
+          <label className="block text-xs sm:text-sm font-medium text-brand-700 mb-1 sm:mb-1.5">Role</label>
+          <div className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 border border-brand-200 rounded-lg sm:rounded-xl bg-cream-200">
             {profile?.role === "admin" ? (
               <Shield className="w-4 h-4 text-brand-600" />
             ) : (
@@ -240,7 +241,7 @@ function ProfileSection() {
         <button
           type="submit"
           disabled={saving}
-          className="px-6 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-all flex items-center gap-2"
+          className="px-4 py-2 sm:px-6 sm:py-2.5 bg-brand-600 text-white rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-all flex items-center gap-2"
         >
           {saving ? <Spinner /> : null}
           Simpan Perubahan
@@ -292,27 +293,27 @@ function PasswordSection() {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-6">
-      <h3 className="text-lg font-semibold text-brand-800 mb-5">Ubah Password</h3>
-      <form onSubmit={handleSubmit} className="space-y-4 max-w-md">
+    <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-3 sm:p-6">
+      <h3 className="text-sm sm:text-lg font-semibold text-brand-800 mb-3 sm:mb-5">Ubah Password</h3>
+      <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4 max-w-md">
         {error && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">{error}</div>
+          <div className="p-2.5 sm:p-3 bg-red-50 border border-red-200 rounded-lg sm:rounded-xl text-xs sm:text-sm text-red-600">{error}</div>
         )}
         {success && (
-          <div className="p-3 bg-green-50 border border-green-200 rounded-xl text-sm text-green-600 flex items-center gap-2">
+          <div className="p-2.5 sm:p-3 bg-green-50 border border-green-200 rounded-lg sm:rounded-xl text-xs sm:text-sm text-green-600 flex items-center gap-2">
             <CheckCircle className="w-4 h-4" /> Password berhasil diubah
           </div>
         )}
 
         <div>
-          <label className="block text-sm font-medium text-brand-700 mb-1.5">Password Baru</label>
+          <label className="block text-xs sm:text-sm font-medium text-brand-700 mb-1 sm:mb-1.5">Password Baru</label>
           <div className="relative">
             <input
               type={showPassword ? "text" : "password"}
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="Minimal 6 karakter"
-              className="w-full px-4 py-2.5 pr-12 border border-brand-200 rounded-xl text-sm text-brand-800 bg-cream-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+              className="w-full px-3 py-2 sm:px-4 sm:py-2.5 pr-12 border border-brand-200 rounded-lg sm:rounded-xl text-sm text-brand-800 bg-cream-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
             />
             <button
               type="button"
@@ -325,20 +326,20 @@ function PasswordSection() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-brand-700 mb-1.5">Konfirmasi Password</label>
+          <label className="block text-xs sm:text-sm font-medium text-brand-700 mb-1 sm:mb-1.5">Konfirmasi Password</label>
           <input
             type={showPassword ? "text" : "password"}
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             placeholder="Ulangi password baru"
-            className="w-full px-4 py-2.5 border border-brand-200 rounded-xl text-sm text-brand-800 bg-cream-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+            className="w-full px-3 py-2 sm:px-4 sm:py-2.5 border border-brand-200 rounded-lg sm:rounded-xl text-sm text-brand-800 bg-cream-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           />
         </div>
 
         <button
           type="submit"
           disabled={saving}
-          className="px-6 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-all flex items-center gap-2"
+          className="px-4 py-2 sm:px-6 sm:py-2.5 bg-brand-600 text-white rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-all flex items-center gap-2"
         >
           {saving ? <Spinner /> : null}
           Ubah Password
@@ -417,34 +418,37 @@ function DataSection({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3 sm:space-y-6">
       {/* TikTok API Sync */}
-      <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-6">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="min-w-0">
-            <h3 className="text-lg font-semibold text-brand-800 flex items-center gap-2">
-              <Cloud className="w-5 h-5 text-brand-600" />
+      <div className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-brand-200 p-3 sm:p-6">
+        <div className="flex items-start justify-between gap-3 sm:gap-4 flex-wrap">
+          <div className="min-w-0 w-full sm:w-auto">
+            <h3 className="text-sm sm:text-lg font-semibold text-brand-800 flex items-center gap-1.5 sm:gap-2">
+              <Cloud className="w-4 h-4 sm:w-5 sm:h-5 text-brand-600" />
               TikTok &amp; Tokopedia
             </h3>
-            <p className="text-sm text-brand-400 mt-1 max-w-lg">
-              Ambil pesanan yang <strong>siap dikirim</strong> dari TikTok Shop.
-              Data lama diganti dengan yang terbaru, lalu langsung muncul di Pesanan dan Komparasi.
+            <p className="text-xs sm:text-sm text-brand-400 mt-0.5 sm:mt-1 max-w-lg leading-snug">
+              Ambil pesanan <strong>siap dikirim</strong> dari TikTok Shop.
+              <span className="hidden sm:inline">
+                {" "}Yang sudah ada dipakai lagi — hanya pesanan baru yang ditambah,
+                yang sudah tidak di antrian dibuang.
+              </span>
             </p>
           </div>
-          <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <div className="flex flex-col items-stretch sm:items-end gap-1 w-full sm:w-auto shrink-0">
             <button
               onClick={() => apiSync.onSync("tiktok")}
               disabled={!!apiSync.syncing}
-              className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-all"
+              className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-brand-600 text-white rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-all w-full sm:w-auto"
             >
-              {syncingTiktok ? <Spinner /> : <RefreshCw className="w-4 h-4" />}
+              {syncingTiktok ? <Spinner className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
               {syncingTiktok
                 ? apiSync.syncProgress > 0
                   ? `Mengambil data... ${apiSync.syncProgress.toLocaleString("id-ID")}`
                   : "Mengambil data..."
                 : "Ambil data TikTok"}
             </button>
-            <p className="text-xs text-brand-400">
+            <p className="text-[11px] sm:text-xs text-brand-400">
               {lastSyncLabel ? (
                 <>
                   Terakhir diambil:{" "}
@@ -461,21 +465,21 @@ function DataSection({
         </div>
 
         {apiSync.syncError && apiSync.syncErrorSource === "tiktok" && (
-          <div className="mt-3 p-3 rounded-xl text-sm flex items-center gap-2 bg-red-50 border border-red-200 text-red-600">
+          <div className="mt-2.5 sm:mt-3 p-2.5 sm:p-3 rounded-lg sm:rounded-xl text-xs sm:text-sm flex items-center gap-2 bg-red-50 border border-red-200 text-red-600">
             <CloudOff className="w-4 h-4 shrink-0" />
             {apiSync.syncError}
           </div>
         )}
 
-        <div className="mt-5 pt-5 border-t border-brand-100 space-y-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="mt-3 sm:mt-5 pt-3 sm:pt-5 border-t border-brand-100 space-y-2 sm:space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-2 sm:gap-3">
             <div className="min-w-0">
-              <p className="text-sm font-medium text-brand-800">Status toko TikTok</p>
-              <p className="text-xs text-brand-400 mt-0.5 max-w-lg">
+              <p className="text-xs sm:text-sm font-medium text-brand-800">Status toko TikTok</p>
+              <p className="text-[11px] sm:text-xs text-brand-400 mt-0.5 max-w-lg hidden sm:block">
                 Toko cukup dihubungkan sekali. Setelah itu data bisa diambil kapan saja
                 tanpa menghubungkan ulang setiap hari.
               </p>
-              <p className="text-xs mt-1.5">
+              <p className="text-[11px] sm:text-xs mt-1">
                 {tokenStatus?.hasRefreshToken ? (
                   <span className="text-green-700">Toko sudah terhubung</span>
                 ) : (
@@ -485,9 +489,9 @@ function DataSection({
             </div>
             <button
               onClick={handleConnectTikTok}
-              className="flex items-center gap-2 px-4 py-2 bg-cream-200 text-brand-700 rounded-xl text-sm font-medium hover:bg-cream-300 transition-all shrink-0"
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 bg-cream-200 text-brand-700 rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium hover:bg-cream-300 transition-all w-full sm:w-auto shrink-0"
             >
-              <Link2 className="w-4 h-4" />
+              <Link2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               {tokenStatus?.hasRefreshToken ? "Hubungkan ulang" : "Hubungkan toko"}
             </button>
           </div>
@@ -507,32 +511,34 @@ function DataSection({
       </div>
 
       {/* Jubelio API Sync */}
-      <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-6">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="min-w-0">
-            <h3 className="text-lg font-semibold text-brand-800 flex items-center gap-2">
-              <Cloud className="w-5 h-5 text-brand-600" />
+      <div className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-brand-200 p-3 sm:p-6">
+        <div className="flex items-start justify-between gap-3 sm:gap-4 flex-wrap">
+          <div className="min-w-0 w-full sm:w-auto">
+            <h3 className="text-sm sm:text-lg font-semibold text-brand-800 flex items-center gap-1.5 sm:gap-2">
+              <Cloud className="w-4 h-4 sm:w-5 sm:h-5 text-brand-600" />
               Jubelio
             </h3>
-            <p className="text-sm text-brand-400 mt-1 max-w-lg">
-              Ambil pesanan <strong>Siap Kirim</strong> dari Jubelio, sama seperti daftar di gudang.
-              Data langsung muncul di Pesanan dan Komparasi.
+            <p className="text-xs sm:text-sm text-brand-400 mt-0.5 sm:mt-1 max-w-lg leading-snug">
+              Ambil pesanan <strong>Siap Kirim</strong> dari Jubelio.
+              <span className="hidden sm:inline">
+                {" "}Yang sudah ada dipakai lagi — sync berikutnya lebih cepat, tidak tarik ulang semua.
+              </span>
             </p>
           </div>
-          <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <div className="flex flex-col items-stretch sm:items-end gap-1 w-full sm:w-auto shrink-0">
             <button
               onClick={() => apiSync.onSync("jubelio")}
               disabled={!!apiSync.syncing}
-              className="flex items-center gap-2 px-4 py-2.5 bg-brand-800 text-white rounded-xl text-sm font-medium hover:bg-brand-900 disabled:opacity-50 transition-all"
+              className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-brand-800 text-white rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium hover:bg-brand-900 disabled:opacity-50 transition-all w-full sm:w-auto"
             >
-              {syncingJubelio ? <Spinner /> : <RefreshCw className="w-4 h-4" />}
+              {syncingJubelio ? <Spinner className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
               {syncingJubelio
                 ? apiSync.syncProgress > 0
                   ? `Mengambil data... ${apiSync.syncProgress.toLocaleString("id-ID")}`
                   : "Mengambil data..."
                 : "Ambil data Jubelio"}
             </button>
-            <p className="text-xs text-brand-400">
+            <p className="text-[11px] sm:text-xs text-brand-400">
               {lastJubelioSyncLabel ? (
                 <>
                   Terakhir diambil:{" "}
@@ -549,7 +555,7 @@ function DataSection({
         </div>
 
         {apiSync.syncError && apiSync.syncErrorSource === "jubelio" && (
-          <div className="mt-3 p-3 rounded-xl text-sm flex items-center gap-2 bg-red-50 border border-red-200 text-red-600">
+          <div className="mt-2.5 sm:mt-3 p-2.5 sm:p-3 rounded-lg sm:rounded-xl text-xs sm:text-sm flex items-center gap-2 bg-red-50 border border-red-200 text-red-600">
             <CloudOff className="w-4 h-4 shrink-0" />
             {apiSync.syncError}
           </div>
@@ -569,25 +575,25 @@ function DataSection({
       />
 
       {orderCount > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-6">
-          <h3 className="text-lg font-semibold text-brand-800 mb-4">Unduh / hapus data</h3>
-          <div className="flex flex-wrap gap-3">
+        <div className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-brand-200 p-3 sm:p-6">
+          <h3 className="text-sm sm:text-lg font-semibold text-brand-800 mb-3 sm:mb-4">Unduh / hapus data</h3>
+          <div className="flex flex-wrap gap-2 sm:gap-3">
             <button
               onClick={onExportCSV}
-              className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 transition-all"
+              className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-brand-600 text-white rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium hover:bg-brand-700 transition-all"
             >
-              <Download className="w-4 h-4" />
+              <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               Unduh Excel
             </button>
             <button
               onClick={() => setShowResetConfirm(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-red-50 text-red-600 border border-red-200 rounded-xl text-sm font-medium hover:bg-red-100 transition-all"
+              className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-red-50 text-red-600 border border-red-200 rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium hover:bg-red-100 transition-all"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               Hapus semua data
             </button>
           </div>
-          <p className="text-xs text-brand-400 mt-3">
+          <p className="text-[11px] sm:text-xs text-brand-400 mt-2 sm:mt-3">
             Total {orderCount} pesanan tersimpan.
           </p>
         </div>
@@ -632,7 +638,7 @@ function ConfirmModal({
             exit={{ opacity: 0 }}
           />
           <motion.div
-            className="relative bg-white rounded-2xl shadow-xl border border-brand-200 p-6 w-full max-w-sm"
+            className="relative bg-white rounded-xl sm:rounded-2xl shadow-xl border border-brand-200 p-4 sm:p-6 w-full max-w-sm"
             initial={{ opacity: 0, scale: 0.9, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 5 }}
@@ -716,21 +722,21 @@ function UserManagementSection() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3 sm:space-y-6">
       {/* User List */}
-      <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="text-lg font-semibold text-brand-800">Kelola User</h3>
+      <div className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-brand-200 p-3 sm:p-6">
+        <div className="flex items-center justify-between gap-2 mb-3 sm:mb-5">
+          <h3 className="text-sm sm:text-lg font-semibold text-brand-800">Kelola User</h3>
           <button
             onClick={() => setShowAddForm(!showAddForm)}
             className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all",
+              "flex items-center gap-1.5 sm:gap-2 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium transition-all",
               showAddForm
                 ? "bg-cream-200 text-brand-500"
                 : "bg-brand-600 text-white hover:bg-brand-700"
             )}
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             {showAddForm ? "Batal" : "Tambah User"}
           </button>
         </div>
@@ -751,11 +757,11 @@ function UserManagementSection() {
             <table className="w-full">
               <thead className="bg-cream-100">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-brand-400 uppercase">Nama</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-brand-400 uppercase">Username</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-brand-400 uppercase">Email</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-brand-400 uppercase">Role</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-brand-400 uppercase">Aksi</th>
+                  <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase">Nama</th>
+                  <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase">Username</th>
+                  <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase">Email</th>
+                  <th className="px-2 sm:px-4 py-2 sm:py-3 text-center text-[10px] sm:text-xs font-semibold text-brand-400 uppercase">Role</th>
+                  <th className="px-2 sm:px-4 py-2 sm:py-3 text-center text-[10px] sm:text-xs font-semibold text-brand-400 uppercase">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-cream-200">
@@ -763,9 +769,9 @@ function UserManagementSection() {
                   const isSelf = u.id === profile?.id;
                   return (
                     <tr key={u.id} className="hover:bg-cream-50 transition-colors">
-                      <td className="px-4 py-3">
+                      <td className="px-2 sm:px-4 py-2 sm:py-3">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-brand-800">{u.name}</span>
+                          <span className="text-xs sm:text-sm font-medium text-brand-800">{u.name}</span>
                           {isSelf && (
                             <span className="text-[10px] bg-brand-100 text-brand-600 px-1.5 py-0.5 rounded-full font-medium">
                               Kamu
@@ -773,13 +779,13 @@ function UserManagementSection() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3">
-                        <span className="text-sm text-brand-500 font-mono">{u.username}</span>
+                      <td className="px-2 sm:px-4 py-2 sm:py-3">
+                        <span className="text-xs sm:text-sm text-brand-500 font-mono">{u.username}</span>
                       </td>
-                      <td className="px-4 py-3">
-                        <span className="text-sm text-brand-500">{u.email}</span>
+                      <td className="px-2 sm:px-4 py-2 sm:py-3">
+                        <span className="text-xs sm:text-sm text-brand-500">{u.email}</span>
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-2 sm:px-4 py-2 sm:py-3 text-center">
                         {isSelf ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-brand-100 text-brand-700">
                             <Shield className="w-3 h-3" />
@@ -792,7 +798,7 @@ function UserManagementSection() {
                           />
                         )}
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-2 sm:px-4 py-2 sm:py-3 text-center">
                         {!isSelf && (
                           <button
                             onClick={() => setDeleteTarget(u)}
@@ -981,8 +987,8 @@ function AddUserForm({ onSuccess }: { onSuccess: () => void }) {
   };
 
   return (
-    <div className="mb-6 p-5 bg-cream-50 border border-brand-200 rounded-xl">
-      <h4 className="text-sm font-semibold text-brand-800 mb-4">Tambah User Baru</h4>
+    <div className="mb-4 sm:mb-6 p-3 sm:p-5 bg-cream-50 border border-brand-200 rounded-lg sm:rounded-xl">
+      <h4 className="text-xs sm:text-sm font-semibold text-brand-800 mb-3 sm:mb-4">Tambah User Baru</h4>
       <form onSubmit={handleSubmit} className="space-y-3">
         {error && (
           <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">{error}</div>
@@ -1069,9 +1075,9 @@ function AddUserForm({ onSuccess }: { onSuccess: () => void }) {
           <button
             type="submit"
             disabled={saving}
-            className="px-6 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-all flex items-center gap-2"
+            className="px-4 py-2 sm:px-6 sm:py-2.5 bg-brand-600 text-white rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-all flex items-center gap-2"
           >
-            {saving ? <Spinner /> : <Plus className="w-4 h-4" />}
+            {saving ? <Spinner className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
             Buat User
           </button>
         </div>

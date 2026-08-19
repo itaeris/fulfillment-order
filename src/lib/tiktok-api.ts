@@ -356,6 +356,31 @@ function mapTikTokOrderToOrders(order: TikTokOrder): Order[] {
   return orders;
 }
 
+async function searchOrdersPage(
+  config: TikTokConfig,
+  orderStatus: string,
+  pageToken = ""
+): Promise<{ orders: TikTokOrder[]; nextPageToken: string }> {
+  const query: Record<string, string> = {
+    page_size: "50",
+    sort_field: "create_time",
+    sort_order: "DESC",
+  };
+  if (pageToken) query.page_token = pageToken;
+
+  const data = await tiktokRequest<OrderSearchResponse>(config, {
+    method: "POST",
+    path: `/order/${config.version}/orders/search`,
+    query,
+    body: { order_status: orderStatus },
+  });
+
+  return {
+    orders: data.orders ?? [],
+    nextPageToken: data.next_page_token || "",
+  };
+}
+
 async function searchOrdersByStatus(
   config: TikTokConfig,
   orderStatus: string
@@ -364,22 +389,9 @@ async function searchOrdersByStatus(
   let pageToken = "";
 
   do {
-    const query: Record<string, string> = {
-      page_size: "50",
-      sort_field: "create_time",
-      sort_order: "DESC",
-    };
-    if (pageToken) query.page_token = pageToken;
-
-    const data = await tiktokRequest<OrderSearchResponse>(config, {
-      method: "POST",
-      path: `/order/${config.version}/orders/search`,
-      query,
-      body: { order_status: orderStatus },
-    });
-
-    if (data.orders?.length) collected.push(...data.orders);
-    pageToken = data.next_page_token || "";
+    const page = await searchOrdersPage(config, orderStatus, pageToken);
+    if (page.orders.length) collected.push(...page.orders);
+    pageToken = page.nextPageToken;
   } while (pageToken);
 
   return collected;
@@ -428,10 +440,7 @@ async function enrichWithOrderDetails(
   });
 }
 
-/**
- * Tarik semua order "siap dikirim" dari TikTok Shop dan ubah ke format Order aplikasi.
- */
-export async function fetchReadyToShipOrders(config: TikTokConfig): Promise<Order[]> {
+async function searchReadyToShipOrders(config: TikTokConfig): Promise<TikTokOrder[]> {
   const seen = new Set<string>();
   const allTikTokOrders: TikTokOrder[] = [];
 
@@ -444,6 +453,99 @@ export async function fetchReadyToShipOrders(config: TikTokConfig): Promise<Orde
     }
   }
 
-  const enriched = await enrichWithOrderDetails(config, allTikTokOrders);
+  return allTikTokOrders;
+}
+
+export interface TikTokSyncCursor {
+  shipmentToken: string | null;
+  collectionToken: string | null;
+  pagesFetched: number;
+}
+
+function dedupeTikTokOrders(orders: TikTokOrder[]): TikTokOrder[] {
+  const seen = new Set<string>();
+  const unique: TikTokOrder[] = [];
+  for (const order of orders) {
+    if (!order.id || seen.has(order.id)) continue;
+    seen.add(order.id);
+    unique.push(order);
+  }
+  return unique;
+}
+
+/**
+ * Satu batch antrian siap dikirim. Request pertama: halaman 1 tiap status.
+ * Sync berikutnya hanya halaman baru sampai ketemu yang sudah ada di database.
+ */
+export async function fetchTikTokReadyToShipBatch(
+  config: TikTokConfig,
+  cursor?: TikTokSyncCursor
+): Promise<{
+  listed: TikTokOrder[];
+  cursor: TikTokSyncCursor;
+  nextCursor: TikTokSyncCursor | null;
+  done: boolean;
+}> {
+  const shipmentStatus = READY_TO_SHIP_STATUSES[0];
+  const collectionStatus = READY_TO_SHIP_STATUSES[1];
+
+  if (!cursor) {
+    const [shipment, collection] = await Promise.all([
+      searchOrdersPage(config, shipmentStatus),
+      searchOrdersPage(config, collectionStatus),
+    ]);
+    const listed = dedupeTikTokOrders([...shipment.orders, ...collection.orders]);
+    const next: TikTokSyncCursor = {
+      shipmentToken: shipment.nextPageToken || null,
+      collectionToken: collection.nextPageToken || null,
+      pagesFetched: 1,
+    };
+    const done = !next.shipmentToken && !next.collectionToken;
+    return { listed, cursor: next, nextCursor: done ? null : next, done };
+  }
+
+  const listed: TikTokOrder[] = [];
+  let shipmentToken = cursor.shipmentToken;
+  let collectionToken = cursor.collectionToken;
+
+  if (shipmentToken) {
+    const page = await searchOrdersPage(config, shipmentStatus, shipmentToken);
+    listed.push(...page.orders);
+    shipmentToken = page.nextPageToken || null;
+  }
+  if (collectionToken) {
+    const page = await searchOrdersPage(config, collectionStatus, collectionToken);
+    listed.push(...page.orders);
+    collectionToken = page.nextPageToken || null;
+  }
+
+  const next: TikTokSyncCursor = {
+    shipmentToken,
+    collectionToken,
+    pagesFetched: cursor.pagesFetched + 1,
+  };
+  const done = !shipmentToken && !collectionToken;
+  return {
+    listed: dedupeTikTokOrders(listed),
+    cursor: next,
+    nextCursor: done ? null : next,
+    done,
+  };
+}
+
+export async function mapTikTokListedOrders(
+  config: TikTokConfig,
+  listed: TikTokOrder[]
+): Promise<Order[]> {
+  const enriched = await enrichWithOrderDetails(config, listed);
+  return enriched.flatMap(mapTikTokOrderToOrders);
+}
+
+/**
+ * Tarik semua order "siap dikirim" dari TikTok Shop dan ubah ke format Order aplikasi.
+ */
+export async function fetchReadyToShipOrders(config: TikTokConfig): Promise<Order[]> {
+  const listed = await searchReadyToShipOrders(config);
+  const enriched = await enrichWithOrderDetails(config, listed);
   return enriched.flatMap(mapTikTokOrderToOrders);
 }

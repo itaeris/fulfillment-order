@@ -19,13 +19,15 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
     title: "Order Dashboard",
   },
+  other: {
+    "mobile-web-app-capable": "yes",
+  },
 };
 
 export const viewport: Viewport = {
   themeColor: "#3D2319",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
 };
 
 export default function RootLayout({

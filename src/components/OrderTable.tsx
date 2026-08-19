@@ -365,7 +365,7 @@ export default function OrderTable({
         <>
       {/* Platform Tabs */}
       <div className="px-3 sm:px-4 pt-3 sm:pt-4 border-b border-brand-100">
-        <div className="flex gap-1.5 sm:gap-2 overflow-x-auto pb-3 scrollbar-hide">
+        <div className="flex gap-1.5 sm:gap-2 overflow-x-auto pb-3 scrollbar-hide min-w-0">
           {platformTabs.map((tab) => {
             const count = platformCounts[tab.value];
             const isActive = selectedPlatform === tab.value;
@@ -378,7 +378,7 @@ export default function OrderTable({
                   setCurrentPage(1);
                 }}
                 className={cn(
-                  "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium whitespace-nowrap transition-all",
+                  "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium whitespace-nowrap transition-all shrink-0",
                   isActive
                     ? `${tab.color} text-white shadow-md`
                     : "bg-cream-200 text-brand-400 hover:bg-cream-300"
@@ -437,7 +437,7 @@ export default function OrderTable({
 
       {/* Status Tabs */}
       <div className="px-3 sm:px-4 border-b border-brand-200">
-        <div className="flex gap-0.5 sm:gap-1 overflow-x-auto scrollbar-hide">
+        <div className="flex gap-0.5 sm:gap-1 overflow-x-auto scrollbar-hide min-w-0">
           {statusTabs.map((tab) => {
             const count = statusCounts[tab.value];
             const isActive = selectedStatusTab === tab.value;
@@ -457,7 +457,7 @@ export default function OrderTable({
                   setPickupStage("all");
                 }}
                 className={cn(
-                  "flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition-all",
+                  "flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition-all shrink-0",
                   isActive
                     ? `border-brand-500 ${tab.color}`
                     : "border-transparent text-brand-300 hover:text-brand-500"
@@ -587,8 +587,8 @@ export default function OrderTable({
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto">
+      {/* Table (desktop) / Cards (mobile) */}
+      <div>
         <AnimatePresence mode="wait">
         {orders.length === 0 ? (
           <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center justify-center py-16 px-4">
@@ -614,6 +614,71 @@ export default function OrderTable({
           </motion.div>
         ) : (
           <motion.div key="table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+          <div className="md:hidden divide-y divide-cream-200">
+            {paginatedOrders.map((order) => {
+              const deadlineStatus = getShipDeadlineStatus(order.mustShipBefore);
+              return (
+                <article
+                  key={order.id}
+                  className={cn(
+                    "p-3 space-y-2",
+                    order.status === "processing" && deadlineStatus?.color.includes("red") && "bg-red-50/50"
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span
+                      className={cn(
+                        "inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap",
+                        getPlatformBadgeColor(order.platform)
+                      )}
+                    >
+                      {getPlatformName(order.platform)}
+                    </span>
+                    <span
+                      className={cn(
+                        "inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium",
+                        getStatusColor(order.status)
+                      )}
+                    >
+                      {getStatusLabel(order.status)}
+                    </span>
+                  </div>
+                  <p className="text-sm font-semibold text-brand-800 font-mono break-all leading-snug">
+                    {order.orderNumber}
+                  </p>
+                  <p className="text-sm text-brand-700 leading-snug">{order.productName}</p>
+                  {order.variation ? (
+                    <p className="text-xs text-brand-400">{order.variation}</p>
+                  ) : null}
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-brand-500">
+                    <span>Qty {order.quantity}</span>
+                    {!hideMoney && (
+                      <span className="font-semibold text-brand-800">
+                        {formatCurrency(order.totalAmount)}
+                      </span>
+                    )}
+                    <span>{order.recipientName || order.customerName}</span>
+                  </div>
+                  <div className="text-xs text-brand-400">
+                    {order.shippingOption || order.courier || "Kurir -"}
+                    {order.trackingNumber ? ` · ${order.trackingNumber}` : ""}
+                  </div>
+                  {order.mustShipBefore ? (
+                    <div
+                      className={cn(
+                        "inline-flex items-center gap-1 px-2 py-1 rounded text-xs",
+                        deadlineStatus?.color || "text-brand-400 bg-cream-100"
+                      )}
+                    >
+                      {deadlineStatus?.icon && <deadlineStatus.icon className="w-3 h-3" />}
+                      <span>Batas {formatDateTime(order.mustShipBefore)}</span>
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+          <div className="hidden md:block overflow-x-auto">
           <table className="w-full min-w-[800px]">
             <thead className="bg-cream-100">
               <tr>
@@ -846,6 +911,7 @@ export default function OrderTable({
               })}
             </tbody>
           </table>
+          </div>
           </motion.div>
         )}
         </AnimatePresence>

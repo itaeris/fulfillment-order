@@ -1,17 +1,20 @@
 import { NextResponse } from "next/server";
 import { fetchJubelioReadyToShipBatch, type JubelioSyncCursor } from "@/lib/jubelio-api";
 import {
+  countOrdersByPlatform,
   deleteOrdersByPlatform,
+  deleteUploadedFilesByPlatform,
+  findExistingOrderIds,
   insertOrders,
   insertUploadedFile,
-  deleteUploadedFilesByPlatform,
 } from "@/lib/db";
 import { Order } from "@/types/order";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const PAGES_PER_BATCH = 4;
+const ADD_PAGES_PER_BATCH = 4;
+const MAX_INCREMENTAL_PAGE = 8;
 
 function publicJubelioError(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
@@ -40,6 +43,14 @@ function orderToInput(order: Order) {
   };
 }
 
+async function markSynced(count: number) {
+  await insertUploadedFile({
+    name: "Jubelio API",
+    platform: "jubelio",
+    orderCount: count,
+  });
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as {
@@ -48,41 +59,94 @@ export async function POST(request: Request) {
       cursor?: JubelioSyncCursor;
     };
     const startPage = Number(body.startPage) || 1;
-    const insertedSoFar = Number(body.insertedSoFar) || 0;
+    const isFirst = !body.cursor;
+    const dbCount = await countOrdersByPlatform("jubelio");
+    const hasCache = dbCount > 0;
 
     const batch = await fetchJubelioReadyToShipBatch({
       startPage,
-      pageCount: PAGES_PER_BATCH,
+      pageCount: isFirst ? 1 : ADD_PAGES_PER_BATCH,
       cursor: body.cursor,
+      allowSalesFallback: true,
     });
 
-    if (startPage === 1) {
-      await deleteOrdersByPlatform("jubelio");
-      await deleteUploadedFilesByPlatform("jubelio");
+    const ids = batch.orders.map((order) => order.id);
+    const existing = await findExistingOrderIds(ids);
+    const newOrders = batch.orders.filter((order) => !existing.has(order.id));
+    const allKnown = ids.length > 0 && ids.every((id) => existing.has(id));
+
+    if (hasCache && (batch.orders.length === 0 || (isFirst && allKnown))) {
+      await markSynced(dbCount);
+      return NextResponse.json({
+        success: true,
+        done: true,
+        cached: true,
+        count: dbCount,
+        added: 0,
+        nextPage: null,
+        cursor: batch.cursor,
+        total: dbCount,
+        syncedAt: new Date().toISOString(),
+      });
     }
 
-    if (batch.orders.length > 0) {
-      await insertOrders(batch.orders.map(orderToInput));
+    if (!hasCache) {
+      if (isFirst) {
+        await deleteOrdersByPlatform("jubelio");
+        await deleteUploadedFilesByPlatform("jubelio");
+      }
+      if (batch.orders.length > 0) {
+        await insertOrders(batch.orders.map(orderToInput));
+      }
+      const count = (Number(body.insertedSoFar) || 0) + batch.orders.length;
+      if (batch.done) await markSynced(count);
+      return NextResponse.json({
+        success: true,
+        done: batch.done,
+        cached: false,
+        count,
+        added: batch.orders.length,
+        nextPage: batch.nextPage,
+        cursor: { ...batch.cursor, mode: "full" as const },
+        total: batch.cursor.apiTotal || count,
+        syncedAt: new Date().toISOString(),
+      });
     }
 
-    const count = insertedSoFar + batch.orders.length;
-    if (batch.done) {
-      await insertUploadedFile({
-        name: "Jubelio API",
-        platform: "jubelio",
-        orderCount: count,
+    if (newOrders.length > 0) {
+      await insertOrders(newOrders.map(orderToInput));
+    }
+
+    const overlapped =
+      allKnown ||
+      batch.done ||
+      (batch.nextPage != null && batch.nextPage > MAX_INCREMENTAL_PAGE);
+
+    const count = dbCount + newOrders.length;
+    if (overlapped) {
+      await markSynced(count);
+      return NextResponse.json({
+        success: true,
+        done: true,
+        cached: false,
+        count,
+        added: newOrders.length,
+        nextPage: null,
+        cursor: { ...batch.cursor, mode: "add" as const },
+        total: count,
+        syncedAt: new Date().toISOString(),
       });
     }
 
     return NextResponse.json({
       success: true,
-      done: batch.done,
+      done: false,
+      cached: false,
       count,
-      batchCount: batch.orders.length,
+      added: newOrders.length,
       nextPage: batch.nextPage,
-      cursor: batch.cursor,
-      total: batch.cursor.apiTotal || count,
-      locationName: batch.cursor.locationName,
+      cursor: { ...batch.cursor, mode: "add" as const },
+      total: count,
       syncedAt: new Date().toISOString(),
     });
   } catch (error) {

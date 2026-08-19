@@ -52,7 +52,7 @@ export default function ApiSyncBar({
   onSync,
   lastTiktokSync,
   lastJubelioSync,
-  hint = "Cukup ambil data sekali. Hasilnya sama di Pesanan, Komparasi, dan Settings.",
+  hint = "Cukup ambil data sekali. Yang sudah ada disimpan, sync berikutnya hanya yang berubah.",
   compact = false,
 }: ApiSyncState & { hint?: string; compact?: boolean }) {
   const busy = !!syncing;
@@ -60,42 +60,53 @@ export default function ApiSyncBar({
     syncProgress > 0 ? `Mengambil data... ${syncProgress.toLocaleString("id-ID")}` : "Mengambil data...";
 
   return (
-    <div className="flex items-start justify-between gap-3 flex-wrap">
-      {hint ? <p className="text-xs sm:text-sm text-brand-400 max-w-xl">{hint}</p> : <span />}
-      <div className="flex flex-col items-end gap-1 ml-auto">
-        <div className="flex flex-wrap justify-end gap-2">
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+      {hint ? (
+        <p className="hidden sm:block text-sm text-brand-400 max-w-xl">{hint}</p>
+      ) : (
+        <span className="hidden sm:block" />
+      )}
+      <div className="flex flex-col gap-1.5 w-full sm:w-auto sm:items-end sm:ml-auto">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
           <button
             onClick={() => onSync("tiktok")}
             disabled={busy}
             className={cn(
-              "flex items-center gap-2 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-all",
-              compact ? "px-3 py-1.5" : "px-4 py-2",
+              "flex items-center justify-center gap-1.5 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-all",
+              compact ? "px-2.5 py-2 sm:px-3 sm:py-1.5" : "px-3 py-2.5 sm:px-4 sm:py-2",
               "bg-brand-600"
             )}
           >
-            <RefreshCw className={cn("w-4 h-4", syncing === "tiktok" && "animate-spin")} />
-            {syncing === "tiktok" ? progressLabel : "Ambil data TikTok"}
+            <RefreshCw className={cn("w-4 h-4 shrink-0", syncing === "tiktok" && "animate-spin")} />
+            <span className="truncate">
+              {syncing === "tiktok" ? progressLabel : "Ambil TikTok"}
+            </span>
           </button>
           <button
             onClick={() => onSync("jubelio")}
             disabled={busy}
             className={cn(
-              "flex items-center gap-2 text-white rounded-lg text-sm font-medium hover:bg-brand-900 disabled:opacity-50 transition-all",
-              compact ? "px-3 py-1.5" : "px-4 py-2",
+              "flex items-center justify-center gap-1.5 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-brand-900 disabled:opacity-50 transition-all",
+              compact ? "px-2.5 py-2 sm:px-3 sm:py-1.5" : "px-3 py-2.5 sm:px-4 sm:py-2",
               "bg-brand-800"
             )}
           >
-            <RefreshCw className={cn("w-4 h-4", syncing === "jubelio" && "animate-spin")} />
-            {syncing === "jubelio" ? progressLabel : "Ambil data Jubelio"}
+            <RefreshCw className={cn("w-4 h-4 shrink-0", syncing === "jubelio" && "animate-spin")} />
+            <span className="truncate">
+              {syncing === "jubelio" ? progressLabel : "Ambil Jubelio"}
+            </span>
           </button>
         </div>
         {syncError ? (
-          <span className="flex items-center gap-1 text-xs text-red-600">
-            <CloudOff className="w-3.5 h-3.5" /> {syncError}
+          <span className="flex items-start gap-1 text-xs text-red-600">
+            <CloudOff className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {syncError}
           </span>
         ) : (
-          <span className="text-xs text-brand-400 text-right">
-            TikTok: {lastTiktokSync || "belum diambil"} · Jubelio: {lastJubelioSync || "belum diambil"}
+          <span className="text-[11px] sm:text-xs text-brand-400 sm:text-right leading-snug">
+            TikTok: {lastTiktokSync || "belum diambil"}
+            <span className="hidden sm:inline"> · </span>
+            <br className="sm:hidden" />
+            Jubelio: {lastJubelioSync || "belum diambil"}
           </span>
         )}
       </div>

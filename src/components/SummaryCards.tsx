@@ -89,28 +89,28 @@ export default function SummaryCards({ summary, userRole }: SummaryCardsProps) {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3 sm:space-y-6">
       {/* Main Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
         {mainCards.map((card, i) => (
           <motion.div
             key={card.title}
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.06, duration: 0.3 }}
-            className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-5"
+            className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-brand-200 p-2.5 sm:p-5"
           >
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-1.5 sm:gap-2">
               <div className="min-w-0">
-                <p className="text-xs sm:text-sm text-brand-400 font-medium">
+                <p className="text-[10px] sm:text-sm text-brand-400 font-medium truncate">
                   {card.title}
                 </p>
-                <p className="text-lg sm:text-2xl font-bold text-brand-800 mt-1 truncate">
+                <p className="text-sm sm:text-2xl font-bold text-brand-800 mt-0.5 sm:mt-1 truncate">
                   {card.value}
                 </p>
               </div>
-              <div className={cn("p-2 sm:p-3 rounded-xl shrink-0", card.bgColor)}>
-                <card.icon className={cn("w-5 h-5 sm:w-6 sm:h-6", card.textColor)} />
+              <div className={cn("p-1.5 sm:p-3 rounded-lg sm:rounded-xl shrink-0", card.bgColor)}>
+                <card.icon className={cn("w-3.5 h-3.5 sm:w-6 sm:h-6", card.textColor)} />
               </div>
             </div>
           </motion.div>
@@ -118,7 +118,7 @@ export default function SummaryCards({ summary, userRole }: SummaryCardsProps) {
       </div>
 
       {/* Platform Breakdown */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 sm:gap-4">
         {platformCards.map((card, i) => {
           const data = card.data;
           const percentage =
@@ -133,40 +133,40 @@ export default function SummaryCards({ summary, userRole }: SummaryCardsProps) {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.25 + i * 0.06, duration: 0.3 }}
               className={cn(
-                "bg-white rounded-xl shadow-sm border p-4 sm:p-5",
+                "bg-white rounded-lg sm:rounded-xl shadow-sm border p-2.5 sm:p-5",
                 card.borderColor
               )}
             >
-              <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
-                <div className={cn("w-3 h-3 rounded-full shrink-0", card.dotColor)} />
-                <h3 className="font-semibold text-brand-800 text-sm sm:text-base">{card.name}</h3>
+              <div className="flex items-center gap-1.5 sm:gap-3 mb-2 sm:mb-4">
+                <div className={cn("w-2 h-2 sm:w-3 sm:h-3 rounded-full shrink-0", card.dotColor)} />
+                <h3 className="font-semibold text-brand-800 text-xs sm:text-base truncate">{card.name}</h3>
               </div>
 
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-brand-400">Order</span>
-                  <span className="font-semibold text-brand-700">
+              <div className="space-y-1.5 sm:space-y-3">
+                <div className="flex justify-between items-center gap-2">
+                  <span className="text-[11px] sm:text-sm text-brand-400">Order</span>
+                  <span className="text-xs sm:text-base font-semibold text-brand-700">
                     {formatNumber(data.orders)}
                   </span>
                 </div>
 
                 {!hideMoney && (
                   <>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-brand-400">Pendapatan</span>
-                      <span className="font-semibold text-brand-700">
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="text-[11px] sm:text-sm text-brand-400">Pendapatan</span>
+                      <span className="text-xs sm:text-base font-semibold text-brand-700 truncate">
                         {formatCurrency(data.revenue)}
                       </span>
                     </div>
 
-                    <div className="mt-2">
-                      <div className="h-2 bg-cream-200 rounded-full overflow-hidden">
+                    <div className="mt-1 sm:mt-2">
+                      <div className="h-1.5 sm:h-2 bg-cream-200 rounded-full overflow-hidden">
                         <div
                           className={cn("h-full rounded-full transition-all", card.barColor)}
                           style={{ width: `${percentage}%` }}
                         />
                       </div>
-                      <p className="text-xs text-brand-300 mt-1">
+                      <p className="text-[10px] sm:text-xs text-brand-300 mt-0.5 sm:mt-1">
                         {percentage.toFixed(1)}% dari total
                       </p>
                     </div>
