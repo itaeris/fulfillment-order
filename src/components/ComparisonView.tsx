@@ -49,6 +49,39 @@ function normalize(s: string): string {
   return s.replace(/[\s\-_.#]+/g, "").toUpperCase();
 }
 
+function indexOrders(orders: Order[], keyOf: (order: Order) => string | undefined) {
+  const map = new Map<string, Order[]>();
+  for (const order of orders) {
+    const key = keyOf(order);
+    if (!key) continue;
+    const list = map.get(key);
+    if (list) list.push(order);
+    else map.set(key, [order]);
+  }
+  return map;
+}
+
+function takeOrder(list: Order[] | undefined, used: Set<string>) {
+  if (!list) return undefined;
+  const hit = list.find((order) => !used.has(order.id));
+  if (hit) used.add(hit.id);
+  return hit;
+}
+
+function comparisonOf(jOrder: Order, pOrder: Order, matchedBy: string): ComparisonRow {
+  const amountDiff = Math.abs(jOrder.totalAmount - pOrder.totalAmount);
+  const statusMatch = jOrder.status === pOrder.status;
+  return {
+    orderNumber: pOrder.orderNumber,
+    matchedBy,
+    status: amountDiff > 1 || !statusMatch ? "mismatch" : "matched",
+    jubelioOrder: jOrder,
+    platformOrder: pOrder,
+    amountDiff,
+    statusMatch,
+  };
+}
+
 type MarketplaceFilter = "all" | "tiktok" | "shopee";
 type TtsChannelFilter = "all" | "tts" | "tokopedia";
 
@@ -94,99 +127,55 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
       (o) => o.platform === "shopee" || o.platform === "tiktok" || o.platform === "tokopedia"
     );
 
+    const byOrderNumber = indexOrders(platformOrders, (order) => normalize(order.orderNumber));
+    const byTracking = indexOrders(platformOrders, (order) => {
+      const tracking = order.trackingNumber ? normalize(order.trackingNumber) : "";
+      return tracking.length >= 5 ? tracking : undefined;
+    });
+
     const matched = new Map<string, ComparisonRow>();
     const matchedJubelioIds = new Set<string>();
     const matchedPlatformIds = new Set<string>();
 
-    // Strategy 1: Match via Jubelio refNo -> platform orderNumber
-    for (const jOrder of jubelioOrders) {
-      if (matchedJubelioIds.has(jOrder.id)) continue;
-      const refKey = jOrder.refNo ? normalize(jOrder.refNo) : null;
-      if (!refKey) continue;
+    const pair = (jOrder: Order, pOrder: Order | undefined, matchedBy: string, key: string) => {
+      if (!pOrder) return false;
+      matched.set(key, comparisonOf(jOrder, pOrder, matchedBy));
+      matchedJubelioIds.add(jOrder.id);
+      matchedPlatformIds.add(pOrder.id);
+      return true;
+    };
 
-      for (const pOrder of platformOrders) {
-        if (matchedPlatformIds.has(pOrder.id)) continue;
-        if (normalize(pOrder.orderNumber) === refKey) {
-          const amountDiff = Math.abs(jOrder.totalAmount - pOrder.totalAmount);
-          const statusMatch = jOrder.status === pOrder.status;
-          const key = pOrder.orderNumber;
-          matched.set(key, {
-            orderNumber: pOrder.orderNumber,
-            matchedBy: "Ref No",
-            status: amountDiff > 1 || !statusMatch ? "mismatch" : "matched",
-            jubelioOrder: jOrder,
-            platformOrder: pOrder,
-            amountDiff,
-            statusMatch,
-          });
-          matchedJubelioIds.add(jOrder.id);
-          matchedPlatformIds.add(pOrder.id);
-          break;
-        }
-      }
+    for (const jOrder of jubelioOrders) {
+      const refKey = jOrder.refNo ? normalize(jOrder.refNo) : "";
+      if (!refKey) continue;
+      pair(jOrder, takeOrder(byOrderNumber.get(refKey), matchedPlatformIds), "Ref No", refKey);
     }
 
-    // Strategy 2: Match via order number directly
     for (const jOrder of jubelioOrders) {
       if (matchedJubelioIds.has(jOrder.id)) continue;
       const jKey = normalize(jOrder.orderNumber);
-
-      for (const pOrder of platformOrders) {
-        if (matchedPlatformIds.has(pOrder.id)) continue;
-        if (normalize(pOrder.orderNumber) === jKey) {
-          const amountDiff = Math.abs(jOrder.totalAmount - pOrder.totalAmount);
-          const statusMatch = jOrder.status === pOrder.status;
-          matched.set(pOrder.orderNumber, {
-            orderNumber: pOrder.orderNumber,
-            matchedBy: "Order No",
-            status: amountDiff > 1 || !statusMatch ? "mismatch" : "matched",
-            jubelioOrder: jOrder,
-            platformOrder: pOrder,
-            amountDiff,
-            statusMatch,
-          });
-          matchedJubelioIds.add(jOrder.id);
-          matchedPlatformIds.add(pOrder.id);
-          break;
-        }
-      }
+      pair(jOrder, takeOrder(byOrderNumber.get(jKey), matchedPlatformIds), "Order No", jKey);
     }
 
-    // Strategy 3: Match via tracking number
     for (const jOrder of jubelioOrders) {
       if (matchedJubelioIds.has(jOrder.id)) continue;
-      const jTracking = jOrder.trackingNumber ? normalize(jOrder.trackingNumber) : null;
-      if (!jTracking || jTracking.length < 5) continue;
-
-      for (const pOrder of platformOrders) {
-        if (matchedPlatformIds.has(pOrder.id)) continue;
-        const pTracking = pOrder.trackingNumber ? normalize(pOrder.trackingNumber) : null;
-        if (!pTracking) continue;
-
-        if (jTracking === pTracking) {
-          const amountDiff = Math.abs(jOrder.totalAmount - pOrder.totalAmount);
-          const statusMatch = jOrder.status === pOrder.status;
-          matched.set(`tracking-${jTracking}`, {
-            orderNumber: pOrder.orderNumber,
-            matchedBy: "Resi",
-            status: amountDiff > 1 || !statusMatch ? "mismatch" : "matched",
-            jubelioOrder: jOrder,
-            platformOrder: pOrder,
-            amountDiff,
-            statusMatch,
-          });
-          matchedJubelioIds.add(jOrder.id);
-          matchedPlatformIds.add(pOrder.id);
-          break;
-        }
-      }
+      const jTracking = jOrder.trackingNumber ? normalize(jOrder.trackingNumber) : "";
+      if (jTracking.length < 5) continue;
+      pair(
+        jOrder,
+        takeOrder(byTracking.get(jTracking), matchedPlatformIds),
+        "Resi",
+        `tracking-${jTracking}`
+      );
     }
 
     const comparisonRows: ComparisonRow[] = Array.from(matched.values());
+    let jubelioOnlyCount = 0;
+    let platformOnlyCount = 0;
 
-    // Add unmatched Jubelio
     for (const jOrder of jubelioOrders) {
       if (matchedJubelioIds.has(jOrder.id)) continue;
+      jubelioOnlyCount += 1;
       comparisonRows.push({
         orderNumber: jOrder.orderNumber,
         matchedBy: "-",
@@ -196,9 +185,9 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
       });
     }
 
-    // Add unmatched platform
     for (const pOrder of platformOrders) {
       if (matchedPlatformIds.has(pOrder.id)) continue;
+      platformOnlyCount += 1;
       comparisonRows.push({
         orderNumber: pOrder.orderNumber,
         matchedBy: "-",
@@ -208,15 +197,15 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
       });
     }
 
-    comparisonRows.sort((a, b) => {
-      const order: MatchStatus[] = ["mismatch", "platform_only", "jubelio_only", "matched"];
-      return order.indexOf(a.status) - order.indexOf(b.status);
-    });
+    const statusOrder: MatchStatus[] = ["mismatch", "platform_only", "jubelio_only", "matched"];
+    comparisonRows.sort((a, b) => statusOrder.indexOf(a.status) - statusOrder.indexOf(b.status));
 
-    const matchedCount = comparisonRows.filter((r) => r.status === "matched").length;
-    const mismatchCount = comparisonRows.filter((r) => r.status === "mismatch").length;
-    const jubelioOnlyCount = comparisonRows.filter((r) => r.status === "jubelio_only").length;
-    const platformOnlyCount = comparisonRows.filter((r) => r.status === "platform_only").length;
+    let matchedCount = 0;
+    let mismatchCount = 0;
+    for (const row of comparisonRows) {
+      if (row.status === "matched") matchedCount += 1;
+      else if (row.status === "mismatch") mismatchCount += 1;
+    }
 
     return {
       rows: comparisonRows,
@@ -437,9 +426,9 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
         ].map((card, i) => (
           <motion.div
             key={card.label}
-            initial={{ opacity: 0, y: 12 }}
+            initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.06, duration: 0.3 }}
+            transition={{ delay: 0.03 * i, duration: 0.18, ease: "easeOut" }}
             className={cn("bg-white rounded-xl shadow-sm border p-4", card.border)}
           >
             <p className={cn("text-xs font-medium", card.labelColor)}>{card.label}</p>
@@ -458,7 +447,12 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
       )}
 
       {/* Comparison Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-brand-200">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.08, duration: 0.2, ease: "easeOut" }}
+        className="bg-white rounded-xl shadow-sm border border-brand-200"
+      >
         {/* Filter Tabs */}
         <div className="px-3 sm:px-4 border-b border-brand-200">
           <div className="flex gap-0.5 sm:gap-1 overflow-x-auto scrollbar-hide min-w-0">
@@ -909,7 +903,7 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
             </div>
           </div>
         )}
-      </div>
+      </motion.div>
       </>
       )}
     </div>

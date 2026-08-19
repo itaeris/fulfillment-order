@@ -1,27 +1,72 @@
 import { supabase } from "./supabase";
 
+const PAGE_SIZE = 1000;
+
+function applyPagedFilters(
+  query: any,
+  options?: {
+    eq?: { column: string; value: string };
+    ins?: { column: string; values: string[] }[];
+    orderColumn?: string | null;
+  }
+) {
+  if (options?.eq) query = query.eq(options.eq.column, options.eq.value);
+  if (options?.ins) {
+    for (const filter of options.ins) {
+      query = query.in(filter.column, filter.values);
+    }
+  }
+  if (options?.orderColumn) {
+    query = query.order(options.orderColumn, { ascending: false }).order("id", { ascending: true });
+  } else {
+    query = query.order("id", { ascending: true });
+  }
+  return query;
+}
+
+async function fetchPagedRows(
+  table: string,
+  select = "*",
+  options?: {
+    eq?: { column: string; value: string };
+    ins?: { column: string; values: string[] }[];
+    orderColumn?: string | null;
+  }
+) {
+  const firstQuery = applyPagedFilters(
+    supabase.from(table).select(select, { count: "exact" }),
+    options
+  );
+  const { data: first, error, count } = await firstQuery.range(0, PAGE_SIZE - 1);
+  if (error) throw error;
+
+  const rows = [...(first ?? [])];
+  const total = count ?? rows.length;
+  if (total <= rows.length) return rows;
+
+  const starts: number[] = [];
+  for (let from = PAGE_SIZE; from < total; from += PAGE_SIZE) starts.push(from);
+
+  const pages = await Promise.all(
+    starts.map((from) =>
+      applyPagedFilters(supabase.from(table).select(select), options).range(
+        from,
+        from + PAGE_SIZE - 1
+      )
+    )
+  );
+
+  for (const page of pages) {
+    if (page.error) throw page.error;
+    rows.push(...(page.data ?? []));
+  }
+  return rows;
+}
+
 // ── Order operations ──
 
 export async function getAllOrders() {
-  const allRows: any[] = [];
-  const PAGE_SIZE = 1000;
-  let from = 0;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from("orders")
-      .select("*")
-      .order("order_date", { ascending: false })
-      .range(from, from + PAGE_SIZE - 1);
-
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-
-    allRows.push(...data);
-    if (data.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-
+  const allRows = await fetchPagedRows("orders", "*", { orderColumn: "order_date" });
   return allRows.map(rowToOrder);
 }
 
@@ -35,28 +80,11 @@ export async function countOrdersByPlatform(platform: string) {
 }
 
 export async function getOrderIdsByPlatform(platform: string) {
-  const ids: string[] = [];
-  const PAGE_SIZE = 1000;
-  let from = 0;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from("orders")
-      .select("id")
-      .eq("platform", platform)
-      .range(from, from + PAGE_SIZE - 1);
-
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-
-    for (const row of data) {
-      if (row.id) ids.push(row.id);
-    }
-    if (data.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-
-  return ids;
+  const rows = await fetchPagedRows("orders", "id", {
+    eq: { column: "platform", value: platform },
+    orderColumn: null,
+  });
+  return rows.map((row) => row.id).filter(Boolean);
 }
 
 export async function countOrdersByPlatforms(platforms: string[]) {
@@ -107,30 +135,15 @@ export async function getOpenOrderNumbersByPlatforms(
   platforms: string[],
   statuses: string[] = ["pending", "processing"]
 ) {
-  const numbers: string[] = [];
-  if (platforms.length === 0) return numbers;
-  const PAGE_SIZE = 1000;
-  let from = 0;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from("orders")
-      .select("order_number")
-      .in("platform", platforms)
-      .in("status", statuses)
-      .range(from, from + PAGE_SIZE - 1);
-
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-
-    for (const row of data) {
-      if (row.order_number) numbers.push(row.order_number);
-    }
-    if (data.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-
-  return Array.from(new Set(numbers));
+  if (platforms.length === 0) return [];
+  const rows = await fetchPagedRows("orders", "order_number", {
+    ins: [
+      { column: "platform", values: platforms },
+      { column: "status", values: statuses },
+    ],
+    orderColumn: null,
+  });
+  return Array.from(new Set(rows.map((row) => row.order_number).filter(Boolean)));
 }
 
 export async function updateOrdersFulfillment(
@@ -284,28 +297,12 @@ export async function getLiveOrderStatuses(numbers: string[]): Promise<LiveOrder
 }
 
 export async function getOrderNumbersByPlatforms(platforms: string[]) {
-  const numbers: string[] = [];
-  const PAGE_SIZE = 1000;
-  let from = 0;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from("orders")
-      .select("order_number")
-      .in("platform", platforms)
-      .range(from, from + PAGE_SIZE - 1);
-
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-
-    for (const row of data) {
-      if (row.order_number) numbers.push(row.order_number);
-    }
-    if (data.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-
-  return Array.from(new Set(numbers));
+  if (platforms.length === 0) return [];
+  const rows = await fetchPagedRows("orders", "order_number", {
+    ins: [{ column: "platform", values: platforms }],
+    orderColumn: null,
+  });
+  return Array.from(new Set(rows.map((row) => row.order_number).filter(Boolean)));
 }
 
 export async function deleteOrdersByIds(ids: string[]) {
@@ -333,26 +330,10 @@ export async function deleteOrdersByOrderNumbers(platforms: string[], orderNumbe
 }
 
 export async function getOrdersByPlatform(platform: string) {
-  const allRows: any[] = [];
-  const PAGE_SIZE = 1000;
-  let from = 0;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from("orders")
-      .select("*")
-      .eq("platform", platform)
-      .order("order_date", { ascending: false })
-      .range(from, from + PAGE_SIZE - 1);
-
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-
-    allRows.push(...data);
-    if (data.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-
+  const allRows = await fetchPagedRows("orders", "*", {
+    eq: { column: "platform", value: platform },
+    orderColumn: "order_date",
+  });
   return allRows.map(rowToOrder);
 }
 
@@ -431,25 +412,7 @@ export async function deleteUploadedFilesByPlatform(platform: string) {
 // ── Kirim hari ini (overview_orders / overview_files) ──
 
 export async function getAllOverviewOrders() {
-  const allRows: any[] = [];
-  const PAGE_SIZE = 1000;
-  let from = 0;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from("overview_orders")
-      .select("*")
-      .order("order_date", { ascending: false })
-      .range(from, from + PAGE_SIZE - 1);
-
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-
-    allRows.push(...data);
-    if (data.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-
+  const allRows = await fetchPagedRows("overview_orders", "*", { orderColumn: "order_date" });
   return allRows.map(rowToOrder);
 }
 

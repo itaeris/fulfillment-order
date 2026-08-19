@@ -32,7 +32,7 @@ function formatOrders(orders: any[]) {
 export async function GET() {
   try {
     const orders = await getAllOverviewOrders();
-    return NextResponse.json({ orders: formatOrders(orders) });
+    return NextResponse.json({ orders });
   } catch (error) {
     console.error("Error fetching overview orders:", error);
     return NextResponse.json(

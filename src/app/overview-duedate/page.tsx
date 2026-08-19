@@ -13,12 +13,16 @@ import {
 } from "@/lib/overview-merge";
 import {
   clearOverviewStore,
-  loadOverviewFiles,
-  loadOverviewOrders,
+  migrateLegacyOverviewIfNeeded,
   replaceOverviewPlatforms,
   saveOverviewFile,
   upsertOverviewOrders,
 } from "@/lib/overview-store";
+import {
+  getCachedOverview,
+  loadOverviewData,
+  type DataSnapshot,
+} from "@/lib/client-data";
 import { Order, Platform, UploadedFile } from "@/types/order";
 
 function hydrateOrder(order: Order): Order {
@@ -39,30 +43,48 @@ export default function OverviewDueDatePage() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const ordersRef = useRef<Order[]>([]);
+  const dataGen = useRef(0);
   ordersRef.current = orders;
 
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login");
   }, [authLoading, user, router]);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (mode: "init" | "refresh" = "refresh") => {
+    const gen = ++dataGen.current;
+    const apply = (data: DataSnapshot) => {
+      if (gen !== dataGen.current) return;
+      setOrders(data.orders);
+      setUploadedFiles(data.files);
+    };
+
     try {
-      const [localOrders, localFiles] = await Promise.all([
-        loadOverviewOrders(),
-        loadOverviewFiles(),
-      ]);
-      setOrders(localOrders.map(hydrateOrder));
-      setUploadedFiles(localFiles);
+      if (mode === "init") {
+        const cached = getCachedOverview();
+        if (cached) {
+          apply(cached);
+          setIsLoading(false);
+          void loadOverviewData(true).then(apply).catch(() => {});
+          return;
+        }
+      }
+
+      let data = await loadOverviewData(true);
+      if (data.orders.length === 0 && data.files.length === 0) {
+        await migrateLegacyOverviewIfNeeded();
+        data = await loadOverviewData(true);
+      }
+      apply(data);
     } catch (error) {
       console.error("Error loading overview data:", error);
     } finally {
-      setIsLoading(false);
+      if (gen === dataGen.current) setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (authLoading || !user) return;
-    loadData();
+    loadData("init");
   }, [authLoading, user, loadData]);
 
   const applyLive = useCallback(async (current: Order[]) => {
@@ -167,6 +189,7 @@ export default function OverviewDueDatePage() {
         ? ["tiktok", "tokopedia"]
         : [actualPlatform];
     const next = await replaceOverviewPlatforms(replacePlatforms, finalOrders);
+    dataGen.current += 1;
     setOrders(next.map(hydrateOrder));
 
     const uploadedFile: UploadedFile = {
@@ -187,6 +210,7 @@ export default function OverviewDueDatePage() {
   }, []);
 
   const handleClear = useCallback(async () => {
+    dataGen.current += 1;
     await clearOverviewStore();
     setOrders([]);
     setUploadedFiles([]);

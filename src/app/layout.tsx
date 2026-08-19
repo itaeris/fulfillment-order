@@ -4,7 +4,7 @@ import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ subsets: ["latin"], display: "swap" });
 
 export const metadata: Metadata = {
   title: "Order Dashboard - Aeris Beaute",

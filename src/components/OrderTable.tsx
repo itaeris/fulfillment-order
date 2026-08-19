@@ -353,7 +353,7 @@ export default function OrderTable({
       <div className="px-3 sm:px-4 pt-3 sm:pt-4">
         <ApiSyncBar
           {...apiSync}
-          hint="Ambil pesanan siap dikirim dari TikTok, Tokopedia, dan Jubelio. Cukup sekali, hasilnya sama di semua menu."
+          hint="Ambil pesanan siap dikirim dan selesai (30 hari) dari TikTok, Tokopedia, dan Jubelio. Cukup sekali, hasilnya sama di semua menu."
         />
       </div>
 

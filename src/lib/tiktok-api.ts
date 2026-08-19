@@ -370,7 +370,8 @@ function mapTikTokOrderToOrders(order: TikTokOrder): Order[] {
 async function searchOrdersPage(
   config: TikTokConfig,
   orderStatus: string,
-  pageToken = ""
+  pageToken = "",
+  extra?: { create_time_ge?: number }
 ): Promise<{ orders: TikTokOrder[]; nextPageToken: string }> {
   const query: Record<string, string> = {
     page_size: "50",
@@ -379,11 +380,16 @@ async function searchOrdersPage(
   };
   if (pageToken) query.page_token = pageToken;
 
+  const body: Record<string, string | number> = { order_status: orderStatus };
+  if (!pageToken && extra?.create_time_ge) {
+    body.create_time_ge = extra.create_time_ge;
+  }
+
   const data = await tiktokRequest<OrderSearchResponse>(config, {
     method: "POST",
     path: `/order/${config.version}/orders/search`,
     query,
-    body: { order_status: orderStatus },
+    body,
   });
 
   return {
@@ -482,10 +488,33 @@ async function searchReadyToShipOrders(config: TikTokConfig): Promise<TikTokOrde
   return allTikTokOrders;
 }
 
+export type TikTokSyncPhase = "rts" | "completed";
+
 export interface TikTokSyncCursor {
+  phase?: TikTokSyncPhase;
   shipmentToken: string | null;
   collectionToken: string | null;
+  completedToken?: string | null;
+  deliveredToken?: string | null;
   pagesFetched: number;
+}
+
+const COMPLETED_STATUSES = ["COMPLETED", "DELIVERED"] as const;
+const COMPLETED_LOOKBACK_DAYS = 30;
+
+function completedSinceUnix() {
+  return Math.floor(Date.now() / 1000) - COMPLETED_LOOKBACK_DAYS * 24 * 60 * 60;
+}
+
+export function emptyCompletedCursor(): TikTokSyncCursor {
+  return {
+    phase: "completed",
+    shipmentToken: null,
+    collectionToken: null,
+    completedToken: null,
+    deliveredToken: null,
+    pagesFetched: 0,
+  };
 }
 
 function dedupeTikTokOrders(orders: TikTokOrder[]): TikTokOrder[] {
@@ -522,6 +551,7 @@ export async function fetchTikTokReadyToShipBatch(
     ]);
     const listed = dedupeTikTokOrders([...shipment.orders, ...collection.orders]);
     const next: TikTokSyncCursor = {
+      phase: "rts",
       shipmentToken: shipment.nextPageToken || null,
       collectionToken: collection.nextPageToken || null,
       pagesFetched: 1,
@@ -546,11 +576,92 @@ export async function fetchTikTokReadyToShipBatch(
   }
 
   const next: TikTokSyncCursor = {
+    phase: "rts",
     shipmentToken,
     collectionToken,
     pagesFetched: cursor.pagesFetched + 1,
   };
   const done = !shipmentToken && !collectionToken;
+  return {
+    listed: dedupeTikTokOrders(listed),
+    cursor: next,
+    nextCursor: done ? null : next,
+    done,
+  };
+}
+
+async function searchCompletedPage(
+  config: TikTokConfig,
+  status: (typeof COMPLETED_STATUSES)[number],
+  pageToken: string
+) {
+  try {
+    return await searchOrdersPage(
+      config,
+      status,
+      pageToken,
+      pageToken ? undefined : { create_time_ge: completedSinceUnix() }
+    );
+  } catch {
+    return { orders: [] as TikTokOrder[], nextPageToken: "" };
+  }
+}
+
+/**
+ * Satu batch pesanan selesai (COMPLETED + DELIVERED), 30 hari terakhir.
+ * Dipakai Ambil TikTok di dashboard — tidak untuk Kirim hari ini.
+ */
+export async function fetchTikTokCompletedBatch(
+  config: TikTokConfig,
+  cursor?: TikTokSyncCursor
+): Promise<{
+  listed: TikTokOrder[];
+  cursor: TikTokSyncCursor;
+  nextCursor: TikTokSyncCursor | null;
+  done: boolean;
+}> {
+  if (!cursor || cursor.pagesFetched === 0) {
+    const [completed, delivered] = await Promise.all([
+      searchCompletedPage(config, "COMPLETED", ""),
+      searchCompletedPage(config, "DELIVERED", ""),
+    ]);
+    const listed = dedupeTikTokOrders([...completed.orders, ...delivered.orders]);
+    const next: TikTokSyncCursor = {
+      phase: "completed",
+      shipmentToken: null,
+      collectionToken: null,
+      completedToken: completed.nextPageToken || null,
+      deliveredToken: delivered.nextPageToken || null,
+      pagesFetched: 1,
+    };
+    const done = !next.completedToken && !next.deliveredToken;
+    return { listed, cursor: next, nextCursor: done ? null : next, done };
+  }
+
+  const listed: TikTokOrder[] = [];
+  let completedToken = cursor.completedToken || null;
+  let deliveredToken = cursor.deliveredToken || null;
+
+  if (completedToken) {
+    const page = await searchCompletedPage(config, "COMPLETED", completedToken);
+    listed.push(...page.orders);
+    completedToken = page.nextPageToken || null;
+  }
+  if (deliveredToken) {
+    const page = await searchCompletedPage(config, "DELIVERED", deliveredToken);
+    listed.push(...page.orders);
+    deliveredToken = page.nextPageToken || null;
+  }
+
+  const next: TikTokSyncCursor = {
+    phase: "completed",
+    shipmentToken: null,
+    collectionToken: null,
+    completedToken,
+    deliveredToken,
+    pagesFetched: cursor.pagesFetched + 1,
+  };
+  const done = !completedToken && !deliveredToken;
   return {
     listed: dedupeTikTokOrders(listed),
     cursor: next,

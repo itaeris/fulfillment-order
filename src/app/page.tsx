@@ -19,6 +19,12 @@ import { Order, Platform, UploadedFile, OrderSummary, DailyStats } from "@/types
 import { parseExcelFile, detectPlatform } from "@/lib/excel-parser";
 import { calculateSummary, calculateDailyStats } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
+import {
+  clearDashboardCache,
+  getCachedDashboard,
+  loadDashboardData,
+  type DataSnapshot,
+} from "@/lib/client-data";
 
 export default function Dashboard() {
   const { user, profile, isLoading: authLoading } = useAuth();
@@ -49,6 +55,7 @@ export default function Dashboard() {
   const restoredTab = useRef(false);
   const hasLoaded = useRef(false);
   const syncLock = useRef(false);
+  const dataGen = useRef(0);
 
   const setActiveTab = useCallback((tab: TabId) => {
     setActiveTabState(tab);
@@ -83,7 +90,7 @@ export default function Dashboard() {
   }, [setActiveTab]);
 
   useEffect(() => {
-    if (authLoading || !user) return;
+    if (authLoading || !user || isLoading) return;
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.has("tiktok")) return;
@@ -99,46 +106,40 @@ export default function Dashboard() {
         }
       })
       .catch(() => {});
-  }, [authLoading, user]);
+  }, [authLoading, user, isLoading]);
 
   const summary: OrderSummary = calculateSummary(orders);
   const dailyStats: DailyStats[] = calculateDailyStats(orders);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (mode: "init" | "refresh" = "refresh") => {
+    const gen = ++dataGen.current;
+    const apply = (data: DataSnapshot) => {
+      if (gen !== dataGen.current) return;
+      setOrders(data.orders);
+      setUploadedFiles(data.files);
+      const savedTab = localStorage.getItem(TAB_STORAGE_KEY) as TabId | null;
+      if (data.orders.length > 0 && (!savedTab || !VALID_TABS.includes(savedTab))) {
+        setActiveTab("dashboard");
+      }
+    };
+
     try {
-      if (hasLoaded.current) setIsRefreshing(true);
-      else setIsLoading(true);
-
-      const ordersRes = await fetch("/api/orders");
-      const ordersData = await ordersRes.json();
-
-      const filesRes = await fetch("/api/files");
-      const filesData = await filesRes.json();
-
-      if (ordersData.orders) {
-        const loadedOrders = ordersData.orders.map((order: any) => ({
-          ...order,
-          orderDate: new Date(order.orderDate),
-          paidTime: order.paidTime ? new Date(order.paidTime) : undefined,
-          shippedTime: order.shippedTime ? new Date(order.shippedTime) : undefined,
-          mustShipBefore: order.mustShipBefore ? new Date(order.mustShipBefore) : undefined,
-          pickupTime: order.pickupTime ? new Date(order.pickupTime) : undefined,
-        }));
-        setOrders(loadedOrders);
-
-        const savedTab = localStorage.getItem(TAB_STORAGE_KEY) as TabId | null;
-        if (loadedOrders.length > 0 && (!savedTab || !VALID_TABS.includes(savedTab))) {
-          setActiveTab("dashboard");
+      if (mode === "init") {
+        const cached = getCachedDashboard();
+        if (cached) {
+          apply(cached);
+          hasLoaded.current = true;
+          setIsLoading(false);
+          void loadDashboardData(true).then(apply).catch(() => {});
+          return;
         }
+        setIsLoading(true);
+      } else if (hasLoaded.current) {
+        setIsRefreshing(true);
       }
 
-      if (filesData.files) {
-        const loadedFiles = filesData.files.map((file: any) => ({
-          ...file,
-          uploadedAt: new Date(file.uploadedAt),
-        }));
-        setUploadedFiles(loadedFiles);
-      }
+      const data = await loadDashboardData(true);
+      apply(data);
     } catch (error) {
       console.error("Error loading data:", error);
     } finally {
@@ -146,12 +147,12 @@ export default function Dashboard() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setActiveTab]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (authLoading || !user) return;
+    loadData("init");
+  }, [authLoading, user, loadData]);
 
   const handleSync = useCallback(
     async (source: ApiSyncSource) => {
@@ -281,6 +282,8 @@ export default function Dashboard() {
 
             return [...prev, ...newOrders];
           });
+          dataGen.current += 1;
+          clearDashboardCache();
 
           const uploadedFile = {
             name: file.name,
@@ -312,6 +315,8 @@ export default function Dashboard() {
   const handleRemoveFile = useCallback(async (fileName: string) => {
     const file = uploadedFiles.find((f) => f.name === fileName);
     if (file) {
+      dataGen.current += 1;
+      clearDashboardCache();
       setOrders((prev) =>
         prev.filter((o) => !o.id.startsWith(`${file.platform}-`))
       );
@@ -328,6 +333,8 @@ export default function Dashboard() {
   }, [uploadedFiles]);
 
   const handleClearAll = useCallback(async () => {
+    dataGen.current += 1;
+    clearDashboardCache();
     setOrders([]);
     setUploadedFiles([]);
 
@@ -435,14 +442,14 @@ export default function Dashboard() {
 
         {/* Scrollable content */}
         <main className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-6">
-          <AnimatePresence mode="wait">
+          <AnimatePresence mode="popLayout">
             {activeTab === "compare" && (
               <motion.div
                 key="compare"
-                initial={{ opacity: 0, y: 6 }}
+                initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.1 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
               >
                 <ComparisonView
                   orders={orders}

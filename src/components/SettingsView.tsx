@@ -428,10 +428,9 @@ function DataSection({
               TikTok &amp; Tokopedia
             </h3>
             <p className="text-xs sm:text-sm text-brand-400 mt-0.5 sm:mt-1 max-w-lg leading-snug">
-              Ambil pesanan <strong>siap dikirim</strong> dari TikTok Shop.
+              Ambil pesanan <strong>siap dikirim</strong> dan <strong>selesai</strong> (30 hari terakhir) dari TikTok Shop.
               <span className="hidden sm:inline">
-                {" "}Yang sudah ada dipakai lagi — hanya pesanan baru yang ditambah,
-                yang sudah tidak di antrian dibuang.
+                {" "}Yang sudah ada dipakai lagi — hanya pesanan baru yang ditambah.
               </span>
             </p>
           </div>

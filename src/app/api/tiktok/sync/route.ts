@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import {
   getTikTokConfig,
   fetchTikTokReadyToShipBatch,
+  fetchTikTokCompletedBatch,
   mapTikTokListedOrders,
+  emptyCompletedCursor,
   type TikTokSyncCursor,
 } from "@/lib/tiktok-api";
 import {
@@ -19,6 +21,7 @@ export const maxDuration = 60;
 
 const TIKTOK_PLATFORMS = ["tiktok", "tokopedia"];
 const MAX_INCREMENTAL_PAGES = 4;
+const MAX_COMPLETED_PAGES = 8;
 
 function publicTikTokError(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
@@ -63,6 +66,7 @@ export async function POST(request: Request) {
       persist?: boolean;
     };
     const persist = body.persist !== false;
+    const phase = body.cursor?.phase === "completed" ? "completed" : "rts";
 
     if (!persist) {
       const config = await getTikTokConfig();
@@ -83,31 +87,72 @@ export async function POST(request: Request) {
       });
     }
 
-    const isFirst = !body.cursor;
+    const isFirstRts = !body.cursor;
     const dbCount = await countOrdersByPlatforms(TIKTOK_PLATFORMS);
     const hasCache = dbCount > 0;
     const config = await getTikTokConfig();
 
-    const batch = await fetchTikTokReadyToShipBatch(config, body.cursor);
-    const numbers = batch.listed.map((order) => order.id);
-    const existing = await findExistingOrderNumbers(TIKTOK_PLATFORMS, numbers);
-    const newListed = batch.listed.filter((order) => !existing.has(order.id));
-    const allKnown = numbers.length > 0 && numbers.every((id) => existing.has(id));
+    if (phase === "rts") {
+      const batch = await fetchTikTokReadyToShipBatch(config, body.cursor);
+      const numbers = batch.listed.map((order) => order.id);
+      const existing = await findExistingOrderNumbers(TIKTOK_PLATFORMS, numbers);
+      const newListed = batch.listed.filter((order) => !existing.has(order.id));
+      const allKnown = numbers.length > 0 && numbers.every((id) => existing.has(id));
 
-    if (hasCache && (batch.listed.length === 0 || (isFirst && allKnown))) {
-      await markSynced(dbCount);
+      const toMap =
+        hasCache && isFirstRts && allKnown ? [] : hasCache ? newListed : batch.listed;
+      const orders = toMap.length > 0 ? await mapTikTokListedOrders(config, toMap) : [];
+      if (orders.length > 0) {
+        await insertOrders(orders.map(orderToInput));
+      }
+
+      if (!hasCache && isFirstRts) {
+        await deleteUploadedFilesByPlatform("tiktok");
+      }
+
+      const added = newListed.length;
+      const count = hasCache
+        ? dbCount + added
+        : (Number(body.insertedSoFar) || 0) + orders.length;
+      const rtsDone =
+        !hasCache
+          ? batch.done
+          : allKnown ||
+            batch.done ||
+            batch.cursor.pagesFetched >= MAX_INCREMENTAL_PAGES ||
+            (isFirstRts && (batch.listed.length === 0 || allKnown));
+
+      if (!rtsDone) {
+        return NextResponse.json({
+          success: true,
+          done: false,
+          cached: false,
+          count,
+          added,
+          updated: 0,
+          nextPage: 1,
+          cursor: batch.nextCursor,
+          syncedAt: new Date().toISOString(),
+        });
+      }
+
       return NextResponse.json({
         success: true,
-        done: true,
-        cached: true,
-        count: dbCount,
-        added: 0,
+        done: false,
+        cached: false,
+        count,
+        added,
         updated: 0,
-        nextPage: null,
-        cursor: null,
+        nextPage: 1,
+        cursor: emptyCompletedCursor(),
         syncedAt: new Date().toISOString(),
       });
     }
+
+    const batch = await fetchTikTokCompletedBatch(config, body.cursor);
+    const numbers = batch.listed.map((order) => order.id);
+    const existing = await findExistingOrderNumbers(TIKTOK_PLATFORMS, numbers);
+    const newListed = batch.listed.filter((order) => !existing.has(order.id));
 
     const toMap = hasCache ? newListed : batch.listed;
     const orders = toMap.length > 0 ? await mapTikTokListedOrders(config, toMap) : [];
@@ -115,34 +160,28 @@ export async function POST(request: Request) {
       await insertOrders(orders.map(orderToInput));
     }
 
-    if (!hasCache && isFirst) {
-      await deleteUploadedFilesByPlatform("tiktok");
-    }
-
     const added = newListed.length;
     const count = hasCache
       ? dbCount + added
       : (Number(body.insertedSoFar) || 0) + orders.length;
-    const stopIncremental =
-      hasCache &&
-      (allKnown ||
-        batch.done ||
-        batch.cursor.pagesFetched >= MAX_INCREMENTAL_PAGES);
-    const done = !hasCache ? batch.done : stopIncremental;
+    const completedDone =
+      batch.done ||
+      batch.cursor.pagesFetched >= MAX_COMPLETED_PAGES ||
+      (newListed.length === 0 && batch.cursor.pagesFetched >= 2);
 
-    if (done) {
+    if (completedDone) {
       await markSynced(count);
     }
 
     return NextResponse.json({
       success: true,
-      done,
+      done: completedDone,
       cached: false,
       count,
       added,
       updated: 0,
-      nextPage: done ? null : 1,
-      cursor: done ? null : batch.nextCursor,
+      nextPage: completedDone ? null : 1,
+      cursor: completedDone ? null : batch.nextCursor,
       byPlatform: {
         tiktok: new Set(orders.filter((o) => o.platform === "tiktok").map((o) => o.orderNumber))
           .size,

@@ -8,17 +8,7 @@ import {
 export async function GET() {
   try {
     const orders = await getAllOrders();
-
-    const formattedOrders = orders.map((order: any) => ({
-      ...order,
-      orderDate: order.orderDate ? new Date(order.orderDate) : new Date(),
-      paidTime: order.paidTime ? new Date(order.paidTime) : undefined,
-      shippedTime: order.shippedTime ? new Date(order.shippedTime) : undefined,
-      mustShipBefore: order.mustShipBefore ? new Date(order.mustShipBefore) : undefined,
-      pickupTime: order.pickupTime ? new Date(order.pickupTime) : undefined,
-    }));
-
-    return NextResponse.json({ orders: formattedOrders });
+    return NextResponse.json({ orders });
   } catch (error) {
     console.error("Error fetching orders:", error);
     return NextResponse.json(
