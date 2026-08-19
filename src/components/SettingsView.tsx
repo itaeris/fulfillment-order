@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 import FileUpload from "./FileUpload";
 import { TableSkeleton } from "@/components/Skeleton";
 import { Platform, UploadedFile } from "@/types/order";
+import { type ApiSyncState } from "@/components/ApiSyncBar";
 
 function Spinner({ className = "w-4 h-4" }: { className?: string }) {
   return (
@@ -57,7 +58,7 @@ interface SettingsViewProps {
   onExportCSV: () => void;
   onClearAll: () => void;
   orderCount: number;
-  onSyncComplete: () => void | Promise<void>;
+  apiSync: ApiSyncState;
   isRefreshing?: boolean;
 }
 
@@ -68,7 +69,7 @@ export default function SettingsView({
   onExportCSV,
   onClearAll,
   orderCount,
-  onSyncComplete,
+  apiSync,
   isRefreshing,
 }: SettingsViewProps) {
   const { profile, updatePassword } = useAuth();
@@ -119,7 +120,7 @@ export default function SettingsView({
               onExportCSV={onExportCSV}
               onClearAll={onClearAll}
               orderCount={orderCount}
-              onSyncComplete={onSyncComplete}
+              apiSync={apiSync}
               isRefreshing={!!isRefreshing}
             />
           </motion.div>
@@ -354,7 +355,7 @@ function DataSection({
   onExportCSV,
   onClearAll,
   orderCount,
-  onSyncComplete,
+  apiSync,
   isRefreshing,
 }: {
   onFileUpload: (file: File, platform: Platform) => Promise<number>;
@@ -363,13 +364,10 @@ function DataSection({
   onExportCSV: () => void;
   onClearAll: () => void;
   orderCount: number;
-  onSyncComplete: () => void | Promise<void>;
+  apiSync: ApiSyncState;
   isRefreshing: boolean;
 }) {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [syncError, setSyncError] = useState("");
-  const [syncCount, setSyncCount] = useState<number | null>(null);
   const [tokenStatus, setTokenStatus] = useState<{
     hasRefreshToken: boolean;
     hasAccessToken: boolean;
@@ -407,52 +405,12 @@ function DataSection({
     }
   }, [loadTokenStatus]);
 
-  const tiktokSyncFile = [...uploadedFiles]
-    .filter((f) => f.platform === "tiktok" || f.platform === "tokopedia")
-    .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())[0];
-
-  const lastSyncLabel = tiktokSyncFile?.uploadedAt
-    ? new Date(tiktokSyncFile.uploadedAt).toLocaleString("id-ID", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : null;
-  const lastSyncCount = syncCount ?? tiktokSyncFile?.orderCount;
-
-  const handleSyncTikTok = async () => {
-    setSyncing(true);
-    setSyncError("");
-    try {
-      const res = await fetch("/api/tiktok/sync", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        setSyncError(data.error || "Gagal sinkronisasi");
-      } else {
-        if (typeof data.count === "number") setSyncCount(data.count);
-        await onSyncComplete();
-      }
-    } catch (err: any) {
-      setSyncError(err.message || "Terjadi kesalahan jaringan");
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const formatExpire = (iso?: string) => {
-    if (!iso) return null;
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return null;
-    return date.toLocaleString("id-ID", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
+  const lastSyncCount = apiSync.lastTiktokCount;
+  const lastJubelioSyncCount = apiSync.lastJubelioCount;
+  const lastSyncLabel = apiSync.lastTiktokSync;
+  const lastJubelioSyncLabel = apiSync.lastJubelioSync;
+  const syncingTiktok = apiSync.syncing === "tiktok";
+  const syncingJubelio = apiSync.syncing === "jubelio";
 
   const handleConnectTikTok = () => {
     window.location.href = "/api/tiktok/authorize";
@@ -466,64 +424,58 @@ function DataSection({
           <div className="min-w-0">
             <h3 className="text-lg font-semibold text-brand-800 flex items-center gap-2">
               <Cloud className="w-5 h-5 text-brand-600" />
-              TikTok &amp; Tokopedia (API)
+              TikTok &amp; Tokopedia
             </h3>
             <p className="text-sm text-brand-400 mt-1 max-w-lg">
-              Tarik order <strong>siap dikirim</strong> langsung dari TikTok Shop tanpa export
-              Excel. Data lama TikTok akan diganti dengan snapshot terbaru.
+              Ambil pesanan yang <strong>siap dikirim</strong> dari TikTok Shop.
+              Data lama diganti dengan yang terbaru, lalu langsung muncul di Pesanan dan Komparasi.
             </p>
           </div>
           <div className="flex flex-col items-end gap-1.5 shrink-0">
             <button
-              onClick={handleSyncTikTok}
-              disabled={syncing}
+              onClick={() => apiSync.onSync("tiktok")}
+              disabled={!!apiSync.syncing}
               className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-all"
             >
-              {syncing ? <Spinner /> : <RefreshCw className="w-4 h-4" />}
-              {syncing ? "Menyinkronkan..." : "Sync dari TikTok"}
+              {syncingTiktok ? <Spinner /> : <RefreshCw className="w-4 h-4" />}
+              {syncingTiktok ? "Mengambil data..." : "Ambil data TikTok"}
             </button>
             <p className="text-xs text-brand-400">
               {lastSyncLabel ? (
                 <>
-                  Terakhir di-sync:{" "}
+                  Terakhir diambil:{" "}
                   <span className="font-medium text-brand-700">{lastSyncLabel}</span>
                   {typeof lastSyncCount === "number" && (
-                    <span> · {lastSyncCount} order</span>
+                    <span> · {lastSyncCount} pesanan</span>
                   )}
                 </>
               ) : (
-                "Belum pernah di-sync"
+                "Belum pernah diambil"
               )}
             </p>
           </div>
         </div>
 
-        {syncError && (
+        {apiSync.syncError && apiSync.syncing !== "jubelio" && (
           <div className="mt-3 p-3 rounded-xl text-sm flex items-center gap-2 bg-red-50 border border-red-200 text-red-600">
             <CloudOff className="w-4 h-4 shrink-0" />
-            {syncError}
+            {apiSync.syncError}
           </div>
         )}
 
         <div className="mt-5 pt-5 border-t border-brand-100 space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-sm font-medium text-brand-800">Koneksi TikTok Shop</p>
+              <p className="text-sm font-medium text-brand-800">Status toko TikTok</p>
               <p className="text-xs text-brand-400 mt-0.5 max-w-lg">
-                Izin aplikasi ke toko kamu sudah Unlimited. Access token API tetap
-                ganti tiap ±4 jam, tapi app memperbaruinya sendiri — tidak perlu
-                authorize ulang.
+                Toko cukup dihubungkan sekali. Setelah itu data bisa diambil kapan saja
+                tanpa menghubungkan ulang setiap hari.
               </p>
               <p className="text-xs mt-1.5">
                 {tokenStatus?.hasRefreshToken ? (
-                  <span className="text-green-700">
-                    Terhubung
-                    {formatExpire(tokenStatus.accessTokenExpireAt) && (
-                      <> · token berlaku sampai {formatExpire(tokenStatus.accessTokenExpireAt)}</>
-                    )}
-                  </span>
+                  <span className="text-green-700">Toko sudah terhubung</span>
                 ) : (
-                  <span className="text-amber-700">Belum terhubung</span>
+                  <span className="text-amber-700">Toko belum terhubung</span>
                 )}
               </p>
             </div>
@@ -532,18 +484,70 @@ function DataSection({
               className="flex items-center gap-2 px-4 py-2 bg-cream-200 text-brand-700 rounded-xl text-sm font-medium hover:bg-cream-300 transition-all shrink-0"
             >
               <Link2 className="w-4 h-4" />
-              {tokenStatus?.hasRefreshToken ? "Hubungkan ulang" : "Hubungkan TikTok"}
+              {tokenStatus?.hasRefreshToken ? "Hubungkan ulang" : "Hubungkan toko"}
             </button>
           </div>
           {tokenSaved && (
-            <p className="text-xs text-green-700">TikTok terhubung. Sync berikutnya memakai token otomatis.</p>
+            <p className="text-xs text-green-700">Toko TikTok sudah terhubung. Silakan ambil data.</p>
           )}
           {tokenError && (
             <p className="text-xs text-red-600">{tokenError}</p>
           )}
         </div>
 
-        {(syncing || isRefreshing) && (
+        {(syncingTiktok || isRefreshing) && (
+          <div className="mt-4">
+            <TableSkeleton rows={5} columns={4} showFilters={false} embedded />
+          </div>
+        )}
+      </div>
+
+      {/* Jubelio API Sync */}
+      <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="min-w-0">
+            <h3 className="text-lg font-semibold text-brand-800 flex items-center gap-2">
+              <Cloud className="w-5 h-5 text-brand-600" />
+              Jubelio
+            </h3>
+            <p className="text-sm text-brand-400 mt-1 max-w-lg">
+              Ambil pesanan <strong>Siap Kirim</strong> dari Jubelio, sama seperti daftar di gudang.
+              Data langsung muncul di Pesanan dan Komparasi.
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-1.5 shrink-0">
+            <button
+              onClick={() => apiSync.onSync("jubelio")}
+              disabled={!!apiSync.syncing}
+              className="flex items-center gap-2 px-4 py-2.5 bg-brand-800 text-white rounded-xl text-sm font-medium hover:bg-brand-900 disabled:opacity-50 transition-all"
+            >
+              {syncingJubelio ? <Spinner /> : <RefreshCw className="w-4 h-4" />}
+              {syncingJubelio ? "Mengambil data..." : "Ambil data Jubelio"}
+            </button>
+            <p className="text-xs text-brand-400">
+              {lastJubelioSyncLabel ? (
+                <>
+                  Terakhir diambil:{" "}
+                  <span className="font-medium text-brand-700">{lastJubelioSyncLabel}</span>
+                  {typeof lastJubelioSyncCount === "number" && (
+                    <span> · {lastJubelioSyncCount} pesanan</span>
+                  )}
+                </>
+              ) : (
+                "Belum pernah diambil"
+              )}
+            </p>
+          </div>
+        </div>
+
+        {apiSync.syncError && !syncingTiktok && (
+          <div className="mt-3 p-3 rounded-xl text-sm flex items-center gap-2 bg-red-50 border border-red-200 text-red-600">
+            <CloudOff className="w-4 h-4 shrink-0" />
+            {apiSync.syncError}
+          </div>
+        )}
+
+        {(syncingJubelio || isRefreshing) && (
           <div className="mt-4">
             <TableSkeleton rows={5} columns={4} showFilters={false} embedded />
           </div>
@@ -558,33 +562,33 @@ function DataSection({
 
       {orderCount > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-6">
-          <h3 className="text-lg font-semibold text-brand-800 mb-4">Aksi Data</h3>
+          <h3 className="text-lg font-semibold text-brand-800 mb-4">Unduh / hapus data</h3>
           <div className="flex flex-wrap gap-3">
             <button
               onClick={onExportCSV}
               className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 transition-all"
             >
               <Download className="w-4 h-4" />
-              Export CSV
+              Unduh Excel
             </button>
             <button
               onClick={() => setShowResetConfirm(true)}
               className="flex items-center gap-2 px-4 py-2.5 bg-red-50 text-red-600 border border-red-200 rounded-xl text-sm font-medium hover:bg-red-100 transition-all"
             >
               <RefreshCw className="w-4 h-4" />
-              Reset Semua Data
+              Hapus semua data
             </button>
           </div>
           <p className="text-xs text-brand-400 mt-3">
-            Total {orderCount} order tersimpan di database.
+            Total {orderCount} pesanan tersimpan.
           </p>
         </div>
       )}
 
       <ConfirmModal
         open={showResetConfirm}
-        title="Reset Semua Data"
-        message="Yakin ingin menghapus semua data order? Aksi ini tidak bisa dibatalkan."
+        title="Hapus semua data"
+        message="Yakin ingin menghapus semua pesanan? Tidak bisa dikembalikan."
         onConfirm={() => {
           onClearAll();
           setShowResetConfirm(false);

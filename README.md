@@ -1,6 +1,6 @@
 # Order Dashboard - Aeris Beaute Fulfillment
 
-Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **Shopee**, **TikTok Shop / Tokopedia**, dan **Jubelio**. Data Shopee & Jubelio diimport dari Excel; order TikTok & Tokopedia ditarik langsung dari **TikTok Shop Open API**. Penyimpanan di **Supabase** (PostgreSQL).
+Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **Shopee**, **TikTok Shop / Tokopedia**, dan **Jubelio**. Data Shopee diimport dari Excel; order TikTok & Tokopedia ditarik dari **TikTok Shop Open API**; order Jubelio ditarik dari **Jubelio WMS API** (Siap Kirim). Penyimpanan di **Supabase** (PostgreSQL).
 
 **Live**: [fulfillment-order.vercel.app](https://fulfillment-order.vercel.app)
 
@@ -10,11 +10,12 @@ Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **
 - **Dashboard**: Kartu ringkasan + grafik (tren, platform, status)
 - **Pesanan**: Tabel order dengan filter, pencarian, dan pagination
 - **Komparasi**: Bandingkan Jubelio dengan Shopee / TikTok
-- **Settings**: Import Excel, sync TikTok, export, reset data, profil, password, kelola user
+- **Settings**: Import Excel Shopee, sync TikTok & Jubelio, export, reset data, profil, password, kelola user
 
 ### Sumber Data
-- **Shopee & Jubelio**: Import Excel/CSV (drag & drop), auto-detect platform dari nama file dan header
+- **Shopee**: Import Excel/CSV (drag & drop)
 - **TikTok & Tokopedia**: Sync API — tarik order siap dikirim (`AWAITING_SHIPMENT` + `AWAITING_COLLECTION`) tanpa export Excel
+- **Jubelio**: Sync API — tarik order Siap Kirim (`channel_status` Ready To Ship), setara import Excel sales order
 - Channel TikTok vs Tokopedia dibaca dari `commerce_platform` (`TIKTOK_SHOP` / `TOKOPEDIA`)
 
 ### Dashboard
@@ -34,7 +35,7 @@ Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **
 ### Komparasi
 - Cocokkan Jubelio vs marketplace via order number, ref number, atau tracking number
 - Filter Platform Only: Semua | TikTok & Tokopedia | Shopee, plus sub-filter TTS vs Tokopedia
-- Tombol Sync TikTok di halaman yang sama
+- Tombol Sync TikTok dan Sync Jubelio di halaman yang sama
 
 ### Autentikasi & Keamanan
 - Login: email/username + password, atau Google OAuth
@@ -49,6 +50,12 @@ Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **
 - Izin aplikasi ke toko bisa **Unlimited**; access token API tetap habis ~4 jam
 - App memperbarui access token otomatis lewat `refresh_token`
 - Redirect URL di aplikasi TikTok: `{origin}/api/tiktok/callback`
+
+### Jubelio WMS API
+- Login `POST https://api2.jubelio.com/login` dengan email & password resmi ([docs](https://docs-wms.jubelio.com/))
+- Token kadaluarsa 12 jam; app login ulang otomatis 15 menit sebelum expired, atau saat API mengembalikan 401
+- Sync menarik daftar sales order Siap Kirim (`GET /sales/orders/`) untuk komparasi, setara import Excel
+- Kredensial hanya di env (`JUBELIO_EMAIL`, `JUBELIO_PASSWORD`), bukan di UI
 
 ### Lainnya
 - PWA (install di desktop/mobile)
@@ -103,6 +110,13 @@ TIKTOK_SHOP_CIPHER=
 TIKTOK_SERVICE_ID=            # opsional, dari "Copy authorization link"
 TIKTOK_BASE_URL=https://open-api.tiktokglobalshop.com
 TIKTOK_API_VERSION=202309
+
+# Jubelio WMS / Omnichannel API
+# Token dari POST /login, kadaluarsa 12 jam — app login ulang otomatis.
+# Jangan commit password. Di Vercel isi env yang sama.
+JUBELIO_EMAIL=
+JUBELIO_PASSWORD=
+JUBELIO_BASE_URL=https://api2.jubelio.com
 ```
 
 Di Partner Center, Redirect URL boleh:
@@ -118,7 +132,9 @@ Di **Vercel Environment Variables** hanya simpan kredensial statis: `TIKTOK_APP_
 
 ### Database Setup
 
-Jalankan `supabase/migration.sql` di **Supabase Dashboard > SQL Editor** (tabel orders, files, profiles, tiktok_tokens, trigger auth).
+Jalankan `supabase/migration.sql` di **Supabase Dashboard > SQL Editor** (tabel orders, files, profiles, tiktok_tokens, jubelio_tokens, trigger auth).
+
+Token Jubelio disimpan di `jubelio_tokens` (production) supaya login 12 jam tidak hilang tiap cold start Vercel.
 
 ### Run
 
@@ -144,10 +160,10 @@ Untuk Vercel: push ke GitHub, import di Vercel, set environment variables di Set
 | Platform | Sumber | Cara |
 |----------|--------|------|
 | Shopee | Seller Centre > Pesanan > Export | Settings → upload Excel/CSV |
-| Jubelio | Jubelio > Sales Order > Export | Settings → upload Excel/XLSX |
+| Jubelio | Jubelio WMS API (Shipping → Siap Kirim) | Settings → Sync dari Jubelio |
 | TikTok & Tokopedia | TikTok Shop API (To Ship) | Settings → Hubungkan TikTok (sekali) → Sync dari TikTok |
 
-Sync TikTok mengganti seluruh snapshot order TikTok/Tokopedia dengan order siap dikirim terbaru.
+Sync TikTok / Jubelio mengganti seluruh snapshot platform itu dengan order siap dikirim terbaru. Token Jubelio kadaluarsa 12 jam dan di-login ulang otomatis ([docs WMS](https://docs-wms.jubelio.com/)).
 
 ### Google OAuth Setup
 
@@ -171,6 +187,7 @@ src/
 │   │   ├── auth/create-user/    # Create user (admin, server-side)
 │   │   ├── orders/              # CRUD order
 │   │   ├── files/               # Riwayat file upload
+│   │   ├── jubelio/sync/        # Tarik order Siap Kirim
 │   │   └── tiktok/
 │   │       ├── authorize/       # Mulai OAuth seller
 │   │       ├── callback/        # Tukar auth code → token
@@ -185,7 +202,7 @@ src/
 ├── components/
 │   ├── Charts.tsx
 │   ├── ComparisonView.tsx
-│   ├── FileUpload.tsx           # Import Shopee & Jubelio
+│   ├── FileUpload.tsx           # Import Shopee
 │   ├── OrderTable.tsx
 │   ├── SettingsView.tsx
 │   ├── Sidebar.tsx
@@ -201,6 +218,8 @@ src/
 │   ├── supabase-admin.ts
 │   ├── tiktok-api.ts            # Client API + mapping order
 │   ├── tiktok-auth.ts           # OAuth, refresh token, penyimpanan token
+│   ├── jubelio-api.ts           # Client API Siap Kirim + mapping order
+│   ├── jubelio-auth.ts          # Login, token 12 jam, auto re-login
 │   └── utils.ts
 └── types/
     └── order.ts

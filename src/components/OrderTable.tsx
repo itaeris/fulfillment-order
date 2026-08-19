@@ -27,11 +27,14 @@ import { cn, formatCurrency, formatDate, formatDateTime, getPlatformName, getSta
 import { isBefore, addHours } from "date-fns";
 import type { UserRole } from "@/contexts/AuthContext";
 import { TableSkeleton } from "@/components/Skeleton";
+import ApiSyncBar, { type ApiSyncState } from "@/components/ApiSyncBar";
 
 interface OrderTableProps {
   orders: Order[];
   userRole: UserRole;
   isLoading?: boolean;
+  isRefreshing?: boolean;
+  apiSync: ApiSyncState;
 }
 
 type SortField = "platform" | "orderNumber" | "status" | "productName" | "quantity" | "totalAmount" | "customerName" | "trackingNumber" | "pickupTime" | "mustShipBefore" | "orderDate";
@@ -89,7 +92,13 @@ function matchesPlatform(
   return order.platform === selectedPlatform;
 }
 
-export default function OrderTable({ orders, userRole, isLoading = false }: OrderTableProps) {
+export default function OrderTable({
+  orders,
+  userRole,
+  isLoading = false,
+  isRefreshing = false,
+  apiSync,
+}: OrderTableProps) {
   const hideMoney = userRole === "warehouse";
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPlatform, setSelectedPlatform] = useState<Platform | "all">("all");
@@ -337,12 +346,23 @@ export default function OrderTable({ orders, userRole, isLoading = false }: Orde
     { value: "jubelio", label: "Jubelio", color: "bg-brand-500" },
   ];
 
-  if (isLoading) {
-    return <TableSkeleton rows={10} columns={7} />;
-  }
+  const showSyncSkeleton = isLoading || !!apiSync.syncing || isRefreshing;
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-brand-200">
+      <div className="px-3 sm:px-4 pt-3 sm:pt-4">
+        <ApiSyncBar
+          {...apiSync}
+          hint="Ambil pesanan siap dikirim dari TikTok, Tokopedia, dan Jubelio. Cukup sekali, hasilnya sama di semua menu."
+        />
+      </div>
+
+      {showSyncSkeleton ? (
+        <div className="p-3 sm:p-4">
+          <TableSkeleton rows={8} columns={6} showFilters={false} embedded />
+        </div>
+      ) : (
+        <>
       {/* Platform Tabs */}
       <div className="px-3 sm:px-4 pt-3 sm:pt-4 border-b border-brand-100">
         <div className="flex gap-1.5 sm:gap-2 overflow-x-auto pb-3 scrollbar-hide">
@@ -576,9 +596,9 @@ export default function OrderTable({ orders, userRole, isLoading = false }: Orde
               <Package className="w-8 h-8 text-brand-300" />
             </div>
             <p className="text-brand-400 text-center">
-              Belum ada data order.
+              Belum ada pesanan.
               <br />
-              Import file Excel untuk memulai.
+              Klik Ambil data TikTok atau Ambil data Jubelio di atas.
             </p>
           </motion.div>
         ) : filteredAndSortedOrders.length === 0 ? (
@@ -887,6 +907,8 @@ export default function OrderTable({ orders, userRole, isLoading = false }: Orde
             </button>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

@@ -13,7 +13,8 @@ import OrderTable from "@/components/OrderTable";
 import Charts from "@/components/Charts";
 import ComparisonView from "@/components/ComparisonView";
 import SettingsView from "@/components/SettingsView";
-import { DashboardSkeleton, CardsSkeleton, TableSkeleton } from "@/components/Skeleton";
+import { getApiSyncLabels, type ApiSyncSource } from "@/components/ApiSyncBar";
+import { DashboardSkeleton, CardsSkeleton } from "@/components/Skeleton";
 import { Order, Platform, UploadedFile, OrderSummary, DailyStats } from "@/types/order";
 import { parseExcelFile, detectPlatform } from "@/lib/excel-parser";
 import { calculateSummary, calculateDailyStats } from "@/lib/utils";
@@ -41,8 +42,11 @@ export default function Dashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [syncing, setSyncing] = useState<ApiSyncSource | null>(null);
+  const [syncError, setSyncError] = useState("");
   const restoredTab = useRef(false);
   const hasLoaded = useRef(false);
+  const syncLock = useRef(false);
 
   const setActiveTab = useCallback((tab: TabId) => {
     setActiveTabState(tab);
@@ -145,6 +149,41 @@ export default function Dashboard() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const handleSync = useCallback(
+    async (source: ApiSyncSource) => {
+      if (syncLock.current) return;
+      syncLock.current = true;
+      setSyncing(source);
+      setSyncError("");
+      try {
+        const res = await fetch(source === "tiktok" ? "/api/tiktok/sync" : "/api/jubelio/sync", {
+          method: "POST",
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setSyncError(
+            data.error || `Gagal mengambil data ${source === "tiktok" ? "TikTok" : "Jubelio"}`
+          );
+        } else {
+          await loadData();
+        }
+      } catch (err: any) {
+        setSyncError(err.message || "Terjadi kesalahan jaringan");
+      } finally {
+        syncLock.current = false;
+        setSyncing(null);
+      }
+    },
+    [loadData]
+  );
+
+  const apiSync = {
+    syncing,
+    syncError,
+    onSync: handleSync,
+    ...getApiSyncLabels(uploadedFiles),
+  };
 
   const saveOrdersToDb = async (newOrders: Order[]) => {
     try {
@@ -363,8 +402,7 @@ export default function Dashboard() {
                 <ComparisonView
                   orders={orders}
                   userRole={userRole}
-                  uploadedFiles={uploadedFiles}
-                  onSyncComplete={loadData}
+                  apiSync={apiSync}
                   isRefreshing={isRefreshing}
                 />
               </motion.div>
@@ -385,7 +423,7 @@ export default function Dashboard() {
                   onExportCSV={handleExportCSV}
                   onClearAll={handleClearAll}
                   orderCount={orders.length}
-                  onSyncComplete={loadData}
+                  apiSync={apiSync}
                   isRefreshing={isRefreshing}
                 />
               </motion.div>
@@ -400,9 +438,9 @@ export default function Dashboard() {
                 transition={{ duration: 0.1 }}
                 className="space-y-4 sm:space-y-6"
               >
-                {orders.length === 0 ? (
+                {orders.length === 0 && !syncing ? (
                   <EmptyDataState onImport={() => setActiveTab("settings")} />
-                ) : isRefreshing ? (
+                ) : isRefreshing || !!syncing ? (
                   <CardsSkeleton />
                 ) : (
                   <>
@@ -425,13 +463,12 @@ export default function Dashboard() {
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.1 }}
               >
-                {orders.length === 0 ? (
-                  <EmptyDataState onImport={() => setActiveTab("settings")} />
-                ) : isRefreshing ? (
-                  <TableSkeleton rows={8} columns={6} />
-                ) : (
-                  <OrderTable orders={orders} userRole={userRole} />
-                )}
+                <OrderTable
+                  orders={orders}
+                  userRole={userRole}
+                  apiSync={apiSync}
+                  isRefreshing={isRefreshing}
+                />
               </motion.div>
             )}
           </AnimatePresence>
@@ -455,13 +492,13 @@ function EmptyDataState({ onImport }: { onImport: () => void }) {
         Belum Ada Data
       </h3>
       <p className="text-brand-400 mb-4 text-sm sm:text-base">
-        Import file Excel dari marketplace untuk memulai.
+        Ambil data TikTok atau Jubelio, atau unggah Excel Shopee di Settings.
       </p>
       <button
         onClick={onImport}
         className="px-6 py-3 bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors font-medium text-sm sm:text-base"
       >
-        Import Data
+        Buka Settings
       </button>
     </motion.div>
   );

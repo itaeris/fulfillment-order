@@ -13,20 +13,18 @@ import {
   ArrowRightLeft,
   Package,
   ShoppingBag,
-  RefreshCw,
-  CloudOff,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { Order, UploadedFile } from "@/types/order";
+import { Order } from "@/types/order";
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 import type { UserRole } from "@/contexts/AuthContext";
 import { CardsSkeleton, TableSkeleton } from "@/components/Skeleton";
+import ApiSyncBar, { type ApiSyncState } from "@/components/ApiSyncBar";
 
 interface ComparisonViewProps {
   orders: Order[];
   userRole: UserRole;
-  uploadedFiles?: UploadedFile[];
-  onSyncComplete?: () => void | Promise<void>;
+  apiSync: ApiSyncState;
   isRefreshing?: boolean;
 }
 
@@ -80,7 +78,7 @@ function marketplaceLabel(order?: Order): string {
   return ttsChannelOf(order) === "tokopedia" ? "Tokopedia" : "TikTok Shop by Tokopedia";
 }
 
-export default function ComparisonView({ orders, userRole, uploadedFiles = [], onSyncComplete, isRefreshing = false }: ComparisonViewProps) {
+export default function ComparisonView({ orders, userRole, apiSync, isRefreshing = false }: ComparisonViewProps) {
   const hideMoney = userRole === "warehouse";
   const [filterTab, setFilterTab] = useState<FilterTab>("all");
   const [marketplaceFilter, setMarketplaceFilter] = useState<MarketplaceFilter>("all");
@@ -89,39 +87,6 @@ export default function ComparisonView({ orders, userRole, uploadedFiles = [], o
   const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState<CompSortField>("status");
   const [sortDir, setSortDir] = useState<CompSortDir>("asc");
-  const [syncing, setSyncing] = useState(false);
-  const [syncError, setSyncError] = useState("");
-
-  const tiktokSyncFile = [...uploadedFiles]
-    .filter((f) => f.platform === "tiktok" || f.platform === "tokopedia")
-    .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())[0];
-  const lastSyncLabel = tiktokSyncFile?.uploadedAt
-    ? new Date(tiktokSyncFile.uploadedAt).toLocaleString("id-ID", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : null;
-
-  const handleSyncTikTok = async () => {
-    setSyncing(true);
-    setSyncError("");
-    try {
-      const res = await fetch("/api/tiktok/sync", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        setSyncError(data.error || "Gagal sinkronisasi TikTok");
-      } else if (onSyncComplete) {
-        await onSyncComplete();
-      }
-    } catch (err: any) {
-      setSyncError(err.message || "Terjadi kesalahan jaringan");
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const { rows, summary } = useMemo(() => {
     const jubelioOrders = orders.filter((o) => o.platform === "jubelio");
@@ -380,7 +345,7 @@ export default function ComparisonView({ orders, userRole, uploadedFiles = [], o
           Belum Ada Data untuk Komparasi
         </h3>
         <p className="text-brand-400 text-sm sm:text-base">
-          Import data dari Jubelio dan minimal satu platform (Shopee / TikTok) untuk memulai komparasi.
+          Ambil data Jubelio dan Shopee / TikTok dulu supaya bisa dibandingkan.
         </p>
       </div>
     );
@@ -410,9 +375,9 @@ export default function ComparisonView({ orders, userRole, uploadedFiles = [], o
       case "mismatch":
         return { label: "Selisih", color: "bg-red-100 text-red-700", icon: AlertTriangle };
       case "jubelio_only":
-        return { label: "Jubelio Only", color: "bg-amber-100 text-amber-700", icon: Package };
+        return { label: "Hanya Jubelio", color: "bg-amber-100 text-amber-700", icon: Package };
       case "platform_only":
-        return { label: "Platform Only", color: "bg-blue-100 text-blue-700", icon: ShoppingBag };
+        return { label: "Hanya toko online", color: "bg-blue-100 text-blue-700", icon: ShoppingBag };
     }
   };
 
@@ -440,8 +405,8 @@ export default function ComparisonView({ orders, userRole, uploadedFiles = [], o
     { value: "all", label: "Semua", count: summary.total, color: "text-brand-700" },
     { value: "matched", label: "Cocok", count: summary.matched, color: "text-green-600" },
     { value: "mismatch", label: "Selisih", count: summary.mismatch, color: "text-red-600" },
-    { value: "jubelio_only", label: "Jubelio Only", count: summary.jubelioOnly, color: "text-amber-600" },
-    { value: "platform_only", label: "Platform Only", count: summary.platformOnly, color: "text-blue-600" },
+    { value: "jubelio_only", label: "Hanya Jubelio", count: summary.jubelioOnly, color: "text-amber-600" },
+    { value: "platform_only", label: "Hanya toko online", count: summary.platformOnly, color: "text-blue-600" },
   ];
 
   const matchRate =
@@ -450,32 +415,12 @@ export default function ComparisonView({ orders, userRole, uploadedFiles = [], o
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Header + Sync */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <p className="text-xs sm:text-sm text-brand-400">
-          Data TikTok &amp; Tokopedia ditarik dari <strong className="text-brand-600">TikTok Shop API</strong> (siap dikirim).
-        </p>
-        <div className="flex flex-col items-end gap-1">
-          <button
-            onClick={handleSyncTikTok}
-            disabled={syncing || isRefreshing}
-            className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-all"
-          >
-            <RefreshCw className={cn("w-4 h-4", syncing && "animate-spin")} />
-            {syncing ? "Menyinkronkan..." : "Sync TikTok"}
-          </button>
-          {syncError ? (
-            <span className="flex items-center gap-1 text-xs text-red-600">
-              <CloudOff className="w-3.5 h-3.5" /> {syncError}
-            </span>
-          ) : (
-            <span className="text-xs text-brand-400">
-              {lastSyncLabel ? `Terakhir di-sync: ${lastSyncLabel}` : "Belum pernah di-sync"}
-            </span>
-          )}
-        </div>
-      </div>
+      <ApiSyncBar
+        {...apiSync}
+        hint="Bandingkan pesanan Jubelio dengan Shopee / TikTok. Cukup ambil data sekali, hasilnya sama di semua menu."
+      />
 
-      {syncing || isRefreshing ? (
+      {!!apiSync.syncing || isRefreshing ? (
         <>
           <CardsSkeleton />
           <TableSkeleton rows={8} columns={7} />

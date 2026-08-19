@@ -13,7 +13,7 @@ interface FileUploadProps {
 }
 
 function isManualUpload(file: UploadedFile) {
-  return file.platform !== "tiktok" && file.platform !== "tokopedia";
+  return file.platform === "shopee";
 }
 
 export default function FileUpload({
@@ -79,20 +79,22 @@ export default function FileUpload({
 
   const platforms: { value: Platform; label: string; color: string }[] = [
     { value: "shopee", label: "Shopee", color: "bg-shopee-500" },
-    { value: "jubelio", label: "Jubelio", color: "bg-brand-500" },
   ];
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-4 sm:p-6">
       <h2 className="text-base sm:text-lg font-semibold text-brand-800 mb-4">
-        Import Data Order
+        Import Data Shopee
       </h2>
 
       {/* Platform Selection */}
       <div className="mb-4">
         <label className="block text-sm font-medium text-brand-400 mb-2">
-          Pilih Platform
+          Platform
         </label>
+        <p className="text-xs text-brand-400 mb-3">
+          TikTok, Tokopedia, dan Jubelio memakai tombol Ambil data di atas. Excel hanya untuk Shopee.
+        </p>
         <div className="flex flex-wrap gap-2">
           {platforms.map((platform) => (
             <button
@@ -151,8 +153,8 @@ export default function FileUpload({
           <div>
             <p className="text-brand-700 font-medium">
               {isUploading
-                ? "Mengupload..."
-                : "Drag & drop file Excel di sini"}
+                ? "Mengunggah..."
+                : "Letakkan file Excel Shopee di sini"}
             </p>
             <p className="text-sm text-brand-400 mt-1">
               atau klik untuk memilih file (.xlsx, .xls, .csv)
@@ -210,7 +212,7 @@ function UploadedFilesTabs({
   return (
     <div className="mt-4">
       <h3 className="text-sm font-medium text-brand-400 mb-3">
-        File yang diupload
+        File yang sudah diunggah
       </h3>
 
       {/* Platform Tabs */}

@@ -133,3 +133,13 @@ CREATE TABLE IF NOT EXISTS tiktok_tokens (
 );
 
 ALTER TABLE tiktok_tokens ENABLE ROW LEVEL SECURITY;
+
+-- ── Jubelio token (login, berlaku 12 jam, di-refresh otomatis) ──
+CREATE TABLE IF NOT EXISTS jubelio_tokens (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  access_token TEXT NOT NULL,
+  access_token_expire_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE jubelio_tokens ENABLE ROW LEVEL SECURITY;
