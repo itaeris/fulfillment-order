@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   Clock,
@@ -111,6 +111,44 @@ function FilterPill({
   );
 }
 
+function useGoogleClock() {
+  const [now, setNow] = useState<Date>(() => new Date());
+
+  useEffect(() => {
+    let offset = 0;
+    let cancelled = false;
+
+    const tick = () => {
+      if (!cancelled) setNow(new Date(Date.now() + offset));
+    };
+
+    const sync = async () => {
+      try {
+        const res = await fetch("/api/time", { cache: "no-store" });
+        const data = (await res.json()) as { at?: string };
+        if (data.at) {
+          const server = new Date(data.at).getTime();
+          if (!Number.isNaN(server)) offset = server - Date.now();
+        }
+      } catch {
+        // Pakai jam perangkat kalau Google tidak terjangkau.
+      }
+      tick();
+    };
+
+    sync();
+    const clock = window.setInterval(tick, 1000);
+    const resync = window.setInterval(sync, 5 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(clock);
+      window.clearInterval(resync);
+    };
+  }, []);
+
+  return now;
+}
+
 export default function DueDateOverviewView({
   orders,
   onUploadExcel,
@@ -130,6 +168,7 @@ export default function DueDateOverviewView({
   const uploadTarget = useRef<Platform>("shopee");
 
   const overview = useMemo(() => buildDueDateOverview(orders), [orders]);
+  const liveNow = useGoogleClock();
   const maxCourier = Math.max(1, ...overview.couriers.map((c) => c.orders));
   const busy = uploading;
 
@@ -212,7 +251,7 @@ export default function DueDateOverviewView({
           <div className="min-w-0">
             <h1 className="text-base sm:text-xl font-semibold text-brand-800">Kirim hari ini</h1>
             <p className="text-[11px] sm:text-xs text-brand-400 mt-0.5">
-              Dicek {formatAnalyzedAt(overview.analyzedAt)}
+              Dicek {formatAnalyzedAt(liveNow)}
               {workerName ? ` · ${workerName}` : ""}
             </p>
           </div>
