@@ -12,7 +12,6 @@ import {
   insertOrders,
   insertUploadedFile,
 } from "@/lib/db";
-import { refreshOpenTikTokStatuses } from "@/lib/tiktok-status";
 import { Order } from "@/types/order";
 
 export const dynamic = "force-dynamic";
@@ -96,7 +95,6 @@ export async function POST(request: Request) {
     const allKnown = numbers.length > 0 && numbers.every((id) => existing.has(id));
 
     if (hasCache && (batch.listed.length === 0 || (isFirst && allKnown))) {
-      const refreshed = await refreshOpenTikTokStatuses().catch(() => ({ checked: 0, updated: 0 }));
       await markSynced(dbCount);
       return NextResponse.json({
         success: true,
@@ -104,7 +102,7 @@ export async function POST(request: Request) {
         cached: true,
         count: dbCount,
         added: 0,
-        updated: refreshed.updated,
+        updated: 0,
         nextPage: null,
         cursor: null,
         syncedAt: new Date().toISOString(),
@@ -132,10 +130,7 @@ export async function POST(request: Request) {
         batch.cursor.pagesFetched >= MAX_INCREMENTAL_PAGES);
     const done = !hasCache ? batch.done : stopIncremental;
 
-    let updated = 0;
     if (done) {
-      const refreshed = await refreshOpenTikTokStatuses().catch(() => ({ checked: 0, updated: 0 }));
-      updated = refreshed.updated;
       await markSynced(count);
     }
 
@@ -145,7 +140,7 @@ export async function POST(request: Request) {
       cached: false,
       count,
       added,
-      updated,
+      updated: 0,
       nextPage: done ? null : 1,
       cursor: done ? null : batch.nextCursor,
       byPlatform: {

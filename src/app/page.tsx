@@ -204,6 +204,9 @@ export default function Dashboard() {
             startPage = data.nextPage || startPage;
             cursor = data.cursor;
           }
+          if (source === "tiktok") {
+            void fetch("/api/tiktok/refresh-status", { method: "POST" });
+          }
           await loadData();
           return;
         }

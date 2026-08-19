@@ -150,31 +150,44 @@ export async function updateOrdersFulfillment(
   }[]
 ) {
   if (platforms.length === 0 || patches.length === 0) return;
-  for (const patch of patches) {
-    const fields: Record<string, string | null> = {
-      status: patch.status,
-    };
-    if (patch.trackingNumber) fields.tracking_number = patch.trackingNumber;
-    if (patch.courier) fields.courier = patch.courier;
-    if (patch.shippingOption) fields.shipping_option = patch.shippingOption;
-    if (patch.shippedTime) fields.shipped_time = patch.shippedTime;
 
-    if (patch.id) {
-      const byId = await supabase.from("orders").update(fields).eq("id", patch.id);
-      if (byId.error) throw byId.error;
+  const CONCURRENCY = 8;
+  let index = 0;
+  const workers = Array.from({ length: Math.min(CONCURRENCY, patches.length) }, async () => {
+    while (index < patches.length) {
+      const patch = patches[index++];
+      const fields: Record<string, string | null> = {
+        status: patch.status,
+      };
+      if (patch.trackingNumber) fields.tracking_number = patch.trackingNumber;
+      if (patch.courier) fields.courier = patch.courier;
+      if (patch.shippingOption) fields.shipping_option = patch.shippingOption;
+      if (patch.shippedTime) fields.shipped_time = patch.shippedTime;
+
+      if (patch.id) {
+        const byId = await supabase.from("orders").update(fields).eq("id", patch.id);
+        if (byId.error) throw byId.error;
+      }
+
+      const { error } = await supabase
+        .from("orders")
+        .update(fields)
+        .in("platform", platforms)
+        .eq("order_number", patch.orderNumber);
+      if (error) throw error;
+
+      const targetPlatforms = patch.platform ? [patch.platform] : platforms;
+      const overviewRes = await supabase
+        .from("overview_orders")
+        .update(fields)
+        .in("platform", targetPlatforms)
+        .eq("order_number", patch.orderNumber);
+      if (overviewRes.error) {
+        // Tabel overview belum ada, atau tidak ada baris yang cocok.
+      }
     }
-
-    const { error } = await supabase
-      .from("orders")
-      .update(fields)
-      .in("platform", platforms)
-      .eq("order_number", patch.orderNumber);
-    if (error) throw error;
-  }
-
-  await updateOverviewOrdersFulfillment(platforms, patches).catch((error) => {
-    console.error("overview_orders fulfillment update skipped:", error);
   });
+  await Promise.all(workers);
 
   await upsertLiveOrderStatuses(
     patches.map((patch) => ({

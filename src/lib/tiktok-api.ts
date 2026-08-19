@@ -116,6 +116,7 @@ async function tiktokRequest<T>(
     },
     body: method === "POST" ? bodyString : undefined,
     cache: "no-store",
+    signal: AbortSignal.timeout(15000),
   });
 
   const json = (await res.json()) as { code: number; message: string; data: T };
@@ -417,16 +418,31 @@ async function getOrdersByIds(
   config: TikTokConfig,
   ids: string[]
 ): Promise<TikTokOrder[]> {
-  const collected: TikTokOrder[] = [];
-
+  const chunks: string[][] = [];
   for (let i = 0; i < ids.length; i += ORDER_DETAIL_CHUNK) {
-    const chunk = ids.slice(i, i + ORDER_DETAIL_CHUNK);
-    const data = await tiktokRequest<OrderSearchResponse>(config, {
-      method: "GET",
-      path: `/order/${config.version}/orders`,
-      query: { ids: chunk.join(",") },
-    });
-    if (data.orders?.length) collected.push(...data.orders);
+    chunks.push(ids.slice(i, i + ORDER_DETAIL_CHUNK));
+  }
+
+  const collected: TikTokOrder[] = [];
+  const concurrency = 2;
+  for (let i = 0; i < chunks.length; i += concurrency) {
+    const batch = chunks.slice(i, i + concurrency);
+    const pages = await Promise.all(
+      batch.map(async (chunk) => {
+        try {
+          return await tiktokRequest<OrderSearchResponse>(config, {
+            method: "GET",
+            path: `/order/${config.version}/orders`,
+            query: { ids: chunk.join(",") },
+          });
+        } catch {
+          return { orders: [] } as OrderSearchResponse;
+        }
+      })
+    );
+    for (const data of pages) {
+      if (data.orders?.length) collected.push(...data.orders);
+    }
   }
 
   return collected;
@@ -562,21 +578,7 @@ export async function fetchTikTokOrdersByNumbers(
   const ids = Array.from(new Set(numbers.map((n) => String(n).trim()).filter(Boolean)));
   if (ids.length === 0) return [];
 
-  const details: TikTokOrder[] = [];
-  for (let i = 0; i < ids.length; i += ORDER_DETAIL_CHUNK) {
-    const chunk = ids.slice(i, i + ORDER_DETAIL_CHUNK);
-    try {
-      const data = await tiktokRequest<OrderSearchResponse>(config, {
-        method: "GET",
-        path: `/order/${config.version}/orders`,
-        query: { ids: chunk.join(",") },
-      });
-      if (data.orders?.length) details.push(...data.orders);
-    } catch {
-      // Chunk gagal: lanjut ID berikutnya supaya Excel tetap bisa dipakai.
-    }
-  }
-
+  const details = await getOrdersByIds(config, ids).catch(() => [] as TikTokOrder[]);
   return details.flatMap(mapTikTokOrderToOrders);
 }
 

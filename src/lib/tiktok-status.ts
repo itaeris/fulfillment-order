@@ -10,7 +10,7 @@ import {
 
 export const TIKTOK_PLATFORMS = ["tiktok", "tokopedia"];
 const OPEN_STATUSES = ["pending", "processing", "shipped"];
-const MAX_REFRESH = 400;
+const DEFAULT_LIMIT = 80;
 
 export async function applyLiveTikTokStatuses(orderNumbers: string[]): Promise<number> {
   const unique = Array.from(
@@ -41,9 +41,29 @@ export async function applyLiveTikTokStatuses(orderNumbers: string[]): Promise<n
   return patches.length;
 }
 
-export async function refreshOpenTikTokStatuses(): Promise<{ checked: number; updated: number }> {
+export async function refreshOpenTikTokStatuses(options?: {
+  limit?: number;
+  offset?: number;
+}): Promise<{
+  checked: number;
+  updated: number;
+  offset: number;
+  nextOffset: number;
+  done: boolean;
+  total: number;
+}> {
   const open = await getOpenOrderNumbersByPlatforms(TIKTOK_PLATFORMS, OPEN_STATUSES);
-  const checked = open.slice(0, MAX_REFRESH);
-  const updated = await applyLiveTikTokStatuses(checked);
-  return { checked: checked.length, updated };
+  const offset = Math.max(0, options?.offset ?? 0);
+  const limit = Math.min(Math.max(options?.limit ?? DEFAULT_LIMIT, 1), 120);
+  const checked = open.slice(offset, offset + limit);
+  const updated = checked.length > 0 ? await applyLiveTikTokStatuses(checked) : 0;
+  const nextOffset = offset + checked.length;
+  return {
+    checked: checked.length,
+    updated,
+    offset,
+    nextOffset,
+    done: nextOffset >= open.length,
+    total: open.length,
+  };
 }

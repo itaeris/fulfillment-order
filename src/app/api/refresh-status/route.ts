@@ -5,17 +5,43 @@ import { refreshOpenJubelioStatuses } from "@/lib/jubelio-status";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+const BUDGET_MS = 40_000;
+
 export async function GET() {
-  const tiktok = await refreshOpenTikTokStatuses().catch((error) => ({
+  const started = Date.now();
+  let tiktokOffset = 0;
+  const tiktok = {
     checked: 0,
     updated: 0,
-    error: error instanceof Error ? error.message : "tiktok",
-  }));
-  const jubelio = await refreshOpenJubelioStatuses().catch((error) => ({
-    checked: 0,
-    updated: 0,
-    error: error instanceof Error ? error.message : "jubelio",
-  }));
+    done: false,
+    total: 0,
+    error: undefined as string | undefined,
+  };
+
+  try {
+    while (Date.now() - started < BUDGET_MS) {
+      const part = await refreshOpenTikTokStatuses({ limit: 50, offset: tiktokOffset });
+      tiktok.checked += part.checked;
+      tiktok.updated += part.updated;
+      tiktok.total = part.total;
+      tiktok.done = part.done;
+      if (part.done || part.checked === 0) break;
+      tiktokOffset = part.nextOffset;
+    }
+  } catch (error) {
+    tiktok.error = error instanceof Error ? error.message : "tiktok";
+  }
+
+  const remaining = BUDGET_MS - (Date.now() - started);
+  const jubelio =
+    remaining > 8_000
+      ? await refreshOpenJubelioStatuses().catch((error) => ({
+          checked: 0,
+          updated: 0,
+          error: error instanceof Error ? error.message : "jubelio",
+        }))
+      : { checked: 0, updated: 0, skipped: true };
+
   return NextResponse.json({ success: true, tiktok, jubelio });
 }
 
