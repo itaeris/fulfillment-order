@@ -556,7 +556,7 @@ export async function fetchTikTokOrdersByNumbers(
   config: TikTokConfig,
   numbers: string[]
 ): Promise<Order[]> {
-  const ids = [...new Set(numbers.map((n) => String(n).trim()).filter(Boolean))];
+  const ids = Array.from(new Set(numbers.map((n) => String(n).trim()).filter(Boolean)));
   if (ids.length === 0) return [];
 
   const details: TikTokOrder[] = [];

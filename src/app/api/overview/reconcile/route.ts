@@ -57,10 +57,9 @@ export async function POST(request: Request) {
   const source = platform === "jubelio" ? "jubelio" : "tiktok";
   const numbers =
     source === "tiktok"
-      ? [...new Set(imported.map((order) => String(order.orderNumber || "").trim()).filter(Boolean))].slice(
-          0,
-          MAX_LOOKUP
-        )
+      ? Array.from(
+          new Set(imported.map((order) => String(order.orderNumber || "").trim()).filter(Boolean))
+        ).slice(0, MAX_LOOKUP)
       : uniqueLookupNumbers(imported).slice(0, MAX_LOOKUP);
 
   try {
