@@ -31,6 +31,9 @@ const COLUMN_MAPPINGS: Record<Platform, Record<string, string>> = {
     
     // Order info
     "Tipe Pesanan": "orderType",
+    "Tipe Order": "orderType",
+    "Jenis Pesanan": "orderType",
+    "Pre-order": "orderType",
     "Metode Pembayaran": "paymentMethod",
     
     // Product info
@@ -544,6 +547,18 @@ function parseNumber(value: unknown): number {
   return isNaN(num) ? 0 : num;
 }
 
+function isTruthyPoFlag(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  const raw = String(value ?? "").trim().toLowerCase();
+  return ["1", "true", "yes", "y", "po"].includes(raw);
+}
+
+function looksLikePreorderType(value: unknown): boolean {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw || raw === "normal" || raw === "regular") return false;
+  return /pre[\s-]?order|preorder|pesanan pre/.test(raw);
+}
+
 function findColumnMapping(
   headers: string[],
   platform: Platform
@@ -812,6 +827,9 @@ export function parseExcelFile(
         }
         return undefined;
       })(),
+      orderType: getValue("orderType")?.toString()?.trim() || undefined,
+      isPreorder:
+        isTruthyPoFlag(getValue("isPo")) || looksLikePreorderType(getValue("orderType")),
     };
     
     orders.push(order);

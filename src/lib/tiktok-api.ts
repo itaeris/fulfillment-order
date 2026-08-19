@@ -186,6 +186,9 @@ interface TikTokOrder {
   sale_platform?: string;
   order_source?: string;
   package_list?: { tracking_number?: string; shipping_provider_name?: string }[];
+  is_cod?: boolean;
+  is_sample_order?: boolean;
+  order_type?: string;
 }
 
 interface OrderSearchResponse {
@@ -316,6 +319,10 @@ function mapTikTokOrderToOrders(order: TikTokOrder): Order[] {
       order.package_list?.[0]?.shipping_provider_name,
     phone: recipient?.phone_number,
     notes: order.buyer_message,
+    orderType: order.order_type || order.fulfillment_type,
+    isPreorder: /pre[\s-]?order|preorder/i.test(
+      `${order.order_type || ""} ${order.fulfillment_type || ""}`
+    ),
   };
 
   if (grouped.size === 0) {
@@ -539,6 +546,35 @@ export async function mapTikTokListedOrders(
 ): Promise<Order[]> {
   const enriched = await enrichWithOrderDetails(config, listed);
   return enriched.flatMap(mapTikTokOrderToOrders);
+}
+
+/**
+ * Cari order TikTok/Tokopedia by ID dari Excel import.
+ * Tidak menulis ke database — dipakai overview-duedate untuk menyamakan data realtime.
+ */
+export async function fetchTikTokOrdersByNumbers(
+  config: TikTokConfig,
+  numbers: string[]
+): Promise<Order[]> {
+  const ids = [...new Set(numbers.map((n) => String(n).trim()).filter(Boolean))];
+  if (ids.length === 0) return [];
+
+  const details: TikTokOrder[] = [];
+  for (let i = 0; i < ids.length; i += ORDER_DETAIL_CHUNK) {
+    const chunk = ids.slice(i, i + ORDER_DETAIL_CHUNK);
+    try {
+      const data = await tiktokRequest<OrderSearchResponse>(config, {
+        method: "GET",
+        path: `/order/${config.version}/orders`,
+        query: { ids: chunk.join(",") },
+      });
+      if (data.orders?.length) details.push(...data.orders);
+    } catch {
+      // Chunk gagal: lanjut ID berikutnya supaya Excel tetap bisa dipakai.
+    }
+  }
+
+  return details.flatMap(mapTikTokOrderToOrders);
 }
 
 /**

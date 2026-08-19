@@ -60,7 +60,29 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => ({}))) as {
       insertedSoFar?: number;
       cursor?: TikTokSyncCursor;
+      persist?: boolean;
     };
+    const persist = body.persist !== false;
+
+    if (!persist) {
+      const config = await getTikTokConfig();
+      const batch = await fetchTikTokReadyToShipBatch(config, body.cursor);
+      const orders = batch.listed.length > 0 ? await mapTikTokListedOrders(config, batch.listed) : [];
+      const count = (Number(body.insertedSoFar) || 0) + orders.length;
+      return NextResponse.json({
+        success: true,
+        done: batch.done,
+        cached: false,
+        persist: false,
+        count,
+        added: orders.length,
+        orders: orders.map(orderToInput),
+        nextPage: batch.done ? null : 1,
+        cursor: batch.done ? null : batch.nextCursor,
+        syncedAt: new Date().toISOString(),
+      });
+    }
+
     const isFirst = !body.cursor;
     const dbCount = await countOrdersByPlatforms(TIKTOK_PLATFORMS);
     const hasCache = dbCount > 0;

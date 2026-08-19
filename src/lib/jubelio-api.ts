@@ -56,6 +56,8 @@ interface JubelioRawOrder {
   invoice_no?: string;
   picklist_no?: string;
   pickup_time_store?: string;
+  order_type?: string;
+  is_po?: boolean | number | string;
   items?: JubelioItem[];
   salesorder_details?: JubelioItem[];
   phone?: string;
@@ -353,6 +355,13 @@ function mapRawOrder(raw: JubelioRawOrder): Order {
     shippingAddress: raw.shipping_address,
     city: raw.city,
     province: raw.province,
+    orderType: raw.order_type ? String(raw.order_type) : undefined,
+    isPreorder: Boolean(
+      raw.is_po === true ||
+        raw.is_po === 1 ||
+        String(raw.is_po ?? "").toLowerCase() === "true" ||
+        /pre[\s-]?order|preorder|\bpo\b/i.test(String(raw.order_type ?? ""))
+    ),
   };
 }
 
@@ -544,4 +553,60 @@ export async function fetchJubelioReadyToShipBatch(input: {
     nextPage,
     done: nextPage == null,
   };
+}
+
+function normalizeLookup(value?: string): string {
+  return String(value || "").replace(/[\s\-_.#]+/g, "").toUpperCase();
+}
+
+function jubelioLookupKeys(order: Order): string[] {
+  return [
+    order.orderNumber,
+    order.refNo,
+    order.trackingNumber,
+    String(order.id).replace(/^jubelio-/i, ""),
+  ]
+    .map(normalizeLookup)
+    .filter(Boolean);
+}
+
+/**
+ * Ambil order Jubelio yang cocok dengan nomor dari Excel import.
+ * Scan antrian siap-kirim, berhenti saat semua nomor ketemu atau batas halaman tercapai.
+ * Tidak menulis ke database.
+ */
+export async function fetchJubelioOrdersMatching(numbers: string[]): Promise<Order[]> {
+  const wanted = new Set(numbers.map(normalizeLookup).filter(Boolean));
+  if (wanted.size === 0) return [];
+
+  const found: Order[] = [];
+  const foundIds = new Set<string>();
+  const consider = (order: Order) => {
+    if (foundIds.has(order.id)) return;
+    if (!jubelioLookupKeys(order).some((key) => wanted.has(key))) return;
+    foundIds.add(order.id);
+    found.push(order);
+  };
+
+  let cursor: JubelioSyncCursor | undefined;
+  let startPage = 1;
+  let rounds = 0;
+  const maxRounds = 5;
+
+  while (rounds < maxRounds && found.length < wanted.size) {
+    const isFirst = !cursor;
+    const batch = await fetchJubelioReadyToShipBatch({
+      startPage,
+      pageCount: isFirst ? 1 : 4,
+      cursor,
+      allowSalesFallback: true,
+    });
+    rounds += 1;
+    for (const order of batch.orders) consider(order);
+    if (batch.done) break;
+    cursor = batch.cursor;
+    startPage = batch.nextPage || startPage + (isFirst ? 1 : 4);
+  }
+
+  return found;
 }

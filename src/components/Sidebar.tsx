@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   LayoutDashboard,
   ShoppingBag,
@@ -11,6 +12,7 @@ import {
   User,
   Settings,
   ChevronUp,
+  CalendarClock,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -161,6 +163,20 @@ export default function Sidebar({
               </div>
             </motion.div>
           ))}
+
+          <div>
+            <p className="px-3 mb-2 text-[10px] font-semibold tracking-widest text-brand-400 uppercase">
+              Gudang
+            </p>
+            <Link
+              href="/overview-duedate"
+              onClick={onClose}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-brand-300 hover:bg-brand-800 hover:text-cream-100"
+            >
+              <CalendarClock className="w-[18px] h-[18px] shrink-0" />
+              <span className="truncate">Kirim hari ini</span>
+            </Link>
+          </div>
         </nav>
 
         {/* Saving indicator */}

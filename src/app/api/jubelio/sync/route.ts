@@ -57,9 +57,35 @@ export async function POST(request: Request) {
       startPage?: number;
       insertedSoFar?: number;
       cursor?: JubelioSyncCursor;
+      persist?: boolean;
     };
+    const persist = body.persist !== false;
     const startPage = Number(body.startPage) || 1;
     const isFirst = !body.cursor;
+
+    if (!persist) {
+      const batch = await fetchJubelioReadyToShipBatch({
+        startPage,
+        pageCount: isFirst ? 1 : ADD_PAGES_PER_BATCH,
+        cursor: body.cursor,
+        allowSalesFallback: true,
+      });
+      const count = (Number(body.insertedSoFar) || 0) + batch.orders.length;
+      return NextResponse.json({
+        success: true,
+        done: batch.done,
+        cached: false,
+        persist: false,
+        count,
+        added: batch.orders.length,
+        orders: batch.orders.map(orderToInput),
+        nextPage: batch.nextPage,
+        cursor: batch.cursor,
+        total: batch.cursor.apiTotal || count,
+        syncedAt: new Date().toISOString(),
+      });
+    }
+
     const dbCount = await countOrdersByPlatform("jubelio");
     const hasCache = dbCount > 0;
 

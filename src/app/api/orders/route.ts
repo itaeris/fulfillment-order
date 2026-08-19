@@ -15,6 +15,7 @@ export async function GET() {
       paidTime: order.paidTime ? new Date(order.paidTime) : undefined,
       shippedTime: order.shippedTime ? new Date(order.shippedTime) : undefined,
       mustShipBefore: order.mustShipBefore ? new Date(order.mustShipBefore) : undefined,
+      pickupTime: order.pickupTime ? new Date(order.pickupTime) : undefined,
     }));
 
     return NextResponse.json({ orders: formattedOrders });
@@ -37,6 +38,7 @@ export async function POST(request: NextRequest) {
       paidTime: order.paidTime ? new Date(order.paidTime).toISOString() : null,
       shippedTime: order.shippedTime ? new Date(order.shippedTime).toISOString() : null,
       mustShipBefore: order.mustShipBefore ? new Date(order.mustShipBefore).toISOString() : null,
+      pickupTime: order.pickupTime ? new Date(order.pickupTime).toISOString() : null,
     }));
 
     await insertOrders(ordersForDb);

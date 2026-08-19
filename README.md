@@ -1,6 +1,6 @@
 # Order Dashboard - Aeris Beaute Fulfillment
 
-Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **Shopee**, **TikTok Shop / Tokopedia**, dan **Jubelio**. Data Shopee diimport dari Excel; order TikTok & Tokopedia ditarik dari **TikTok Shop Open API**; order Jubelio ditarik dari **Jubelio WMS API** (Siap Kirim). Penyimpanan di **Supabase** (PostgreSQL).
+Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **Shopee**, **TikTok Shop / Tokopedia**, dan **Jubelio**. Data Shopee diimport dari Excel; order TikTok & Tokopedia ditarik dari **TikTok Shop Open API**; order Jubelio ditarik dari **Jubelio WMS API** (Siap Kirim). Penyimpanan dashboard utama di **Supabase** (PostgreSQL). Halaman **Kirim hari ini** terpisah: daily worker unggah Excel/CSV 3 platform, TikTok & Jubelio dicocokkan ke API realtime, tanpa mengubah data dashboard.
 
 **Live**: [fulfillment-order.vercel.app](https://fulfillment-order.vercel.app)
 
@@ -11,12 +11,14 @@ Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **
 - **Pesanan**: Tabel order dengan filter, pencarian, dan pagination
 - **Komparasi**: Bandingkan Jubelio dengan Shopee / TikTok
 - **Settings**: Import Excel Shopee, sync TikTok & Jubelio, export, reset data, profil, password, kelola user
+- **Kirim hari ini**: Antrian gudang terpisah (`/overview-duedate`) — tenggat hari ini, Instant / Reguler, wajib dikirim sekarang
 
 ### Sumber Data
 - **Shopee**: Import Excel/CSV (drag & drop)
 - **TikTok & Tokopedia**: Sync API — tarik order siap dikirim (`AWAITING_SHIPMENT` + `AWAITING_COLLECTION`) tanpa export Excel
 - **Jubelio**: Sync API — tarik order Siap Kirim (`channel_status` Ready To Ship), setara import Excel sales order
 - Channel TikTok vs Tokopedia dibaca dari `commerce_platform` (`TIKTOK_SHOP` / `TOKOPEDIA`)
+- **Kirim hari ini**: Excel/CSV wajib dari 3 platform; TikTok & Jubelio di-scan dan disamakan dengan API
 
 ### Dashboard
 - Total order, pendapatan, item terjual, dan rata-rata order
@@ -36,6 +38,29 @@ Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **
 - Cocokkan Jubelio vs marketplace via order number, ref number, atau tracking number
 - Filter Platform Only: Semua | TikTok & Tokopedia | Shopee, plus sub-filter TTS vs Tokopedia
 - Tombol Sync TikTok dan Sync Jubelio di halaman yang sama
+
+### Kirim hari ini (`/overview-duedate`)
+Halaman kerja daily warehouse. **Data terpisah dari dashboard utama** (tersimpan di IndexedDB browser). Import / hapus di sini tidak mengubah Settings, Pesanan, atau Komparasi.
+
+**Import (wajib 3 platform)**
+- Daily worker unggah Excel/CSV Shopee, TikTok, dan Jubelio
+- Shopee dipakai apa adanya
+- TikTok & Jubelio: backend memindai nomor pesanan dari file, lalu menyamakan dengan data realtime toko/gudang (tenggat, kurir, resi, pickup, status, preorder)
+- Kalau API gagal, data Excel tetap dipakai
+
+**Yang ditampilkan**
+- Hanya pesanan yang perlu dikirim **hari ini** (termasuk preorder yang jatuh tempo hari ini; preorder masa depan disembunyikan)
+- Kartu: Perlu dikirim hari ini · Wajib dikirim sekarang · Shopee · TikTok / Tokopedia · Jubelio
+- **Shopee / TikTok**: pesanan marketplace yang perlu dikirim hari ini
+- **Jubelio**: pesanan yang hanya ada di gudang, belum ketemu pasangan di Shopee / TikTok
+- **Wajib dikirim sekarang**: terlambat atau sisa ≤ 1 jam
+- **Instant**: kurir instant / same-day (SPX Instant, GoSend, Grab Express, dll.) — bukan Hemat/Standard
+
+**Filter antrian**
+- Jenis kirim: Instant · Reguler · Semua
+- Platform: Semua · Shopee · TikTok / Tokopedia · Jubelio
+
+Timezone tenggat: `Asia/Jakarta`. Tombol **Hapus data halaman ini** hanya mengosongkan data halaman ini.
 
 ### Autentikasi & Keamanan
 - Login: email/username + password, atau Google OAuth
@@ -157,6 +182,8 @@ Untuk Vercel: push ke GitHub, import di Vercel, set environment variables di Set
 
 ### Import & Sync
 
+**Dashboard utama (Settings / Pesanan / Komparasi)**
+
 | Platform | Sumber | Cara |
 |----------|--------|------|
 | Shopee | Seller Centre > Pesanan > Export | Settings → upload Excel/CSV |
@@ -164,6 +191,14 @@ Untuk Vercel: push ke GitHub, import di Vercel, set environment variables di Set
 | TikTok & Tokopedia | TikTok Shop API (To Ship) | Settings → Hubungkan TikTok (sekali) → Sync dari TikTok |
 
 Sync TikTok / Jubelio mengganti seluruh snapshot platform itu dengan order siap dikirim terbaru. Token Jubelio kadaluarsa 12 jam dan di-login ulang otomatis ([docs WMS](https://docs-wms.jubelio.com/)).
+
+**Kirim hari ini (terpisah)**
+
+| Platform | Sumber | Cara |
+|----------|--------|------|
+| Shopee | Seller Centre > Pesanan > Export | Unggah Excel/CSV |
+| TikTok & Tokopedia | Export Excel/CSV toko | Unggah Excel/CSV → otomatis dicocokkan API |
+| Jubelio | Export Excel/CSV gudang | Unggah Excel/CSV → otomatis dicocokkan API |
 
 ### Google OAuth Setup
 
@@ -185,8 +220,9 @@ src/
 ├── app/
 │   ├── api/
 │   │   ├── auth/create-user/    # Create user (admin, server-side)
-│   │   ├── orders/              # CRUD order
+│   │   ├── orders/              # CRUD order (dashboard utama)
 │   │   ├── files/               # Riwayat file upload
+│   │   ├── overview/reconcile/  # Cocokkan Excel TikTok/Jubelio dengan API (tanpa tulis DB)
 │   │   ├── jubelio/sync/        # Tarik order Siap Kirim
 │   │   └── tiktok/
 │   │       ├── authorize/       # Mulai OAuth seller
@@ -195,6 +231,7 @@ src/
 │   │       └── sync/            # Tarik order siap dikirim
 │   ├── auth/callback/           # Google OAuth callback
 │   ├── login/
+│   ├── overview-duedate/        # Kirim hari ini (data terpisah)
 │   ├── reset-password/
 │   ├── globals.css
 │   ├── layout.tsx
@@ -202,7 +239,8 @@ src/
 ├── components/
 │   ├── Charts.tsx
 │   ├── ComparisonView.tsx
-│   ├── FileUpload.tsx           # Import Shopee
+│   ├── DueDateOverview.tsx      # UI Kirim hari ini
+│   ├── FileUpload.tsx           # Import Shopee (dashboard)
 │   ├── OrderTable.tsx
 │   ├── SettingsView.tsx
 │   ├── Sidebar.tsx
@@ -213,7 +251,10 @@ src/
 │   └── AuthContext.tsx
 ├── lib/
 │   ├── db.ts
+│   ├── due-date.ts              # Tenggat, Instant, matching marketplace vs Jubelio
 │   ├── excel-parser.ts
+│   ├── overview-merge.ts        # Overlay Excel dengan data API
+│   ├── overview-store.ts        # IndexedDB halaman Kirim hari ini
 │   ├── supabase.ts
 │   ├── supabase-admin.ts
 │   ├── tiktok-api.ts            # Client API + mapping order

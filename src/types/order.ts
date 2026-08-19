@@ -39,6 +39,8 @@ export interface Order {
   storeName?: string;
   refNo?: string;
   pickupTime?: Date;
+  orderType?: string;
+  isPreorder?: boolean;
 }
 
 export interface OrderSummary {
