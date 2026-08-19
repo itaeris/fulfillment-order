@@ -438,7 +438,11 @@ function DataSection({
               className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-all"
             >
               {syncingTiktok ? <Spinner /> : <RefreshCw className="w-4 h-4" />}
-              {syncingTiktok ? "Mengambil data..." : "Ambil data TikTok"}
+              {syncingTiktok
+                ? apiSync.syncProgress > 0
+                  ? `Mengambil data... ${apiSync.syncProgress.toLocaleString("id-ID")}`
+                  : "Mengambil data..."
+                : "Ambil data TikTok"}
             </button>
             <p className="text-xs text-brand-400">
               {lastSyncLabel ? (
@@ -456,7 +460,7 @@ function DataSection({
           </div>
         </div>
 
-        {apiSync.syncError && apiSync.syncing !== "jubelio" && (
+        {apiSync.syncError && apiSync.syncErrorSource === "tiktok" && (
           <div className="mt-3 p-3 rounded-xl text-sm flex items-center gap-2 bg-red-50 border border-red-200 text-red-600">
             <CloudOff className="w-4 h-4 shrink-0" />
             {apiSync.syncError}
@@ -522,7 +526,11 @@ function DataSection({
               className="flex items-center gap-2 px-4 py-2.5 bg-brand-800 text-white rounded-xl text-sm font-medium hover:bg-brand-900 disabled:opacity-50 transition-all"
             >
               {syncingJubelio ? <Spinner /> : <RefreshCw className="w-4 h-4" />}
-              {syncingJubelio ? "Mengambil data..." : "Ambil data Jubelio"}
+              {syncingJubelio
+                ? apiSync.syncProgress > 0
+                  ? `Mengambil data... ${apiSync.syncProgress.toLocaleString("id-ID")}`
+                  : "Mengambil data..."
+                : "Ambil data Jubelio"}
             </button>
             <p className="text-xs text-brand-400">
               {lastJubelioSyncLabel ? (
@@ -540,7 +548,7 @@ function DataSection({
           </div>
         </div>
 
-        {apiSync.syncError && !syncingTiktok && (
+        {apiSync.syncError && apiSync.syncErrorSource === "jubelio" && (
           <div className="mt-3 p-3 rounded-xl text-sm flex items-center gap-2 bg-red-50 border border-red-200 text-red-600">
             <CloudOff className="w-4 h-4 shrink-0" />
             {apiSync.syncError}

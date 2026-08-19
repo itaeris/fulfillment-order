@@ -44,6 +44,8 @@ export default function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [syncing, setSyncing] = useState<ApiSyncSource | null>(null);
   const [syncError, setSyncError] = useState("");
+  const [syncErrorSource, setSyncErrorSource] = useState<ApiSyncSource | null>(null);
+  const [syncProgress, setSyncProgress] = useState(0);
   const restoredTab = useRef(false);
   const hasLoaded = useRef(false);
   const syncLock = useRef(false);
@@ -156,19 +158,76 @@ export default function Dashboard() {
       syncLock.current = true;
       setSyncing(source);
       setSyncError("");
+      setSyncErrorSource(null);
+      setSyncProgress(0);
       try {
-        const res = await fetch(source === "tiktok" ? "/api/tiktok/sync" : "/api/jubelio/sync", {
-          method: "POST",
-        });
-        const data = await res.json();
-        if (!res.ok) {
+        if (source === "jubelio") {
+          let startPage = 1;
+          let insertedSoFar = 0;
+          let cursor: unknown;
+          while (true) {
+            const res = await fetch("/api/jubelio/sync", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ startPage, insertedSoFar, cursor }),
+            });
+            const text = await res.text();
+            let data: {
+              error?: string;
+              done?: boolean;
+              count?: number;
+              nextPage?: number | null;
+              cursor?: unknown;
+            };
+            try {
+              data = JSON.parse(text);
+            } catch {
+              setSyncErrorSource(source);
+              setSyncError(
+                res.status === 504 || res.status === 500
+                  ? "Pengambilan data terlalu lama. Coba lagi."
+                  : "Gagal mengambil data Jubelio. Coba lagi."
+              );
+              return;
+            }
+            if (!res.ok) {
+              setSyncErrorSource(source);
+              setSyncError(data.error || "Gagal mengambil data Jubelio");
+              return;
+            }
+            insertedSoFar = data.count || insertedSoFar;
+            setSyncProgress(insertedSoFar);
+            if (data.done) break;
+            if (!data.nextPage) break;
+            startPage = data.nextPage;
+            cursor = data.cursor;
+          }
+          await loadData();
+          return;
+        }
+
+        const res = await fetch("/api/tiktok/sync", { method: "POST" });
+        const text = await res.text();
+        let data: { error?: string };
+        try {
+          data = JSON.parse(text);
+        } catch {
+          setSyncErrorSource(source);
           setSyncError(
-            data.error || `Gagal mengambil data ${source === "tiktok" ? "TikTok" : "Jubelio"}`
+            res.status === 504 || res.status === 500
+              ? "Pengambilan data terlalu lama. Coba lagi."
+              : "Gagal mengambil data TikTok. Coba lagi."
           );
+          return;
+        }
+        if (!res.ok) {
+          setSyncErrorSource(source);
+          setSyncError(data.error || "Gagal mengambil data TikTok");
         } else {
           await loadData();
         }
       } catch (err: any) {
+        setSyncErrorSource(source);
         setSyncError(err.message || "Terjadi kesalahan jaringan");
       } finally {
         syncLock.current = false;
@@ -181,6 +240,8 @@ export default function Dashboard() {
   const apiSync = {
     syncing,
     syncError,
+    syncErrorSource,
+    syncProgress,
     onSync: handleSync,
     ...getApiSyncLabels(uploadedFiles),
   };

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchJubelioReadyToShipOrders } from "@/lib/jubelio-api";
+import { fetchJubelioReadyToShipBatch, type JubelioSyncCursor } from "@/lib/jubelio-api";
 import {
   deleteOrdersByPlatform,
   insertOrders,
@@ -10,6 +10,22 @@ import { Order } from "@/types/order";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+const PAGES_PER_BATCH = 4;
+
+function publicJubelioError(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  if (/belum di-set|JUBELIO_EMAIL|JUBELIO_PASSWORD/i.test(message)) {
+    return "Jubelio belum terhubung di server. Hubungi IT.";
+  }
+  if (/timeout|timed out|504/i.test(message)) {
+    return "Pengambilan data terlalu lama. Coba lagi.";
+  }
+  if (/401|unauthorized|login|password|credential/i.test(message)) {
+    return "Gagal masuk ke Jubelio. Hubungi IT.";
+  }
+  return "Gagal mengambil data Jubelio. Coba lagi.";
+}
 
 function orderToInput(order: Order) {
   return {
@@ -24,34 +40,53 @@ function orderToInput(order: Order) {
   };
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
-    const { orders, meta } = await fetchJubelioReadyToShipOrders();
+    const body = (await request.json().catch(() => ({}))) as {
+      startPage?: number;
+      insertedSoFar?: number;
+      cursor?: JubelioSyncCursor;
+    };
+    const startPage = Number(body.startPage) || 1;
+    const insertedSoFar = Number(body.insertedSoFar) || 0;
 
-    await deleteOrdersByPlatform("jubelio");
+    const batch = await fetchJubelioReadyToShipBatch({
+      startPage,
+      pageCount: PAGES_PER_BATCH,
+      cursor: body.cursor,
+    });
 
-    if (orders.length > 0) {
-      await insertOrders(orders.map(orderToInput));
+    if (startPage === 1) {
+      await deleteOrdersByPlatform("jubelio");
+      await deleteUploadedFilesByPlatform("jubelio");
     }
 
-    await deleteUploadedFilesByPlatform("jubelio");
-    await insertUploadedFile({
-      name: "Jubelio API",
-      platform: "jubelio",
-      orderCount: orders.length,
-    });
+    if (batch.orders.length > 0) {
+      await insertOrders(batch.orders.map(orderToInput));
+    }
+
+    const count = insertedSoFar + batch.orders.length;
+    if (batch.done) {
+      await insertUploadedFile({
+        name: "Jubelio API",
+        platform: "jubelio",
+        orderCount: count,
+      });
+    }
 
     return NextResponse.json({
       success: true,
-      count: orders.length,
-      source: meta.source,
-      apiTotal: meta.apiTotal,
-      locationName: meta.locationName,
+      done: batch.done,
+      count,
+      batchCount: batch.orders.length,
+      nextPage: batch.nextPage,
+      cursor: batch.cursor,
+      total: batch.cursor.apiTotal || count,
+      locationName: batch.cursor.locationName,
       syncedAt: new Date().toISOString(),
     });
   } catch (error) {
     console.error("Error syncing Jubelio orders:", error);
-    const message = error instanceof Error ? error.message : "Gagal sinkronisasi Jubelio";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: publicJubelioError(error) }, { status: 500 });
   }
 }

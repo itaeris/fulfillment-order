@@ -112,18 +112,6 @@ function mapStatus(raw?: string): OrderStatus {
   return "processing";
 }
 
-function statusText(order: JubelioRawOrder): string {
-  return [order.channel_status, order.sub_status, order.status, order.status_details, order.wms_status]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-}
-
-function isClosedOrder(order: JubelioRawOrder): boolean {
-  const text = statusText(order);
-  return CLOSED_STATUS_HINTS.some((hint) => text === hint || text.includes(hint));
-}
-
 function toDate(value?: string | number): Date | undefined {
   if (value == null || value === "") return undefined;
   if (typeof value === "number") {
@@ -252,80 +240,6 @@ function listQuery(page: number, extras: Record<string, string> = {}): Record<st
   };
 }
 
-async function paginate(path: string, extras: Record<string, string> = {}): Promise<{
-  rows: JubelioRawOrder[];
-  apiTotal?: number;
-}> {
-  const first = await jubelioGet(path, listQuery(1, extras));
-  const firstRows = extractList(first);
-  if (firstRows.length === 0) return { rows: [], apiTotal: extractTotal(first, 0) };
-
-  const actualSize = firstRows.length;
-  let total = extractTotal(first, Number.POSITIVE_INFINITY);
-  // Kalau API tidak kirim total asli (total === isi halaman penuh), lanjut sampai halaman pendek.
-  if (total <= actualSize && actualSize >= PAGE_SIZE) {
-    total = Number.POSITIVE_INFINITY;
-  }
-  const totalPages = Number.isFinite(total)
-    ? Math.min(Math.max(1, Math.ceil(total / actualSize)), MAX_PAGES)
-    : MAX_PAGES;
-
-  const collected = [...firstRows];
-  const pages: number[] = [];
-  for (let page = 2; page <= totalPages; page++) pages.push(page);
-
-  for (let i = 0; i < pages.length; i += PAGE_CONCURRENCY) {
-    const batch = pages.slice(i, i + PAGE_CONCURRENCY);
-    const results = await Promise.all(batch.map((page) => jubelioGet(path, listQuery(page, extras))));
-    let shortPage = false;
-    for (const json of results) {
-      const rows = extractList(json);
-      if (rows.length === 0) {
-        shortPage = true;
-        continue;
-      }
-      collected.push(...rows);
-      if (rows.length < actualSize) shortPage = true;
-    }
-    if (shortPage) break;
-    if (Number.isFinite(total) && collected.length >= total) break;
-  }
-
-  return {
-    rows: collected,
-    apiTotal: Number.isFinite(total) ? total : collected.length,
-  };
-}
-
-async function tryPaginate(
-  path: string,
-  extras: Record<string, string>
-): Promise<{ rows: JubelioRawOrder[]; apiTotal?: number } | null> {
-  try {
-    return await paginate(path, extras);
-  } catch {
-    const locationOnly: Record<string, string> = {};
-    if (extras.locationId) locationOnly.locationId = extras.locationId;
-    if (extras.location_id) locationOnly.location_id = extras.location_id;
-    if (Object.keys(locationOnly).length === 0) {
-      try {
-        return await paginate(path, {});
-      } catch {
-        return null;
-      }
-    }
-    try {
-      return await paginate(path, locationOnly);
-    } catch {
-      try {
-        return await paginate(path, {});
-      } catch {
-        return null;
-      }
-    }
-  }
-}
-
 async function resolveLocation(): Promise<{ id?: string; name?: string }> {
   const envId = process.env.JUBELIO_LOCATION_ID?.trim();
   const envName = process.env.JUBELIO_LOCATION_NAME?.trim().toLowerCase();
@@ -408,49 +322,142 @@ function dedupeOrders(rows: JubelioRawOrder[]): JubelioRawOrder[] {
   return unique;
 }
 
-export async function fetchJubelioReadyToShipOrders(): Promise<{
+function locationOnly(extras: Record<string, string>): Record<string, string> {
+  const slim: Record<string, string> = {};
+  if (extras.locationId) slim.locationId = extras.locationId;
+  if (extras.location_id) slim.location_id = extras.location_id;
+  return slim;
+}
+
+export interface JubelioSyncCursor {
+  path: string;
+  extras: Record<string, string>;
+  actualPageSize: number;
+  totalPages: number;
+  apiTotal: number;
+  locationName?: string;
+}
+
+async function probeList(
+  path: string,
+  extras: Record<string, string>
+): Promise<{ json: unknown; extras: Record<string, string> } | null> {
+  try {
+    const json = await jubelioGet(path, listQuery(1, extras));
+    return { json, extras };
+  } catch {
+    const slim = locationOnly(extras);
+    try {
+      const json = await jubelioGet(path, listQuery(1, slim));
+      return { json, extras: slim };
+    } catch {
+      try {
+        const json = await jubelioGet(path, listQuery(1, {}));
+        return { json, extras: {} };
+      } catch {
+        return null;
+      }
+    }
+  }
+}
+
+export async function fetchJubelioReadyToShipBatch(input: {
+  startPage: number;
+  pageCount: number;
+  cursor?: JubelioSyncCursor;
+}): Promise<{
   orders: Order[];
-  meta: JubelioSyncMeta;
+  cursor: JubelioSyncCursor;
+  nextPage: number | null;
+  done: boolean;
 }> {
-  const location = await resolveLocation();
-  const extras: Record<string, string> = { ...dateRangeQuery() };
-  if (location.id) {
-    extras.locationId = location.id;
-    extras.location_id = location.id;
+  const startPage = Math.max(1, input.startPage);
+  const pageCount = Math.max(1, input.pageCount);
+  let cursor = input.cursor;
+
+  if (!cursor) {
+    const location = await resolveLocation();
+    const extras: Record<string, string> = { ...dateRangeQuery() };
+    if (location.id) {
+      extras.locationId = location.id;
+      extras.location_id = location.id;
+    }
+
+    let probed = await probeList("/sales/unfullfilled/", extras);
+    let path = "/sales/unfullfilled/";
+    if (!probed || extractList(probed.json).length === 0) {
+      const sales = await probeList("/sales/orders/", extras);
+      if (sales && extractList(sales.json).length > 0) {
+        probed = sales;
+        path = "/sales/orders/";
+      }
+    }
+
+    const firstRows = probed ? extractList(probed.json) : [];
+    const actualPageSize = firstRows.length || PAGE_SIZE;
+    let apiTotal = probed ? extractTotal(probed.json, firstRows.length) : 0;
+    if (apiTotal <= actualPageSize && firstRows.length >= PAGE_SIZE) {
+      apiTotal = Number.POSITIVE_INFINITY;
+    }
+    const totalPages = Number.isFinite(apiTotal)
+      ? Math.min(Math.max(1, Math.ceil(apiTotal / actualPageSize)), MAX_PAGES)
+      : MAX_PAGES;
+
+    cursor = {
+      path,
+      extras: probed?.extras ?? extras,
+      actualPageSize,
+      totalPages,
+      apiTotal: Number.isFinite(apiTotal) ? apiTotal : 0,
+      locationName: location.name,
+    };
+
+    // Request pertama cuma halaman 1: login + lokasi + hapus data lama
+    // harus muat di batas waktu Vercel (~10 detik di Hobby).
+    const rows = dedupeOrders(firstRows).filter((row) => row.salesorder_no || row.salesorder_id);
+    const shortPage = firstRows.length === 0 || firstRows.length < cursor.actualPageSize;
+    const nextPage = shortPage && cursor.totalPages <= 1 ? null : 2;
+    return {
+      orders: rows.map(mapRawOrder),
+      cursor,
+      nextPage,
+      done: nextPage == null,
+    };
   }
 
-  const unfulfilled = await tryPaginate("/sales/unfullfilled/", extras);
-  const unfulfilledRows = unfulfilled?.rows ?? [];
+  const endPage = Math.min(startPage + pageCount - 1, cursor.totalPages);
+  const collected: JubelioRawOrder[] = [];
+  const pagesToFetch: number[] = [];
+  for (let page = startPage; page <= endPage; page++) pagesToFetch.push(page);
 
-  let salesRows: JubelioRawOrder[] = [];
-  let salesTotal = 0;
-  if (unfulfilledRows.length < 1000) {
-    const salesOrders = await tryPaginate("/sales/orders/", extras);
-    salesRows = (salesOrders?.rows ?? []).filter((row) => !isClosedOrder(row));
-    salesTotal = salesOrders?.apiTotal ?? 0;
+  for (let i = 0; i < pagesToFetch.length; i += PAGE_CONCURRENCY) {
+    const chunk = pagesToFetch.slice(i, i + PAGE_CONCURRENCY);
+    const pages = await Promise.all(
+      chunk.map((page) => jubelioGet(cursor.path, listQuery(page, cursor.extras)))
+    );
+    let short = false;
+    for (const json of pages) {
+      const rows = extractList(json);
+      collected.push(...rows);
+      if (rows.length === 0 || rows.length < cursor.actualPageSize) short = true;
+    }
+    if (short) {
+      const rows = dedupeOrders(collected).filter((row) => row.salesorder_no || row.salesorder_id);
+      return {
+        orders: rows.map(mapRawOrder),
+        cursor,
+        nextPage: null,
+        done: true,
+      };
+    }
   }
 
-  const preferred =
-    unfulfilledRows.length >= salesRows.length && unfulfilledRows.length > 0
-      ? unfulfilledRows
-      : salesRows.length > 0
-        ? [...unfulfilledRows, ...salesRows]
-        : unfulfilledRows;
-
-  const source =
-    unfulfilledRows.length >= salesRows.length && unfulfilledRows.length > 0
-      ? "/sales/unfullfilled/"
-      : "/sales/orders/";
-
-  const rows = dedupeOrders(preferred).filter((row) => row.salesorder_no || row.salesorder_id);
-
+  const rows = dedupeOrders(collected).filter((row) => row.salesorder_no || row.salesorder_id);
+  const nextPage = endPage < cursor.totalPages ? endPage + 1 : null;
   return {
     orders: rows.map(mapRawOrder),
-    meta: {
-      source,
-      apiTotal: Math.max(unfulfilled?.apiTotal ?? 0, salesTotal, rows.length),
-      locationName: location.name,
-      locationId: location.id,
-    },
+    cursor,
+    nextPage,
+    done: nextPage == null,
   };
 }

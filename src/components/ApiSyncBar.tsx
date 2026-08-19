@@ -9,6 +9,8 @@ export type ApiSyncSource = "tiktok" | "jubelio";
 export interface ApiSyncState {
   syncing: ApiSyncSource | null;
   syncError: string;
+  syncErrorSource: ApiSyncSource | null;
+  syncProgress: number;
   onSync: (source: ApiSyncSource) => void;
   lastTiktokSync: string | null;
   lastJubelioSync: string | null;
@@ -46,6 +48,7 @@ export function getApiSyncLabels(uploadedFiles: UploadedFile[]) {
 export default function ApiSyncBar({
   syncing,
   syncError,
+  syncProgress,
   onSync,
   lastTiktokSync,
   lastJubelioSync,
@@ -53,6 +56,8 @@ export default function ApiSyncBar({
   compact = false,
 }: ApiSyncState & { hint?: string; compact?: boolean }) {
   const busy = !!syncing;
+  const progressLabel =
+    syncProgress > 0 ? `Mengambil data... ${syncProgress.toLocaleString("id-ID")}` : "Mengambil data...";
 
   return (
     <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -69,7 +74,7 @@ export default function ApiSyncBar({
             )}
           >
             <RefreshCw className={cn("w-4 h-4", syncing === "tiktok" && "animate-spin")} />
-            {syncing === "tiktok" ? "Mengambil data..." : "Ambil data TikTok"}
+            {syncing === "tiktok" ? progressLabel : "Ambil data TikTok"}
           </button>
           <button
             onClick={() => onSync("jubelio")}
@@ -81,7 +86,7 @@ export default function ApiSyncBar({
             )}
           >
             <RefreshCw className={cn("w-4 h-4", syncing === "jubelio" && "animate-spin")} />
-            {syncing === "jubelio" ? "Mengambil data..." : "Ambil data Jubelio"}
+            {syncing === "jubelio" ? progressLabel : "Ambil data Jubelio"}
           </button>
         </div>
         {syncError ? (
