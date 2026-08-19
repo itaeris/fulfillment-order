@@ -373,7 +373,7 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
       case "matched":
         return { label: "Cocok", color: "bg-green-100 text-green-700", icon: CheckCircle };
       case "mismatch":
-        return { label: "Selisih", color: "bg-red-100 text-red-700", icon: AlertTriangle };
+        return { label: "Beda", color: "bg-red-100 text-red-700", icon: AlertTriangle };
       case "jubelio_only":
         return { label: "Hanya Jubelio", color: "bg-amber-100 text-amber-700", icon: Package };
       case "platform_only":
@@ -404,7 +404,7 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
   const filterTabs: { value: FilterTab; label: string; count: number; color: string }[] = [
     { value: "all", label: "Semua", count: summary.total, color: "text-brand-700" },
     { value: "matched", label: "Cocok", count: summary.matched, color: "text-green-600" },
-    { value: "mismatch", label: "Selisih", count: summary.mismatch, color: "text-red-600" },
+    { value: "mismatch", label: "Beda", count: summary.mismatch, color: "text-red-600" },
     { value: "jubelio_only", label: "Hanya Jubelio", count: summary.jubelioOnly, color: "text-amber-600" },
     { value: "platform_only", label: "Hanya toko online", count: summary.platformOnly, color: "text-blue-600" },
   ];
@@ -706,7 +706,7 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
                         onClick={() => handleCompSort("amountDiff")}
                       >
                         <div className="flex items-center justify-end gap-1">
-                          Selisih <CompSortIcon field="amountDiff" />
+                          Beda Rp <CompSortIcon field="amountDiff" />
                         </div>
                       </th>
                     </>

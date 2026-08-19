@@ -8,6 +8,7 @@ import {
   insertOrders,
   insertUploadedFile,
 } from "@/lib/db";
+import { refreshOpenJubelioStatuses } from "@/lib/jubelio-status";
 import { Order } from "@/types/order";
 
 export const dynamic = "force-dynamic";
@@ -102,6 +103,7 @@ export async function POST(request: Request) {
     const allKnown = ids.length > 0 && ids.every((id) => existing.has(id));
 
     if (hasCache && (batch.orders.length === 0 || (isFirst && allKnown))) {
+      const refreshed = await refreshOpenJubelioStatuses().catch(() => ({ checked: 0, updated: 0 }));
       await markSynced(dbCount);
       return NextResponse.json({
         success: true,
@@ -109,6 +111,7 @@ export async function POST(request: Request) {
         cached: true,
         count: dbCount,
         added: 0,
+        updated: refreshed.updated,
         nextPage: null,
         cursor: batch.cursor,
         total: dbCount,
@@ -125,10 +128,25 @@ export async function POST(request: Request) {
         await insertOrders(batch.orders.map(orderToInput));
       }
       const count = (Number(body.insertedSoFar) || 0) + batch.orders.length;
-      if (batch.done) await markSynced(count);
+      if (batch.done) {
+        const refreshed = await refreshOpenJubelioStatuses().catch(() => ({ checked: 0, updated: 0 }));
+        await markSynced(count);
+        return NextResponse.json({
+          success: true,
+          done: true,
+          cached: false,
+          count,
+          added: batch.orders.length,
+          updated: refreshed.updated,
+          nextPage: null,
+          cursor: { ...batch.cursor, mode: "full" as const },
+          total: batch.cursor.apiTotal || count,
+          syncedAt: new Date().toISOString(),
+        });
+      }
       return NextResponse.json({
         success: true,
-        done: batch.done,
+        done: false,
         cached: false,
         count,
         added: batch.orders.length,
@@ -150,6 +168,7 @@ export async function POST(request: Request) {
 
     const count = dbCount + newOrders.length;
     if (overlapped) {
+      const refreshed = await refreshOpenJubelioStatuses().catch(() => ({ checked: 0, updated: 0 }));
       await markSynced(count);
       return NextResponse.json({
         success: true,
@@ -157,6 +176,7 @@ export async function POST(request: Request) {
         cached: false,
         count,
         added: newOrders.length,
+        updated: refreshed.updated,
         nextPage: null,
         cursor: { ...batch.cursor, mode: "add" as const },
         total: count,

@@ -610,3 +610,66 @@ export async function fetchJubelioOrdersMatching(numbers: string[]): Promise<Ord
 
   return found;
 }
+
+function asRawOrder(json: unknown): JubelioRawOrder | null {
+  if (!json || typeof json !== "object") return null;
+  const obj = json as Record<string, unknown>;
+  const nested = obj.data && typeof obj.data === "object" ? obj.data : obj;
+  const candidate = nested as JubelioRawOrder;
+  if (rawOrderKey(candidate)) return candidate;
+  const rows = flattenOrderRows(extractList(json)).filter((row) => rawOrderKey(row));
+  return rows[0] || null;
+}
+
+export function mapJubelioStatusLabel(raw?: string): OrderStatus {
+  return mapStatus(raw);
+}
+
+export async function fetchJubelioOrderByKey(key: string): Promise<Order | undefined> {
+  const trimmed = String(key || "").trim();
+  if (!trimmed) return undefined;
+
+  const paths = [
+    `/sales/orders/${encodeURIComponent(trimmed)}/`,
+    `/sales/orders/${encodeURIComponent(trimmed)}`,
+  ];
+  for (const path of paths) {
+    try {
+      const json = await jubelioGet(path);
+      const raw = asRawOrder(json);
+      if (raw) return mapRawOrder(raw);
+    } catch {
+      // Coba path / pencarian berikutnya.
+    }
+  }
+
+  try {
+    const json = await jubelioGet("/sales/orders/", {
+      q: trimmed,
+      salesorder_no: trimmed,
+      page: "1",
+      pageSize: "20",
+    });
+    const want = normalizeLookup(trimmed);
+    const match = flattenOrderRows(extractList(json)).find((row) =>
+      [row.salesorder_no, String(row.salesorder_id ?? ""), row.ref_no]
+        .map((value) => normalizeLookup(String(value || "")))
+        .includes(want)
+    );
+    if (match) return mapRawOrder(match);
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
+export async function fetchJubelioOrdersByKeys(keys: string[]): Promise<Order[]> {
+  const unique = Array.from(new Set(keys.map((key) => String(key).trim()).filter(Boolean)));
+  const orders: Order[] = [];
+  for (const key of unique) {
+    const order = await fetchJubelioOrderByKey(key);
+    if (order) orders.push(order);
+  }
+  return orders;
+}

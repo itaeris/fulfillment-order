@@ -143,3 +143,90 @@ CREATE TABLE IF NOT EXISTS jubelio_tokens (
 );
 
 ALTER TABLE jubelio_tokens ENABLE ROW LEVEL SECURITY;
+
+-- Status live dari webhook TikTok / Jubelio, dipakai dashboard + Kirim hari ini
+CREATE TABLE IF NOT EXISTS live_order_status (
+  order_number TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  status TEXT,
+  tracking_number TEXT,
+  courier TEXT,
+  shipping_option TEXT,
+  shipped_time TIMESTAMPTZ,
+  must_ship_before TIMESTAMPTZ,
+  pickup_time TIMESTAMPTZ,
+  ref_no TEXT,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (order_number, platform)
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_order_status_updated ON live_order_status(updated_at DESC);
+
+ALTER TABLE live_order_status ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow all access to live_order_status') THEN
+    CREATE POLICY "Allow all access to live_order_status" ON live_order_status FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
+
+-- ── Kirim hari ini (/overview-duedate) — terpisah dari tabel orders ──
+CREATE TABLE IF NOT EXISTS overview_orders (
+  id TEXT PRIMARY KEY,
+  order_number TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  customer_name TEXT,
+  recipient_name TEXT,
+  product_name TEXT,
+  variation TEXT,
+  sku TEXT,
+  quantity INTEGER DEFAULT 1,
+  original_price DOUBLE PRECISION,
+  price DOUBLE PRECISION,
+  total_amount DOUBLE PRECISION,
+  status TEXT,
+  order_date TIMESTAMPTZ,
+  paid_time TIMESTAMPTZ,
+  shipped_time TIMESTAMPTZ,
+  must_ship_before TIMESTAMPTZ,
+  shipping_address TEXT,
+  city TEXT,
+  province TEXT,
+  tracking_number TEXT,
+  shipping_option TEXT,
+  courier TEXT,
+  phone TEXT,
+  notes TEXT,
+  weight DOUBLE PRECISION,
+  channel_name TEXT,
+  store_name TEXT,
+  ref_no TEXT,
+  pickup_time TIMESTAMPTZ,
+  order_type TEXT,
+  is_preorder BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS overview_files (
+  id SERIAL PRIMARY KEY,
+  name TEXT UNIQUE NOT NULL,
+  platform TEXT NOT NULL,
+  uploaded_at TIMESTAMPTZ DEFAULT NOW(),
+  order_count INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_overview_orders_platform ON overview_orders(platform);
+CREATE INDEX IF NOT EXISTS idx_overview_orders_status ON overview_orders(status);
+CREATE INDEX IF NOT EXISTS idx_overview_orders_order_number ON overview_orders(order_number);
+
+ALTER TABLE overview_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE overview_files ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow all access to overview_orders') THEN
+    CREATE POLICY "Allow all access to overview_orders" ON overview_orders FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow all access to overview_files') THEN
+    CREATE POLICY "Allow all access to overview_files" ON overview_files FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;

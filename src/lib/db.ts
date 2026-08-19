@@ -103,6 +103,173 @@ export async function findExistingOrderNumbers(platforms: string[], orderNumbers
   return found;
 }
 
+export async function getOpenOrderNumbersByPlatforms(
+  platforms: string[],
+  statuses: string[] = ["pending", "processing"]
+) {
+  const numbers: string[] = [];
+  if (platforms.length === 0) return numbers;
+  const PAGE_SIZE = 1000;
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("order_number")
+      .in("platform", platforms)
+      .in("status", statuses)
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    for (const row of data) {
+      if (row.order_number) numbers.push(row.order_number);
+    }
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return Array.from(new Set(numbers));
+}
+
+export async function updateOrdersFulfillment(
+  platforms: string[],
+  patches: {
+    id?: string;
+    orderNumber: string;
+    platform?: string;
+    status: string;
+    trackingNumber?: string;
+    courier?: string;
+    shippingOption?: string;
+    shippedTime?: string;
+    mustShipBefore?: string;
+    pickupTime?: string;
+    refNo?: string;
+  }[]
+) {
+  if (platforms.length === 0 || patches.length === 0) return;
+  for (const patch of patches) {
+    const fields: Record<string, string | null> = {
+      status: patch.status,
+    };
+    if (patch.trackingNumber) fields.tracking_number = patch.trackingNumber;
+    if (patch.courier) fields.courier = patch.courier;
+    if (patch.shippingOption) fields.shipping_option = patch.shippingOption;
+    if (patch.shippedTime) fields.shipped_time = patch.shippedTime;
+
+    if (patch.id) {
+      const byId = await supabase.from("orders").update(fields).eq("id", patch.id);
+      if (byId.error) throw byId.error;
+    }
+
+    const { error } = await supabase
+      .from("orders")
+      .update(fields)
+      .in("platform", platforms)
+      .eq("order_number", patch.orderNumber);
+    if (error) throw error;
+  }
+
+  await updateOverviewOrdersFulfillment(platforms, patches).catch((error) => {
+    console.error("overview_orders fulfillment update skipped:", error);
+  });
+
+  await upsertLiveOrderStatuses(
+    patches.map((patch) => ({
+      ...patch,
+      platform: patch.platform || platforms[0],
+    }))
+  ).catch((error) => {
+    console.error("live_order_status upsert skipped:", error);
+  });
+}
+
+export type LiveOrderStatus = {
+  orderNumber: string;
+  platform: string;
+  status: string;
+  trackingNumber?: string;
+  courier?: string;
+  shippingOption?: string;
+  shippedTime?: string;
+  mustShipBefore?: string;
+  pickupTime?: string;
+  refNo?: string;
+  updatedAt?: string;
+};
+
+export async function upsertLiveOrderStatuses(patches: LiveOrderStatus[]) {
+  if (patches.length === 0) return;
+  const rows = patches.map((patch) => ({
+    order_number: patch.orderNumber,
+    platform: patch.platform,
+    status: patch.status,
+    tracking_number: patch.trackingNumber ?? null,
+    courier: patch.courier ?? null,
+    shipping_option: patch.shippingOption ?? null,
+    shipped_time: patch.shippedTime ?? null,
+    must_ship_before: patch.mustShipBefore ?? null,
+    pickup_time: patch.pickupTime ?? null,
+    ref_no: patch.refNo ?? null,
+    updated_at: new Date().toISOString(),
+  }));
+  const { error } = await supabase.from("live_order_status").upsert(rows, {
+    onConflict: "order_number,platform",
+  });
+  if (error) throw error;
+}
+
+export async function getLiveOrderStatuses(numbers: string[]): Promise<LiveOrderStatus[]> {
+  const unique = Array.from(new Set(numbers.map((n) => String(n).trim()).filter(Boolean)));
+  if (unique.length === 0) return [];
+  const found: LiveOrderStatus[] = [];
+  const seen = new Set<string>();
+  const push = (row: {
+    order_number?: string;
+    platform?: string;
+    status?: string;
+    tracking_number?: string;
+    courier?: string;
+    shipping_option?: string;
+    shipped_time?: string;
+    must_ship_before?: string;
+    pickup_time?: string;
+    ref_no?: string;
+    updated_at?: string;
+  }) => {
+    const key = `${row.platform}|${row.order_number}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    found.push({
+      orderNumber: row.order_number || "",
+      platform: row.platform || "",
+      status: row.status || "",
+      trackingNumber: row.tracking_number,
+      courier: row.courier,
+      shippingOption: row.shipping_option,
+      shippedTime: row.shipped_time,
+      mustShipBefore: row.must_ship_before,
+      pickupTime: row.pickup_time,
+      refNo: row.ref_no,
+      updatedAt: row.updated_at,
+    });
+  };
+
+  const CHUNK = 100;
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const chunk = unique.slice(i, i + CHUNK);
+    const byNumber = await supabase.from("live_order_status").select("*").in("order_number", chunk);
+    if (byNumber.error) throw byNumber.error;
+    for (const row of byNumber.data ?? []) push(row);
+    const byRef = await supabase.from("live_order_status").select("*").in("ref_no", chunk);
+    if (byRef.error) throw byRef.error;
+    for (const row of byRef.data ?? []) push(row);
+  }
+  return found;
+}
+
 export async function getOrderNumbersByPlatforms(platforms: string[]) {
   const numbers: string[] = [];
   const PAGE_SIZE = 1000;
@@ -248,6 +415,137 @@ export async function deleteUploadedFilesByPlatform(platform: string) {
   if (error) throw error;
 }
 
+// ── Kirim hari ini (overview_orders / overview_files) ──
+
+export async function getAllOverviewOrders() {
+  const allRows: any[] = [];
+  const PAGE_SIZE = 1000;
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("overview_orders")
+      .select("*")
+      .order("order_date", { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    allRows.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return allRows.map(rowToOrder);
+}
+
+export async function insertOverviewOrders(orders: OrderInput[]) {
+  if (orders.length === 0) return;
+  const rows = orders.map(overviewOrderToRow);
+  const BATCH = 500;
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const batch = rows.slice(i, i + BATCH);
+    const { error } = await supabase.from("overview_orders").upsert(batch);
+    if (error) throw error;
+  }
+}
+
+export async function deleteOverviewOrdersByPlatforms(platforms: string[]) {
+  if (platforms.length === 0) return;
+  const { error } = await supabase.from("overview_orders").delete().in("platform", platforms);
+  if (error) throw error;
+}
+
+export async function deleteAllOverviewOrders() {
+  const { error } = await supabase.from("overview_orders").delete().neq("id", "");
+  if (error) throw error;
+}
+
+export async function replaceOverviewOrdersByPlatforms(platforms: string[], orders: OrderInput[]) {
+  await deleteOverviewOrdersByPlatforms(platforms);
+  await insertOverviewOrders(orders);
+  return getAllOverviewOrders();
+}
+
+export async function updateOverviewOrdersFulfillment(
+  platforms: string[],
+  patches: {
+    id?: string;
+    orderNumber: string;
+    platform?: string;
+    status: string;
+    trackingNumber?: string;
+    courier?: string;
+    shippingOption?: string;
+    shippedTime?: string;
+    mustShipBefore?: string;
+    pickupTime?: string;
+    refNo?: string;
+  }[]
+) {
+  if (platforms.length === 0 || patches.length === 0) return;
+  for (const patch of patches) {
+    const fields: Record<string, string | null> = {
+      status: patch.status,
+    };
+    if (patch.trackingNumber) fields.tracking_number = patch.trackingNumber;
+    if (patch.courier) fields.courier = patch.courier;
+    if (patch.shippingOption) fields.shipping_option = patch.shippingOption;
+    if (patch.shippedTime) fields.shipped_time = patch.shippedTime;
+
+    const targetPlatforms = patch.platform ? [patch.platform] : platforms;
+    const { error } = await supabase
+      .from("overview_orders")
+      .update(fields)
+      .in("platform", targetPlatforms)
+      .eq("order_number", patch.orderNumber);
+    if (error) throw error;
+  }
+}
+
+export async function getAllOverviewFiles() {
+  const { data, error } = await supabase
+    .from("overview_files")
+    .select("*")
+    .order("uploaded_at", { ascending: false });
+
+  if (error) throw error;
+  return (data ?? []).map(rowToFile);
+}
+
+export async function insertOverviewFile(file: {
+  name: string;
+  platform: string;
+  orderCount: number;
+  uploadedAt?: string | Date;
+}) {
+  const uploadedAt =
+    file.uploadedAt instanceof Date
+      ? file.uploadedAt.toISOString()
+      : file.uploadedAt || new Date().toISOString();
+  const { error } = await supabase.from("overview_files").upsert(
+    {
+      name: file.name,
+      platform: file.platform,
+      order_count: file.orderCount,
+      uploaded_at: uploadedAt,
+    },
+    { onConflict: "name" }
+  );
+  if (error) throw error;
+}
+
+export async function deleteAllOverviewFiles() {
+  const { error } = await supabase.from("overview_files").delete().neq("id", "0");
+  if (error) throw error;
+}
+
+export async function clearOverviewData() {
+  await deleteAllOverviewOrders();
+  await deleteAllOverviewFiles();
+}
+
 // ── Row ↔ App mapping helpers ──
 
 interface OrderInput {
@@ -281,6 +579,8 @@ interface OrderInput {
   storeName?: string;
   refNo?: string;
   pickupTime?: string;
+  orderType?: string;
+  isPreorder?: boolean;
 }
 
 function orderToRow(o: OrderInput) {
@@ -318,6 +618,14 @@ function orderToRow(o: OrderInput) {
   };
 }
 
+function overviewOrderToRow(o: OrderInput) {
+  return {
+    ...orderToRow(o),
+    order_type: o.orderType ?? null,
+    is_preorder: o.isPreorder ?? false,
+  };
+}
+
 function rowToOrder(r: any) {
   return {
     id: r.id,
@@ -351,6 +659,8 @@ function rowToOrder(r: any) {
     refNo: r.ref_no,
     pickupTime: r.pickup_time,
     createdAt: r.created_at,
+    orderType: r.order_type,
+    isPreorder: r.is_preorder == null ? undefined : Boolean(r.is_preorder),
   };
 }
 

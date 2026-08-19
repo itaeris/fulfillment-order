@@ -1,4 +1,4 @@
-import { Order } from "@/types/order";
+import { Order, OrderStatus } from "@/types/order";
 
 function toDate(value?: Date | string | null): Date | undefined {
   if (!value) return undefined;
@@ -113,4 +113,42 @@ export function mergeImportedWithApi(
   });
 
   return { orders, matched };
+}
+
+export type LiveStatusPatch = {
+  orderNumber: string;
+  platform?: string;
+  status: string;
+  trackingNumber?: string;
+  courier?: string;
+  shippingOption?: string;
+  shippedTime?: string;
+  mustShipBefore?: string;
+  pickupTime?: string;
+  refNo?: string;
+};
+
+export function applyLiveStatusPatches(orders: Order[], patches: LiveStatusPatch[]): Order[] {
+  if (patches.length === 0) return orders;
+  const byKey = new Map<string, LiveStatusPatch>();
+  for (const patch of patches) {
+    byKey.set(normalize(patch.orderNumber), patch);
+    if (patch.refNo) byKey.set(normalize(patch.refNo), patch);
+  }
+  return orders.map((order) => {
+    const hit =
+      byKey.get(normalize(order.orderNumber)) ||
+      byKey.get(normalize(order.refNo));
+    if (!hit) return order;
+    return {
+      ...order,
+      status: (hit.status as OrderStatus) || order.status,
+      trackingNumber: hit.trackingNumber || order.trackingNumber,
+      courier: hit.courier || order.courier,
+      shippingOption: hit.shippingOption || order.shippingOption,
+      shippedTime: pickDate(hit.shippedTime, order.shippedTime),
+      mustShipBefore: pickDate(hit.mustShipBefore, order.mustShipBefore),
+      pickupTime: pickDate(hit.pickupTime, order.pickupTime),
+    };
+  });
 }

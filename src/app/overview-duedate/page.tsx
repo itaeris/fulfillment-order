@@ -1,16 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DueDateOverviewView from "@/components/DueDateOverview";
+import { OverviewSkeleton } from "@/components/Skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { parseExcelFile, detectPlatform } from "@/lib/excel-parser";
+import {
+  applyLiveStatusPatches,
+  uniqueLookupNumbers,
+  type LiveStatusPatch,
+} from "@/lib/overview-merge";
 import {
   clearOverviewStore,
   loadOverviewFiles,
   loadOverviewOrders,
   replaceOverviewPlatforms,
   saveOverviewFile,
+  upsertOverviewOrders,
 } from "@/lib/overview-store";
 import { Order, Platform, UploadedFile } from "@/types/order";
 
@@ -31,6 +38,8 @@ export default function OverviewDueDatePage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const ordersRef = useRef<Order[]>([]);
+  ordersRef.current = orders;
 
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login");
@@ -55,6 +64,58 @@ export default function OverviewDueDatePage() {
     if (authLoading || !user) return;
     loadData();
   }, [authLoading, user, loadData]);
+
+  const applyLive = useCallback(async (current: Order[]) => {
+    const liveOrders = current.filter(
+      (order) =>
+        order.platform === "tiktok" ||
+        order.platform === "tokopedia" ||
+        order.platform === "jubelio"
+    );
+    const numbers = uniqueLookupNumbers(liveOrders);
+    if (numbers.length === 0) return current;
+    try {
+      const res = await fetch("/api/overview/live-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numbers }),
+      });
+      const data = (await res.json()) as { patches?: LiveStatusPatch[] };
+      const patches = data.patches || [];
+      if (patches.length === 0) return current;
+      const patched = applyLiveStatusPatches(current, patches);
+      const changed = patched
+        .filter((order, index) => order !== current[index])
+        .map(hydrateOrder);
+      if (changed.length === 0) return current;
+      const next = patched.map((order, index) =>
+        order === current[index] ? current[index] : hydrateOrder(order)
+      );
+      await upsertOverviewOrders(changed);
+      return next;
+    } catch {
+      return current;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    let cancelled = false;
+    const tick = async () => {
+      if (document.hidden || ordersRef.current.length === 0) return;
+      const next = await applyLive(ordersRef.current);
+      if (!cancelled) {
+        ordersRef.current = next;
+        setOrders(next);
+      }
+    };
+    tick();
+    const timer = window.setInterval(tick, 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [authLoading, user, applyLive]);
 
   const handleUploadExcel = useCallback(async (file: File, platform: Platform) => {
     const buffer = await file.arrayBuffer();
@@ -149,11 +210,7 @@ export default function OverviewDueDatePage() {
   if (!authLoading && !user) return null;
 
   if (authLoading || isLoading) {
-    return (
-      <div className="min-h-screen bg-cream-100 flex items-center justify-center">
-        <div className="loader" />
-      </div>
-    );
+    return <OverviewSkeleton />;
   }
 
   return (

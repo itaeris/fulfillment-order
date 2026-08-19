@@ -1,6 +1,6 @@
 # Order Dashboard - Aeris Beaute Fulfillment
 
-Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **Shopee**, **TikTok Shop / Tokopedia**, dan **Jubelio**. Data Shopee diimport dari Excel; order TikTok & Tokopedia ditarik dari **TikTok Shop Open API**; order Jubelio ditarik dari **Jubelio WMS API** (Siap Kirim). Penyimpanan dashboard utama di **Supabase** (PostgreSQL). Halaman **Kirim hari ini** terpisah: daily worker unggah Excel/CSV 3 platform, TikTok & Jubelio dicocokkan ke API realtime, tanpa mengubah data dashboard.
+Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **Shopee**, **TikTok Shop / Tokopedia**, dan **Jubelio**. Data Shopee diimport dari Excel; order TikTok & Tokopedia ditarik dari **TikTok Shop Open API**; order Jubelio ditarik dari **Jubelio WMS API** (Siap Kirim). Penyimpanan di **Supabase** (PostgreSQL): dashboard utama memakai tabel `orders`, halaman **Kirim hari ini** memakai tabel terpisah `overview_orders`. Daily worker unggah Excel/CSV 3 platform; TikTok & Jubelio dicocokkan ke API realtime, tanpa mengubah data dashboard.
 
 **Live**: [fulfillment-order.vercel.app](https://fulfillment-order.vercel.app)
 
@@ -40,7 +40,7 @@ Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **
 - Tombol Sync TikTok dan Sync Jubelio di halaman yang sama
 
 ### Kirim hari ini (`/overview-duedate`)
-Halaman kerja daily warehouse. **Data terpisah dari dashboard utama** (tersimpan di IndexedDB browser). Import / hapus di sini tidak mengubah Settings, Pesanan, atau Komparasi.
+Halaman kerja daily warehouse. **Data terpisah dari dashboard utama** (Supabase `overview_orders` / `overview_files`, bukan tabel `orders`). Import / hapus di sini tidak mengubah Settings, Pesanan, atau Komparasi.
 
 **Import (wajib 3 platform)**
 - Daily worker unggah Excel/CSV Shopee, TikTok, dan Jubelio
@@ -157,7 +157,9 @@ Di **Vercel Environment Variables** hanya simpan kredensial statis: `TIKTOK_APP_
 
 ### Database Setup
 
-Jalankan `supabase/migration.sql` di **Supabase Dashboard > SQL Editor** (tabel orders, files, profiles, tiktok_tokens, jubelio_tokens, trigger auth).
+Jalankan `supabase/migration.sql` di **Supabase Dashboard > SQL Editor** (tabel `orders`, `uploaded_files`, `overview_orders`, `overview_files`, `live_order_status`, profiles, tiktok_tokens, jubelio_tokens, trigger auth). Kalau database sudah ada, cukup jalankan blok **Kirim hari ini** di bagian bawah file itu.
+
+`overview_orders` hanya untuk `/overview-duedate`. Settings / Pesanan / Komparasi tetap di `orders`.
 
 Token Jubelio disimpan di `jubelio_tokens` (production) supaya login 12 jam tidak hilang tiap cold start Vercel.
 
@@ -222,7 +224,10 @@ src/
 │   │   ├── auth/create-user/    # Create user (admin, server-side)
 │   │   ├── orders/              # CRUD order (dashboard utama)
 │   │   ├── files/               # Riwayat file upload
-│   │   ├── overview/reconcile/  # Cocokkan Excel TikTok/Jubelio dengan API (tanpa tulis DB)
+│   │   ├── overview/reconcile/  # Cocokkan Excel TikTok/Jubelio dengan API (tanpa tulis dashboard)
+│   │   ├── overview/orders/     # CRUD pesanan Kirim hari ini (tabel overview_orders)
+│   │   ├── overview/files/      # Riwayat unggah Kirim hari ini
+│   │   ├── overview/live-status/ # Status live webhook untuk overlay Kirim hari ini
 │   │   ├── jubelio/sync/        # Tarik order Siap Kirim
 │   │   └── tiktok/
 │   │       ├── authorize/       # Mulai OAuth seller
@@ -254,7 +259,7 @@ src/
 │   ├── due-date.ts              # Tenggat, Instant, matching marketplace vs Jubelio
 │   ├── excel-parser.ts
 │   ├── overview-merge.ts        # Overlay Excel dengan data API
-│   ├── overview-store.ts        # IndexedDB halaman Kirim hari ini
+│   ├── overview-store.ts        # Client store Kirim hari ini (Supabase via API)
 │   ├── supabase.ts
 │   ├── supabase-admin.ts
 │   ├── tiktok-api.ts            # Client API + mapping order

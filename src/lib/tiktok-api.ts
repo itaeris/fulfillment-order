@@ -205,7 +205,7 @@ interface OrderSearchResponse {
 const READY_TO_SHIP_STATUSES = ["AWAITING_SHIPMENT", "AWAITING_COLLECTION"];
 
 function mapTikTokStatus(status?: string): OrderStatus {
-  switch (status) {
+  switch (String(status || "").toUpperCase()) {
     case "UNPAID":
     case "ON_HOLD":
       return "pending";
@@ -213,11 +213,14 @@ function mapTikTokStatus(status?: string): OrderStatus {
     case "AWAITING_COLLECTION":
       return "processing";
     case "IN_TRANSIT":
+    case "PARTIALLY_SHIPPING":
+    case "SHIPPED":
       return "shipped";
     case "DELIVERED":
     case "COMPLETED":
       return "delivered";
     case "CANCELLED":
+    case "CANCELED":
       return "cancelled";
     default:
       return "processing";
