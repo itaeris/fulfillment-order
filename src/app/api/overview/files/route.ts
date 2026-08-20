@@ -12,7 +12,7 @@ export async function GET() {
   } catch (error) {
     console.error("Error fetching overview files:", error);
     return NextResponse.json(
-      { error: "Failed to fetch overview files" },
+      { error: "Gagal mengambil data file overview" },
       { status: 500 }
     );
   }
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error saving overview file:", error);
     return NextResponse.json(
-      { error: "Failed to save overview file" },
+      { error: "Gagal menyimpan file overview" },
       { status: 500 }
     );
   }

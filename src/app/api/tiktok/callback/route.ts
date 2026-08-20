@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { exchangeAuthCode, getRequestOrigin } from "@/lib/tiktok-auth";
+import { toIndonesianError } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,10 @@ export async function GET(req: NextRequest) {
   if (oauthError) {
     return finish({
       tiktok: "error",
-      message: req.nextUrl.searchParams.get("error_description") || oauthError,
+      message: toIndonesianError(
+        req.nextUrl.searchParams.get("error_description") || oauthError,
+        "Gagal menghubungkan TikTok"
+      ),
     });
   }
 
@@ -45,8 +49,10 @@ export async function GET(req: NextRequest) {
     await exchangeAuthCode(code);
     return finish({ tiktok: "connected" });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Gagal menukar kode otorisasi TikTok";
+    const message = toIndonesianError(
+      error instanceof Error ? error.message : null,
+      "Gagal menukar kode otorisasi TikTok"
+    );
     return finish({ tiktok: "error", message });
   }
 }

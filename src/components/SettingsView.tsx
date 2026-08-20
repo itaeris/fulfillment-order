@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { toIndonesianError } from "@/lib/errors";
 import FileUpload from "./FileUpload";
 import { TableSkeleton } from "@/components/Skeleton";
 import { Platform, UploadedFile } from "@/types/order";
@@ -173,7 +174,11 @@ function ProfileSection() {
     setSaving(false);
 
     if (dbError) {
-      setError(dbError.message.includes("unique") ? "Username sudah dipakai" : dbError.message);
+      setError(
+        dbError.message.includes("unique")
+          ? "Username sudah dipakai"
+          : toIndonesianError(dbError.message, "Gagal memperbarui profil")
+      );
     } else {
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
@@ -396,7 +401,9 @@ function DataSection({
       setTokenSaved(true);
       setTokenError("");
     } else if (params.get("tiktok") === "error") {
-      setTokenError(params.get("message") || "Gagal menghubungkan TikTok");
+      setTokenError(
+        toIndonesianError(params.get("message"), "Gagal menghubungkan TikTok")
+      );
     }
     if (params.has("tiktok")) {
       params.delete("tiktok");
@@ -973,7 +980,7 @@ function AddUserForm({ onSuccess }: { onSuccess: () => void }) {
 
       if (!res.ok) {
         setSaving(false);
-        setError(result.error || "Gagal membuat user");
+        setError(toIndonesianError(result.error, "Gagal membuat user"));
         return;
       }
 
@@ -981,7 +988,7 @@ function AddUserForm({ onSuccess }: { onSuccess: () => void }) {
       onSuccess();
     } catch (err: any) {
       setSaving(false);
-      setError(err.message || "Terjadi kesalahan");
+      setError(toIndonesianError(err.message, "Terjadi kesalahan"));
     }
   };
 

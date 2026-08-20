@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabase";
+import { toIndonesianError } from "@/lib/errors";
 
 const ALLOWED_DOMAINS = ["aerisbeaute.com", "fromthisisland.com"];
 
@@ -16,14 +17,14 @@ export default function AuthCallbackPage() {
       const hashParams = new URLSearchParams(window.location.hash.substring(1));
       const hashError = hashParams.get("error_description") || hashParams.get("error");
       if (hashError) {
-        setError(decodeURIComponent(hashError));
+        setError(toIndonesianError(decodeURIComponent(hashError), "Login gagal. Coba lagi."));
         return;
       }
 
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
       if (sessionError) {
-        setError(sessionError.message);
+        setError(toIndonesianError(sessionError.message, "Gagal memverifikasi sesi login"));
         return;
       }
 

@@ -12,7 +12,7 @@ export async function GET() {
   } catch (error) {
     console.error("Error fetching orders:", error);
     return NextResponse.json(
-      { error: "Failed to fetch orders" },
+      { error: "Gagal mengambil data pesanan" },
       { status: 500 }
     );
   }
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error saving orders:", error);
     return NextResponse.json(
-      { error: "Failed to save orders" },
+      { error: "Gagal menyimpan data pesanan" },
       { status: 500 }
     );
   }
@@ -50,7 +50,7 @@ export async function DELETE() {
   } catch (error) {
     console.error("Error deleting orders:", error);
     return NextResponse.json(
-      { error: "Failed to delete orders" },
+      { error: "Gagal menghapus data pesanan" },
       { status: 500 }
     );
   }

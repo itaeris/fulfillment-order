@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { getAuthorizeUrl, getCallbackUrl, getRequestOrigin } from "@/lib/tiktok-auth";
+import { toIndonesianError } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,10 @@ export async function GET(req: NextRequest) {
     });
     return res;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Gagal memulai authorize TikTok";
+    const message = toIndonesianError(
+      error instanceof Error ? error.message : null,
+      "Gagal memulai authorize TikTok"
+    );
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

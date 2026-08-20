@@ -36,7 +36,7 @@ export async function GET() {
   } catch (error) {
     console.error("Error fetching overview orders:", error);
     return NextResponse.json(
-      { error: "Failed to fetch overview orders" },
+      { error: "Gagal mengambil data pesanan overview" },
       { status: 500 }
     );
   }
@@ -46,14 +46,14 @@ export async function POST(request: NextRequest) {
   try {
     const { orders } = await request.json();
     if (!Array.isArray(orders)) {
-      return NextResponse.json({ error: "orders harus array" }, { status: 400 });
+      return NextResponse.json({ error: "Data pesanan harus berupa array" }, { status: 400 });
     }
     await insertOverviewOrders(serializeForDb(orders));
     return NextResponse.json({ success: true, count: orders.length });
   } catch (error) {
     console.error("Error saving overview orders:", error);
     return NextResponse.json(
-      { error: "Failed to save overview orders" },
+      { error: "Gagal menyimpan data pesanan overview" },
       { status: 500 }
     );
   }
@@ -63,7 +63,7 @@ export async function PUT(request: NextRequest) {
   try {
     const { platforms, orders } = await request.json();
     if (!Array.isArray(platforms) || platforms.length === 0) {
-      return NextResponse.json({ error: "platforms wajib" }, { status: 400 });
+      return NextResponse.json({ error: "Platform wajib diisi" }, { status: 400 });
     }
     const next = await replaceOverviewOrdersByPlatforms(
       platforms as Platform[],
@@ -73,7 +73,7 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error("Error replacing overview orders:", error);
     return NextResponse.json(
-      { error: "Failed to replace overview orders" },
+      { error: "Gagal mengganti data pesanan overview" },
       { status: 500 }
     );
   }
@@ -86,7 +86,7 @@ export async function DELETE() {
   } catch (error) {
     console.error("Error clearing overview data:", error);
     return NextResponse.json(
-      { error: "Failed to clear overview data" },
+      { error: "Gagal menghapus data overview" },
       { status: 500 }
     );
   }

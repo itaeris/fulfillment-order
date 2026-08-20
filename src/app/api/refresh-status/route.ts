@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { refreshOpenTikTokStatuses } from "@/lib/tiktok-status";
 import { refreshOpenJubelioStatuses } from "@/lib/jubelio-status";
+import { toIndonesianError } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -29,7 +30,10 @@ export async function GET() {
       tiktokOffset = part.nextOffset;
     }
   } catch (error) {
-    tiktok.error = error instanceof Error ? error.message : "tiktok";
+    tiktok.error = toIndonesianError(
+      error instanceof Error ? error.message : null,
+      "Gagal memperbarui status TikTok"
+    );
   }
 
   const remaining = BUDGET_MS - (Date.now() - started);
@@ -38,7 +42,10 @@ export async function GET() {
       ? await refreshOpenJubelioStatuses().catch((error) => ({
           checked: 0,
           updated: 0,
-          error: error instanceof Error ? error.message : "jubelio",
+          error: toIndonesianError(
+            error instanceof Error ? error.message : null,
+            "Gagal memperbarui status Jubelio"
+          ),
         }))
       : { checked: 0, updated: 0, skipped: true };
 

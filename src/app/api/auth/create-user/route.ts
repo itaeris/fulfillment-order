@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { toIndonesianError } from "@/lib/errors";
 
 export async function POST(req: NextRequest) {
   try {
@@ -34,7 +35,10 @@ export async function POST(req: NextRequest) {
     });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json(
+        { error: toIndonesianError(error.message, "Gagal membuat user") },
+        { status: 400 }
+      );
     }
 
     if (data.user) {
@@ -47,7 +51,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ user: { id: data.user.id, email } });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err.message || "Terjadi kesalahan" },
+      { error: toIndonesianError(err.message, "Terjadi kesalahan pada sistem") },
       { status: 500 }
     );
   }

@@ -18,6 +18,7 @@ import { DashboardSkeleton, CardsSkeleton } from "@/components/Skeleton";
 import { Order, Platform, UploadedFile, OrderSummary, DailyStats } from "@/types/order";
 import { parseExcelFile, detectPlatform } from "@/lib/excel-parser";
 import { calculateSummary, calculateDailyStats } from "@/lib/utils";
+import { toIndonesianError } from "@/lib/errors";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   clearDashboardCache,
@@ -213,7 +214,9 @@ export default function Dashboard() {
         }
       } catch (err: any) {
         setSyncErrorSource(source);
-        setSyncError(err.message || "Terjadi kesalahan jaringan");
+        setSyncError(
+          toIndonesianError(err.message, "Terjadi kesalahan jaringan")
+        );
       } finally {
         syncLock.current = false;
         setSyncing(null);

@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { supabase } from "@/lib/supabase";
+import { toIndonesianError } from "@/lib/errors";
 import type { User } from "@supabase/supabase-js";
 
 export type UserRole = "admin" | "warehouse";
@@ -247,10 +248,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (error) {
-        if (error.message.includes("Invalid login")) {
-          return { error: "Email/username atau password salah" };
-        }
-        return { error: error.message };
+        return { error: toIndonesianError(error.message, "Email/username atau password salah") };
       }
 
       return { error: null };
@@ -269,7 +267,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
     });
 
-    if (error) return { error: error.message };
+    if (error) return { error: toIndonesianError(error.message, "Gagal login dengan Google") };
     return { error: null };
   }, []);
 
@@ -304,7 +302,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         { redirectTo: `${window.location.origin}/reset-password` }
       );
 
-      return { error: error?.message || null };
+      return {
+        error: error
+          ? toIndonesianError(error.message, "Gagal mengirim email reset password")
+          : null,
+      };
     },
     []
   );
@@ -312,7 +314,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updatePassword = useCallback(
     async (password: string): Promise<{ error: string | null }> => {
       const { error } = await supabase.auth.updateUser({ password });
-      return { error: error?.message || null };
+      return {
+        error: error
+          ? toIndonesianError(error.message, "Gagal memperbarui password")
+          : null,
+      };
     },
     []
   );

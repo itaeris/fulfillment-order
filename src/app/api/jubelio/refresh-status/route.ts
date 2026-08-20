@@ -9,7 +9,7 @@ function publicError(error: unknown): string {
   if (/belum di-set|JUBELIO_/i.test(message)) {
     return "Jubelio belum terhubung di server. Hubungi IT.";
   }
-  return "Gagal memperbarui status Jubelio.";
+  return "Gagal memperbarui status Jubelio. Hubungi IT.";
 }
 
 export async function GET() {

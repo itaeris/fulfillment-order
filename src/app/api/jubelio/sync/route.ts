@@ -28,7 +28,7 @@ function publicJubelioError(error: unknown): string {
   if (/401|unauthorized|login|password|credential/i.test(message)) {
     return "Gagal masuk ke Jubelio. Hubungi IT.";
   }
-  return "Gagal mengambil data Jubelio. Coba lagi.";
+  return "Gagal mengambil data Jubelio. Coba lagi. Hubungi IT.";
 }
 
 function orderToInput(order: Order) {

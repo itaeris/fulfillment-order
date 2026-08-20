@@ -19,7 +19,7 @@ export async function GET() {
   } catch (error) {
     console.error("Error fetching files:", error);
     return NextResponse.json(
-      { error: "Failed to fetch files" },
+      { error: "Gagal mengambil data file" },
       { status: 500 }
     );
   }
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error saving file:", error);
     return NextResponse.json(
-      { error: "Failed to save file" },
+      { error: "Gagal menyimpan file" },
       { status: 500 }
     );
   }
@@ -54,7 +54,7 @@ export async function DELETE(request: NextRequest) {
   } catch (error) {
     console.error("Error deleting file:", error);
     return NextResponse.json(
-      { error: "Failed to delete file" },
+      { error: "Gagal menghapus file" },
       { status: 500 }
     );
   }
