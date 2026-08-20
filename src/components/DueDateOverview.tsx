@@ -18,6 +18,7 @@ import {
   type DueDateRow,
 } from "@/lib/due-date";
 import { Order, Platform } from "@/types/order";
+import { OrderDetailPreview } from "@/components/OrderDetailPreview";
 
 export type OverviewUploadResult = {
   count: number;
@@ -164,6 +165,7 @@ export default function DueDateOverviewView({
   const [uploadMsg, setUploadMsg] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("instant");
   const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
+  const [previewRow, setPreviewRow] = useState<DueDateRow | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const uploadTarget = useRef<Platform>("shopee");
 
@@ -542,7 +544,12 @@ export default function DueDateOverviewView({
                   {visibleRows.map((row) => (
                     <article
                       key={row.key}
-                      className={cn("px-3 py-2.5 space-y-1", rowTone(row))}
+                      onClick={() => setPreviewRow(row)}
+                      className={cn(
+                        "px-3 py-2.5 space-y-1 cursor-pointer",
+                        rowTone(row),
+                        previewRow?.key === row.key && "ring-1 ring-inset ring-brand-300"
+                      )}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <p className="text-xs font-semibold break-all">{row.orderNumber}</p>
@@ -577,7 +584,12 @@ export default function DueDateOverviewView({
                       {visibleRows.map((row) => (
                         <tr
                           key={row.key}
-                          className={cn(rowTone(row) || "hover:bg-cream-50")}
+                          onClick={() => setPreviewRow(row)}
+                          className={cn(
+                            "cursor-pointer",
+                            rowTone(row) || "hover:bg-cream-50",
+                            previewRow?.key === row.key && "bg-brand-50"
+                          )}
                         >
                           <td className="px-3 py-2 font-medium">{row.orderNumber}</td>
                           <td className="px-2 py-2 text-right">{row.quantity}</td>
@@ -619,6 +631,38 @@ export default function DueDateOverviewView({
           </div>
         </div>
       </main>
+      <OrderDetailPreview
+        open={!!previewRow}
+        onClose={() => setPreviewRow(null)}
+        title={previewRow?.orderNumber || "Detail pesanan"}
+        notes={
+          previewRow
+            ? [
+                { label: "Sisa waktu", value: previewRow.remainingLabel },
+                { label: "Kurir", value: previewRow.courier || "-" },
+                { label: "Catatan", value: previewRow.reason },
+                ...(previewRow.preorder ? [{ label: "Tipe", value: "Preorder" }] : []),
+              ]
+            : undefined
+        }
+        sections={
+          previewRow
+            ? [
+                ...(previewRow.marketplaceOrder
+                  ? [
+                      {
+                        label: previewRow.marketplace || "Marketplace",
+                        order: previewRow.marketplaceOrder,
+                      },
+                    ]
+                  : []),
+                ...(previewRow.jubelioOrder
+                  ? [{ label: "Jubelio", order: previewRow.jubelioOrder }]
+                  : []),
+              ]
+            : []
+        }
+      />
     </div>
   );
 }

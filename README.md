@@ -118,12 +118,14 @@ flowchart TD
 - Sub-filter pengiriman: Instant / Reguler
 - Sub-filter pickup: Sebelum Pickup, Sesudah Pickup, Siap Dikirim
 - Sorting, pencarian (no. pesanan, customer, SKU, resi), indikator batas kirim, pagination
+- Klik baris → panel detail dari kanan (produk, SKU, penerima, alamat, kurir, resi, tenggat). Tutup: klik luar, X, atau Escape
 - Export CSV (Settings)
 
 ### Komparasi
 - Cocokkan Jubelio vs marketplace via order number, ref number, atau tracking number
 - Filter Platform Only: Semua | TikTok & Tokopedia | Shopee, plus sub-filter TTS vs Tokopedia
 - Tombol Ambil TikTok dan Ambil Jubelio di halaman yang sama
+- Klik baris → preview Jubelio + marketplace (status komparasi, match via)
 
 ### Kirim hari ini (`/overview-duedate`)
 Halaman kerja daily warehouse. **Data terpisah dari dashboard utama** (Supabase `overview_orders` / `overview_files`, bukan tabel `orders`). Import / hapus di sini tidak mengubah Settings, Pesanan, atau Komparasi.
@@ -146,6 +148,8 @@ Halaman kerja daily warehouse. **Data terpisah dari dashboard utama** (Supabase 
 **Filter antrian**
 - Jenis kirim: Instant · Reguler · Semua
 - Platform: Semua · Shopee · TikTok / Tokopedia · Jubelio
+
+Klik baris antrian → preview detail (sisa waktu, kurir, catatan, preorder, data marketplace + Jubelio). Role warehouse tidak melihat harga.
 
 Timezone tenggat: `Asia/Jakarta`. Tombol **Hapus data halaman ini** hanya mengosongkan tabel overview.
 
@@ -175,6 +179,7 @@ Timezone tenggat: `Asia/Jakarta`. Tombol **Hapus data halaman ini** hanya mengos
 ### Lainnya
 - PWA (install di desktop/mobile)
 - Skeleton loader (dashboard + Kirim hari ini)
+- Preview detail pesanan (drawer kanan) di Pesanan, Komparasi, dan Kirim hari ini
 - Jam header Kirim hari ini dari `/api/time` (Asia/Jakarta)
 - Responsive, tema warm brown/cream
 
@@ -356,6 +361,7 @@ src/
 │   ├── ComparisonView.tsx
 │   ├── DueDateOverview.tsx       # UI Kirim hari ini
 │   ├── FileUpload.tsx            # Import Shopee (dashboard)
+│   ├── OrderDetailPreview.tsx    # Drawer detail klik baris
 │   ├── OrderTable.tsx
 │   ├── SettingsView.tsx
 │   ├── Sidebar.tsx

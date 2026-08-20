@@ -28,6 +28,7 @@ import { isBefore, addHours } from "date-fns";
 import type { UserRole } from "@/contexts/AuthContext";
 import { TableSkeleton } from "@/components/Skeleton";
 import ApiSyncBar, { type ApiSyncState } from "@/components/ApiSyncBar";
+import { OrderDetailPreview } from "@/components/OrderDetailPreview";
 
 interface OrderTableProps {
   orders: Order[];
@@ -109,6 +110,7 @@ export default function OrderTable({
   const [sortField, setSortField] = useState<SortField>("mustShipBefore");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [currentPage, setCurrentPage] = useState(1);
+  const [previewOrder, setPreviewOrder] = useState<Order | null>(null);
 
   const statusCounts = useMemo(() => {
     const counts = {
@@ -620,9 +622,11 @@ export default function OrderTable({
               return (
                 <article
                   key={order.id}
+                  onClick={() => setPreviewOrder(order)}
                   className={cn(
-                    "p-3 space-y-2",
-                    order.status === "processing" && deadlineStatus?.color.includes("red") && "bg-red-50/50"
+                    "p-3 space-y-2 cursor-pointer",
+                    order.status === "processing" && deadlineStatus?.color.includes("red") && "bg-red-50/50",
+                    previewOrder?.id === order.id && "bg-brand-50"
                   )}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -775,9 +779,11 @@ export default function OrderTable({
                 return (
                   <tr
                     key={order.id}
+                    onClick={() => setPreviewOrder(order)}
                     className={cn(
-                      "hover:bg-cream-50 transition-colors",
-                      order.status === "processing" && deadlineStatus?.color.includes("red") && "bg-red-50/50"
+                      "hover:bg-cream-50 transition-colors cursor-pointer",
+                      order.status === "processing" && deadlineStatus?.color.includes("red") && "bg-red-50/50",
+                      previewOrder?.id === order.id && "bg-brand-50"
                     )}
                   >
                     <td className="px-3 sm:px-4 py-2.5 sm:py-3">
@@ -976,6 +982,13 @@ export default function OrderTable({
       )}
         </>
       )}
+      <OrderDetailPreview
+        open={!!previewOrder}
+        onClose={() => setPreviewOrder(null)}
+        title={previewOrder?.orderNumber || "Detail pesanan"}
+        hideMoney={hideMoney}
+        sections={previewOrder ? [{ label: getPlatformName(previewOrder.platform), order: previewOrder }] : []}
+      />
     </div>
   );
 }

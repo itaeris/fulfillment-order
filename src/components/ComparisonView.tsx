@@ -20,6 +20,7 @@ import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 import type { UserRole } from "@/contexts/AuthContext";
 import { CardsSkeleton, TableSkeleton } from "@/components/Skeleton";
 import ApiSyncBar, { type ApiSyncState } from "@/components/ApiSyncBar";
+import { OrderDetailPreview } from "@/components/OrderDetailPreview";
 
 interface ComparisonViewProps {
   orders: Order[];
@@ -120,6 +121,7 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
   const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState<CompSortField>("status");
   const [sortDir, setSortDir] = useState<CompSortDir>("asc");
+  const [previewRow, setPreviewRow] = useState<ComparisonRow | null>(null);
 
   const { rows, summary } = useMemo(() => {
     const jubelioOrders = orders.filter((o) => o.platform === "jubelio");
@@ -607,7 +609,16 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
                   row.platformOrder?.customerName ||
                   "-";
                 return (
-                  <article key={`${row.orderNumber}-${idx}`} className="p-3 space-y-1.5">
+                  <article
+                    key={`${row.orderNumber}-${idx}`}
+                    onClick={() => setPreviewRow(row)}
+                    className={cn(
+                      "p-3 space-y-1.5 cursor-pointer",
+                      previewRow?.orderNumber === row.orderNumber &&
+                        previewRow?.matchedBy === row.matchedBy &&
+                        "bg-brand-50"
+                    )}
+                  >
                     <div className="flex items-center justify-between gap-2">
                       <span
                         className={cn(
@@ -723,9 +734,13 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
                   return (
                     <tr
                       key={`${row.orderNumber}-${idx}`}
+                      onClick={() => setPreviewRow(row)}
                       className={cn(
-                        "hover:bg-cream-50 transition-colors",
-                        row.status === "mismatch" && "bg-red-50/40"
+                        "hover:bg-cream-50 transition-colors cursor-pointer",
+                        row.status === "mismatch" && "bg-red-50/40",
+                        previewRow?.orderNumber === row.orderNumber &&
+                          previewRow?.matchedBy === row.matchedBy &&
+                          "bg-brand-50"
                       )}
                     >
                       <td className="px-3 sm:px-4 py-2.5 sm:py-3">
@@ -906,6 +921,37 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
       </motion.div>
       </>
       )}
+      <OrderDetailPreview
+        open={!!previewRow}
+        onClose={() => setPreviewRow(null)}
+        title={previewRow?.orderNumber || "Detail pesanan"}
+        hideMoney={hideMoney}
+        notes={
+          previewRow
+            ? [
+                { label: "Status komparasi", value: getStatusBadge(previewRow.status).label },
+                { label: "Match via", value: previewRow.matchedBy },
+              ]
+            : undefined
+        }
+        sections={
+          previewRow
+            ? [
+                ...(previewRow.jubelioOrder
+                  ? [{ label: "Jubelio", order: previewRow.jubelioOrder }]
+                  : []),
+                ...(previewRow.platformOrder
+                  ? [
+                      {
+                        label: marketplaceLabel(previewRow.platformOrder),
+                        order: previewRow.platformOrder,
+                      },
+                    ]
+                  : []),
+              ]
+            : []
+        }
+      />
     </div>
   );
 }
