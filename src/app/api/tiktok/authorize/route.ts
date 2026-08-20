@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     const message = toIndonesianError(
       error instanceof Error ? error.message : null,
-      "Gagal memulai authorize TikTok"
+      "Gagal memulai otorisasi TikTok"
     );
     return NextResponse.json({ error: message }, { status: 500 });
   }

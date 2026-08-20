@@ -8,7 +8,7 @@ export const supabase: SupabaseClient = new Proxy({} as SupabaseClient, {
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
       const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
       if (!url || !key) {
-        throw new Error("Supabase env vars not configured");
+        throw new Error("Variabel lingkungan Supabase belum dikonfigurasi");
       }
       _supabase = createClient(url, key);
     }

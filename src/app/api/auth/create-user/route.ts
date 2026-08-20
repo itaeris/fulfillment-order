@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!serviceRoleKey) {
       return NextResponse.json(
-        { error: "Service role key belum dikonfigurasi" },
+        { error: "Konfigurasi server belum lengkap. Hubungi IT." },
         { status: 500 }
       );
     }

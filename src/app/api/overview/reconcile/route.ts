@@ -51,7 +51,7 @@ export async function POST(request: Request) {
   const imported = Array.isArray(body.orders) ? body.orders : [];
 
   if (!platform || imported.length === 0) {
-    return NextResponse.json({ error: "Data import kosong." }, { status: 400 });
+    return NextResponse.json({ error: "Data unggahan kosong." }, { status: 400 });
   }
 
   const source = platform === "jubelio" ? "jubelio" : "tiktok";

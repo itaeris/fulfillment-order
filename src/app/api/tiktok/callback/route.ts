@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (savedState && state && savedState !== state) {
-    return finish({ tiktok: "error", message: "Sesi authorize tidak valid. Coba hubungkan lagi." });
+    return finish({ tiktok: "error", message: "Sesi otorisasi tidak valid. Coba hubungkan lagi." });
   }
 
   try {

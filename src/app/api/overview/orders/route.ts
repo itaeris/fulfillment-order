@@ -36,7 +36,7 @@ export async function GET() {
   } catch (error) {
     console.error("Error fetching overview orders:", error);
     return NextResponse.json(
-      { error: "Gagal mengambil data pesanan overview" },
+      { error: "Gagal mengambil data pesanan ringkasan" },
       { status: 500 }
     );
   }
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error saving overview orders:", error);
     return NextResponse.json(
-      { error: "Gagal menyimpan data pesanan overview" },
+      { error: "Gagal menyimpan data pesanan ringkasan" },
       { status: 500 }
     );
   }
@@ -73,7 +73,7 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error("Error replacing overview orders:", error);
     return NextResponse.json(
-      { error: "Gagal mengganti data pesanan overview" },
+      { error: "Gagal mengganti data pesanan ringkasan" },
       { status: 500 }
     );
   }
@@ -86,7 +86,7 @@ export async function DELETE() {
   } catch (error) {
     console.error("Error clearing overview data:", error);
     return NextResponse.json(
-      { error: "Gagal menghapus data overview" },
+      { error: "Gagal menghapus data ringkasan" },
       { status: 500 }
     );
   }

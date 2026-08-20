@@ -23,6 +23,7 @@ import {
   loadOverviewData,
   type DataSnapshot,
 } from "@/lib/client-data";
+import { toIndonesianError } from "@/lib/errors";
 import { Order, Platform, UploadedFile } from "@/types/order";
 
 function hydrateOrder(order: Order): Order {
@@ -178,7 +179,7 @@ export default function OverviewDueDatePage() {
           matched = data.matched;
           reconciled = true;
         }
-        if (data.error) apiError = data.error;
+        if (data.error) apiError = toIndonesianError(data.error, "Gagal mencocokkan data realtime. Pakai data Excel dulu.");
       } catch {
         apiError = "Gagal mencocokkan data realtime. Pakai data Excel dulu.";
       }

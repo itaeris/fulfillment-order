@@ -196,7 +196,9 @@ export default function Dashboard() {
             }
             if (!res.ok) {
               setSyncErrorSource(source);
-              setSyncError(data.error || `Gagal mengambil data ${label}`);
+              setSyncError(
+                toIndonesianError(data.error, `Gagal mengambil data ${label}`)
+              );
               return;
             }
             insertedSoFar = data.count || insertedSoFar;
