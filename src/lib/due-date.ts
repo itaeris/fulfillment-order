@@ -9,6 +9,8 @@ export type MarketplaceName = "Shopee" | "TikTok" | "Tokopedia";
 
 export type CriticalLevel = "overdue" | "due_soon" | "instant" | null;
 
+export type ShippingKind = "regular" | "instant" | "same_day";
+
 export interface DueDateRow {
   key: string;
   orderNumber: string;
@@ -25,6 +27,8 @@ export interface DueDateRow {
   dueSoon: boolean;
   urgent: boolean;
   instant: boolean;
+  shippingKind: ShippingKind;
+  deadlineMismatch: boolean;
   critical: boolean;
   criticalLevel: CriticalLevel;
   preorder: boolean;
@@ -33,17 +37,20 @@ export interface DueDateRow {
   reason: string;
 }
 
+export interface ShippingBreakdown {
+  total: number;
+  regular: number;
+  instant: number;
+  sameDay: number;
+}
+
 export interface DeadlineBucket {
   key: string;
   label: string;
   sortAt: number;
   orders: number;
-  quantity: number;
-  shopee: number;
-  tiktok: number;
-  jubelio: number;
-  instant: number;
-  sameDay: number;
+  shopee: ShippingBreakdown;
+  tiktok: ShippingBreakdown;
 }
 
 export interface CourierStat {
@@ -68,8 +75,12 @@ export interface DueDateOverview {
   dueSoon: number;
   critical: number;
   preorder: number;
+  shopeeShipping: ShippingBreakdown;
+  tiktokShipping: ShippingBreakdown;
+  shipping: ShippingBreakdown;
   buckets: DeadlineBucket[];
   couriers: CourierStat[];
+  mismatchRows: DueDateRow[];
 }
 
 function toDate(value?: Date | string | null): Date | undefined {
@@ -150,6 +161,28 @@ function isSameDayShip(order?: Order): boolean {
   if (!order) return false;
   const text = `${order.courier || ""} ${order.shippingOption || ""}`.toLowerCase();
   return /same[\s-]?day|sameday|hari ini|same day/.test(text);
+}
+
+function classifyShipping(marketplaceOrder?: Order, jubelioOrder?: Order): ShippingKind {
+  if (isSameDayShip(marketplaceOrder) || isSameDayShip(jubelioOrder)) return "same_day";
+  if (isInstant(marketplaceOrder) || isInstant(jubelioOrder)) return "instant";
+  return "regular";
+}
+
+function emptyShipping(): ShippingBreakdown {
+  return { total: 0, regular: 0, instant: 0, sameDay: 0 };
+}
+
+function addShipping(stat: ShippingBreakdown, kind: ShippingKind) {
+  stat.total += 1;
+  if (kind === "regular") stat.regular += 1;
+  else if (kind === "instant") stat.instant += 1;
+  else stat.sameDay += 1;
+}
+
+function isDeadlineMismatch(marketplaceDue?: Date, jubelioDue?: Date): boolean {
+  if (!marketplaceDue || !jubelioDue) return false;
+  return dayKey(marketplaceDue) !== dayKey(jubelioDue);
 }
 
 function courierName(order?: Order): string {
@@ -306,19 +339,24 @@ function buildRow(args: {
   const effectiveDue = marketplaceDue || jubelioDue;
   const remain = remaining(effectiveDue, now);
   const marketplace = marketplaceName(marketplaceOrder);
-  const instant = isInstant(marketplaceOrder) || isInstant(jubelioOrder);
+  const shippingKind = classifyShipping(marketplaceOrder, jubelioOrder);
+  const instant = shippingKind === "instant" || shippingKind === "same_day";
+  const deadlineMismatch = Boolean(marketplaceOrder && jubelioOrder && isDeadlineMismatch(marketplaceDue, jubelioDue));
   const preorder =
     isPreorderDueToday(marketplaceOrder, marketplaceDue, today) ||
     isPreorderDueToday(jubelioOrder, jubelioDue, today);
   const dueSoon = !remain.overdue && remain.ms <= URGENT_MS;
   const critical = remain.overdue || dueSoon || instant;
-  const { level, reason } = criticalReason({
+  const { level, reason: baseReason } = criticalReason({
     overdue: remain.overdue,
     dueSoon,
     instant,
     preorder,
     remainingLabel: remain.label,
   });
+  const reason = deadlineMismatch
+    ? `${baseReason} · Tenggat marketplace ≠ Jubelio`
+    : baseReason;
 
   const orderNumber =
     marketplaceOrder?.orderNumber ||
@@ -342,6 +380,8 @@ function buildRow(args: {
     dueSoon,
     urgent: critical,
     instant,
+    shippingKind,
+    deadlineMismatch,
     critical,
     criticalLevel: level,
     preorder,
@@ -424,6 +464,10 @@ export function buildDueDateOverview(orders: Order[], now = new Date()): DueDate
     });
 
   const bucketsMap = new Map<string, DeadlineBucket>();
+  const shopeeShipping = emptyShipping();
+  const tiktokShipping = emptyShipping();
+  const shipping = emptyShipping();
+
   for (const row of rows) {
     const meta = bucketLabel(row, now);
     let bucket = bucketsMap.get(meta.key);
@@ -433,22 +477,21 @@ export function buildDueDateOverview(orders: Order[], now = new Date()): DueDate
         label: meta.label,
         sortAt: meta.sortAt,
         orders: 0,
-        quantity: 0,
-        shopee: 0,
-        tiktok: 0,
-        jubelio: 0,
-        instant: 0,
-        sameDay: 0,
+        shopee: emptyShipping(),
+        tiktok: emptyShipping(),
       };
       bucketsMap.set(meta.key, bucket);
     }
     bucket.orders += 1;
-    bucket.quantity += row.quantity;
-    if (row.marketplace === "Shopee") bucket.shopee += 1;
-    if (row.marketplace === "TikTok" || row.marketplace === "Tokopedia") bucket.tiktok += 1;
-    if (row.jubelioOrder) bucket.jubelio += 1;
-    if (row.instant) bucket.instant += 1;
-    if (isSameDayShip(row.marketplaceOrder) || isSameDayShip(row.jubelioOrder)) bucket.sameDay += 1;
+    addShipping(shipping, row.shippingKind);
+    if (row.marketplace === "Shopee") {
+      addShipping(bucket.shopee, row.shippingKind);
+      addShipping(shopeeShipping, row.shippingKind);
+    }
+    if (row.marketplace === "TikTok" || row.marketplace === "Tokopedia") {
+      addShipping(bucket.tiktok, row.shippingKind);
+      addShipping(tiktokShipping, row.shippingKind);
+    }
   }
 
   const courierMap = new Map<string, CourierStat>();
@@ -480,7 +523,11 @@ export function buildDueDateOverview(orders: Order[], now = new Date()): DueDate
     dueSoon: rows.filter((r) => r.dueSoon).length,
     critical: rows.filter((r) => r.critical).length,
     preorder: rows.filter((r) => r.preorder).length,
+    shopeeShipping,
+    tiktokShipping,
+    shipping,
     buckets: Array.from(bucketsMap.values()).sort((a, b) => a.sortAt - b.sortAt),
     couriers: Array.from(courierMap.values()).sort((a, b) => b.orders - a.orders),
+    mismatchRows: rows.filter((row) => row.deadlineMismatch),
   };
 }

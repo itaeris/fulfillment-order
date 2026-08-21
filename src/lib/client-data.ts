@@ -4,6 +4,7 @@ import {
   getAllOrders,
   getAllUploadedFiles,
 } from "@/lib/db";
+import { sanitizeOrderMetrics } from "@/lib/utils";
 import { Order, UploadedFile } from "@/types/order";
 
 export type DataSnapshot = {
@@ -17,14 +18,14 @@ let overviewCache: DataSnapshot | null = null;
 let overviewInflight: Promise<DataSnapshot> | null = null;
 
 export function hydrateOrder(order: Order): Order {
-  return {
+  return sanitizeOrderMetrics({
     ...order,
     orderDate: order.orderDate ? new Date(order.orderDate) : new Date(),
     paidTime: order.paidTime ? new Date(order.paidTime) : undefined,
     shippedTime: order.shippedTime ? new Date(order.shippedTime) : undefined,
     mustShipBefore: order.mustShipBefore ? new Date(order.mustShipBefore) : undefined,
     pickupTime: order.pickupTime ? new Date(order.pickupTime) : undefined,
-  };
+  });
 }
 
 export function hydrateOrders(orders: Order[]): Order[] {

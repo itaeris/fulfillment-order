@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import { Order, Platform, OrderStatus } from "@/types/order";
+import { sanitizeOrderMetrics } from "@/lib/utils";
 
 // Exact column mappings based on actual export files (case-insensitive matching will be used)
 const COLUMN_MAPPINGS: Record<Platform, Record<string, string>> = {
@@ -535,16 +536,38 @@ function parseDate(value: unknown): Date {
 }
 
 function parseNumber(value: unknown): number {
-  if (typeof value === "number") return value;
-  if (!value) return 0;
-  
-  const strValue = String(value)
-    .replace(/[Rp.\s]/g, "")
-    .replace(/,/g, ".")
-    .replace(/[^\d.-]/g, "");
-  
-  const num = parseFloat(strValue);
-  return isNaN(num) ? 0 : num;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (value == null || value === "") return 0;
+
+  let s = String(value).trim().replace(/Rp\.?|IDR/gi, "").replace(/\s/g, "");
+  if (!s) return 0;
+
+  const lastComma = s.lastIndexOf(",");
+  const lastDot = s.lastIndexOf(".");
+
+  if (lastComma !== -1 && lastDot !== -1) {
+    if (lastComma > lastDot) {
+      s = s.replace(/\./g, "").replace(",", ".");
+    } else {
+      s = s.replace(/,/g, "");
+    }
+  } else if (lastComma !== -1) {
+    const frac = s.slice(lastComma + 1);
+    if (frac.length <= 2 || /^0+$/.test(frac)) s = s.replace(",", ".");
+    else s = s.replace(/,/g, "");
+  } else if (lastDot !== -1) {
+    const parts = s.split(".");
+    if (parts.length > 2) {
+      s = s.replace(/\./g, "");
+    } else if (parts[1].length === 3 && !/^0+$/.test(parts[1]) && parts[0].replace("-", "").length <= 3) {
+      s = parts[0] + parts[1];
+    }
+  }
+
+  s = s.replace(/[^\d.-]/g, "");
+  if (!s || s === "-" || s === ".") return 0;
+  const num = parseFloat(s);
+  return Number.isFinite(num) ? num : 0;
 }
 
 function isTruthyPoFlag(value: unknown): boolean {
@@ -763,14 +786,17 @@ export function parseExcelFile(
     const finalOrderNumber = orderNumber || row[0]?.toString()?.trim() || "";
     if (!finalOrderNumber) continue;
     
-    const quantity = parseNumber(getValue("quantity")) || parseNumber(getValue("totalQty")) || 1;
-    const price = parseNumber(getValue("price"));
+    let quantity = parseNumber(getValue("quantity")) || parseNumber(getValue("totalQty")) || 1;
+    let price = parseNumber(getValue("price"));
     const originalPrice = parseNumber(getValue("originalPrice")) || price;
     let totalAmount = parseNumber(getValue("totalAmount"));
     
     // Calculate total if not available
     if (!totalAmount && price) {
       totalAmount = price * quantity;
+    }
+    if ((!price || price === 0) && totalAmount && quantity) {
+      price = totalAmount / quantity;
     }
     
     const order: Order = {
@@ -832,7 +858,7 @@ export function parseExcelFile(
         isTruthyPoFlag(getValue("isPo")) || looksLikePreorderType(getValue("orderType")),
     };
     
-    orders.push(order);
+    orders.push(sanitizeOrderMetrics(order));
   }
   
   console.log("Parsed", orders.length, "orders");

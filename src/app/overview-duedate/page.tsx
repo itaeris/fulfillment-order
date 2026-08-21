@@ -20,22 +20,12 @@ import {
 } from "@/lib/overview-store";
 import {
   getCachedOverview,
+  hydrateOrder,
   loadOverviewData,
   type DataSnapshot,
 } from "@/lib/client-data";
 import { toIndonesianError } from "@/lib/errors";
 import { Order, Platform, UploadedFile } from "@/types/order";
-
-function hydrateOrder(order: Order): Order {
-  return {
-    ...order,
-    orderDate: new Date(order.orderDate),
-    paidTime: order.paidTime ? new Date(order.paidTime) : undefined,
-    shippedTime: order.shippedTime ? new Date(order.shippedTime) : undefined,
-    mustShipBefore: order.mustShipBefore ? new Date(order.mustShipBefore) : undefined,
-    pickupTime: order.pickupTime ? new Date(order.pickupTime) : undefined,
-  };
-}
 
 export default function OverviewDueDatePage() {
   const { user, profile, isLoading: authLoading, signOut } = useAuth();

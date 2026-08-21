@@ -19,6 +19,49 @@ export function formatNumber(num: number): string {
   return new Intl.NumberFormat("id-ID").format(num);
 }
 
+/**
+ * Excel often formats 40 as "40.000". An older parser stripped every dot,
+ * turning qty into 40000 and totals into billions. Undo that when weight
+ * makes the inflated qty impossible, and fill unit price from total.
+ */
+export function sanitizeOrderMetrics(order: Order): Order {
+  let quantity = Number(order.quantity) || 0;
+  let price = Number(order.price) || 0;
+  let totalAmount = Number(order.totalAmount) || 0;
+  const weight = Number(order.weight) || 0;
+  let originalPrice = order.originalPrice != null ? Number(order.originalPrice) : undefined;
+
+  const inflated = () => {
+    if (quantity < 1000 || quantity % 1000 !== 0) return false;
+    if (weight > 0 && weight / quantity < 0.05) return true;
+    return false;
+  };
+
+  while (inflated()) {
+    quantity /= 1000;
+    if (totalAmount >= 1000 && totalAmount % 1000 === 0) totalAmount /= 1000;
+  }
+
+  if (quantity <= 0) quantity = 1;
+  if ((!price || price === 0) && totalAmount > 0) {
+    price = totalAmount / quantity;
+  }
+  if ((!originalPrice || originalPrice === 0) && price) {
+    originalPrice = price;
+  }
+
+  if (
+    quantity === order.quantity &&
+    price === order.price &&
+    totalAmount === order.totalAmount &&
+    originalPrice === order.originalPrice
+  ) {
+    return order;
+  }
+
+  return { ...order, quantity, price, originalPrice, totalAmount };
+}
+
 export function formatDate(date: Date | string): string {
   const d = typeof date === "string" ? parseISO(date) : date;
   return format(d, "dd MMM yyyy", { locale: id });

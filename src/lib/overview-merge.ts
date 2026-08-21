@@ -60,7 +60,13 @@ export function overlayImportedWithApi(imported: Order, api: Order): Order {
     orderType: api.orderType || imported.orderType,
     refNo: api.refNo || imported.refNo,
     productName: importedGeneric ? api.productName || imported.productName : imported.productName,
-    quantity: imported.quantity || api.quantity,
+    quantity:
+      imported.quantity && api.quantity && imported.quantity > api.quantity * 10
+        ? api.quantity
+        : imported.quantity || api.quantity,
+    price: imported.price || api.price,
+    originalPrice: imported.originalPrice || api.originalPrice || imported.price || api.price,
+    totalAmount: imported.totalAmount || api.totalAmount,
     sku: imported.sku || api.sku,
     variation: imported.variation || api.variation,
     customerName: customerUnknown ? api.customerName || imported.customerName : imported.customerName,

@@ -1,4 +1,5 @@
 import { Order, OrderStatus } from "@/types/order";
+import { sanitizeOrderMetrics } from "@/lib/utils";
 import {
   ensureJubelioToken,
   getJubelioBaseUrl,
@@ -327,9 +328,12 @@ function mapRawOrder(raw: JubelioRawOrder): Order {
     raw.total_qty ||
     raw.qty ||
     1;
+  const totalAmount = parseAmount(raw.grand_total);
+  let price = parseAmount(first?.price ?? first?.unit_price);
+  if (!price && totalAmount && quantity) price = totalAmount / quantity;
   const statusSource = raw.channel_status || raw.status || raw.sub_status || "";
 
-  return {
+  return sanitizeOrderMetrics({
     id: `jubelio-${raw.salesorder_id ?? orderNumber}`,
     orderNumber,
     platform: "jubelio",
@@ -338,8 +342,8 @@ function mapRawOrder(raw: JubelioRawOrder): Order {
     variation: first?.variation,
     sku: first?.seller_sku || first?.sku,
     quantity,
-    price: parseAmount(first?.price ?? first?.unit_price),
-    totalAmount: parseAmount(raw.grand_total),
+    price,
+    totalAmount,
     status: mapStatus(statusSource),
     orderDate: toDate(raw.transaction_date) ?? new Date(),
     mustShipBefore: toDate(raw.due_date),
@@ -362,7 +366,7 @@ function mapRawOrder(raw: JubelioRawOrder): Order {
         String(raw.is_po ?? "").toLowerCase() === "true" ||
         /pre[\s-]?order|preorder|\bpo\b/i.test(String(raw.order_type ?? ""))
     ),
-  };
+  });
 }
 
 function dedupeOrders(rows: JubelioRawOrder[]): JubelioRawOrder[] {

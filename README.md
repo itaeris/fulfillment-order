@@ -86,7 +86,8 @@ flowchart TD
   Overlay --> Simpan
   Excel --> Simpan
   Simpan --> Filter[Filter: hari ini, Instant / Reguler]
-  Filter --> Antrian[Antrian gudang]
+  Filter --> Mismatch[Beda tanggal kirim Shopee/TikTok vs Jubelio]
+  Mismatch --> Antrian[Antrian gudang + nomor order mismatch]
 ```
 
 ## Fitur
@@ -140,16 +141,18 @@ Halaman kerja daily warehouse. **Data terpisah dari dashboard utama** (Supabase 
 **Yang ditampilkan**
 - Hanya pesanan yang perlu dikirim **hari ini** (termasuk preorder yang jatuh tempo hari ini; preorder masa depan disembunyikan)
 - Kartu: Perlu dikirim hari ini · Wajib dikirim sekarang · Shopee · TikTok / Tokopedia · Jubelio
-- **Shopee / TikTok**: pesanan marketplace yang perlu dikirim hari ini
+- **Shopee / TikTok**: total pesanan marketplace hari ini (semua jenis kirim), lalu pecahan **Reguler · Instan · Same-day** di bawahnya
 - **Jubelio**: pesanan yang hanya ada di gudang, belum ketemu pasangan di Shopee / TikTok
 - **Wajib dikirim sekarang**: terlambat atau sisa ≤ 1 jam
-- **Instant**: kurir instant / same-day (SPX Instant, GoSend, Grab Express, dll.) — bukan Hemat/Standard
+- **Pesanan per tenggat**: jumlah pesanan saja (tanpa kolom qty). Per bucket: total Shopee dan TikTok, lalu Reguler / Instan / Same-day terpisah — bukan satu baris campur
+- **Instant**: kurir instant (SPX Instant, GoSend, Grab Express, dll.). **Same-day** dihitung terpisah. Bukan Hemat/Standard
+- **Tenggat tidak cocok**: pesanan yang sudah tercocokkan tapi **tanggal kirim Shopee/TikTok ≠ Jubelio**. Nomor order di-list supaya tim gudang bisa cek; ada tombol salin semua nomor dan badge **Beda tenggat** di antrian
 
 **Filter antrian**
 - Jenis kirim: Instant · Reguler · Semua
 - Platform: Semua · Shopee · TikTok / Tokopedia · Jubelio
 
-Klik baris antrian → preview detail (sisa waktu, kurir, catatan, preorder, data marketplace + Jubelio). Role warehouse tidak melihat harga.
+Klik baris antrian → preview detail (sisa waktu, kurir, catatan, preorder, data marketplace + Jubelio). Role warehouse tidak melihat harga. Qty / harga / total di-normalisasi dari Excel (titik ribuan vs desimal) supaya tidak membengkak jadi puluhan ribu item atau total miliaran.
 
 Timezone tenggat: `Asia/Jakarta`. Tombol **Hapus data halaman ini** hanya mengosongkan tabel overview.
 
@@ -373,8 +376,8 @@ src/
 ├── lib/
 │   ├── client-data.ts            # Cache memori + load paralel dari Supabase
 │   ├── db.ts
-│   ├── due-date.ts               # Tenggat, Instant, matching marketplace vs Jubelio
-│   ├── excel-parser.ts
+│   ├── due-date.ts               # Tenggat, Instant/same-day, mismatch tanggal kirim
+│   ├── excel-parser.ts           # Import Excel + normalisasi angka qty/harga
 │   ├── overview-merge.ts         # Overlay Excel dengan data API
 │   ├── overview-store.ts         # Tulis data Kirim hari ini ke Supabase
 │   ├── supabase.ts
@@ -385,7 +388,7 @@ src/
 │   ├── jubelio-api.ts
 │   ├── jubelio-auth.ts
 │   ├── jubelio-status.ts
-│   └── utils.ts
+│   └── utils.ts                  # Format angka, sanitasi qty/harga Excel
 └── types/
     └── order.ts
 public/
@@ -408,6 +411,7 @@ vercel.json                       # Cron /api/refresh-status tiap 15 menit
 | Produk | Nama Produk | Product Name | - |
 | SKU | Nomor Referensi SKU | Seller SKU | - |
 | Qty | Jumlah | Quantity | qty / total_qty |
+| Harga | Harga Setelah Diskon | SKU Subtotal After Discount | dihitung dari grand_total ÷ qty kalau kolom harga kosong |
 | Total | Total Pembayaran | Order Amount | grand_total |
 | Tanggal | Waktu Pesanan Dibuat | Created Time | transaction_date |
 | Batas Kirim | Pesanan Harus Dikirimkan Sebelum | - | due_date |
@@ -415,6 +419,8 @@ vercel.json                       # Cron /api/refresh-status tiap 15 menit
 | Kurir | Opsi Pengiriman | Shipping Provider Name | shipper |
 | Ref No | - | - | ref_no |
 | Pickup Time | - | RTS Time | pickup_time_store |
+
+Excel sering memformat `40` jadi `40.000` dan total jadi `4624960.000`. Parser tidak menghapus semua titik (itu yang dulu bikin qty 40000 dan total miliaran). Kalau harga satuan kosong, diisi dari total ÷ qty.
 
 ## License
 

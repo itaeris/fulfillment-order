@@ -52,8 +52,20 @@ function OrderFields({ order, hideMoney }: { order: Order; hideMoney?: boolean }
       <Field label="Qty" value={order.quantity} />
       {!hideMoney && (
         <>
-          <Field label="Harga" value={formatCurrency(order.price)} />
-          <Field label="Total" value={<span className="font-semibold">{formatCurrency(order.totalAmount)}</span>} />
+          <Field
+            label="Harga"
+            value={order.price ? formatCurrency(order.price) : "—"}
+          />
+          <Field
+            label="Total"
+            value={
+              order.totalAmount ? (
+                <span className="font-semibold">{formatCurrency(order.totalAmount)}</span>
+              ) : (
+                "—"
+              )
+            }
+          />
         </>
       )}
       <Field label="Pembeli" value={order.customerName} />
