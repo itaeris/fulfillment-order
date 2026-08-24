@@ -7,9 +7,11 @@ import {
   Clock,
   Copy,
   LogOut,
+  Search,
   Upload,
   LayoutDashboard,
   Bell,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { cn, formatNumber } from "@/lib/utils";
@@ -192,6 +194,7 @@ export default function DueDateOverviewView({
   const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
   const [previewRow, setPreviewRow] = useState<DueDateRow | null>(null);
   const [copiedMismatch, setCopiedMismatch] = useState(false);
+  const [orderQuery, setOrderQuery] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const uploadTarget = useRef<Platform>("shopee");
 
@@ -209,7 +212,26 @@ export default function DueDateOverviewView({
     if (platformFilter === "all") return true;
     return rowPlatform(row) === platformFilter;
   };
-  const visibleRows = overview.rows.filter((row) => matchesType(row) && matchesPlatform(row));
+  const matchesSearch = (row: DueDateRow) => {
+    const q = orderQuery.replace(/[\s\-_.#]+/g, "").toLowerCase();
+    if (!q) return true;
+    const hay = [
+      row.orderNumber,
+      row.marketplaceOrder?.orderNumber,
+      row.jubelioOrder?.orderNumber,
+      row.jubelioOrder?.refNo,
+      row.marketplaceOrder?.refNo,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .replace(/[\s\-_.#]+/g, "")
+      .toLowerCase();
+    return hay.includes(q);
+  };
+  const visibleRows = overview.rows.filter((row) => {
+    if (orderQuery.trim()) return matchesSearch(row);
+    return matchesType(row) && matchesPlatform(row);
+  });
   const typeCount = (id: TypeFilter) =>
     overview.rows.filter((row) => {
       if (!matchesPlatform(row)) return false;
@@ -622,8 +644,35 @@ export default function DueDateOverviewView({
               </div>
             </div>
 
+            <div className="px-3 sm:px-4 py-2 border-b border-brand-100">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-brand-300" />
+                <input
+                  type="search"
+                  value={orderQuery}
+                  onChange={(e) => setOrderQuery(e.target.value)}
+                  placeholder="Cari nomor pesanan..."
+                  className="w-full pl-8 pr-8 py-1.5 text-sm border border-brand-200 rounded-lg bg-cream-50 text-brand-800 placeholder:text-brand-300 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                />
+                {orderQuery ? (
+                  <button
+                    type="button"
+                    onClick={() => setOrderQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-brand-400 hover:text-brand-700"
+                    aria-label="Hapus pencarian"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
             {visibleRows.length === 0 ? (
-              <p className="px-4 py-8 text-sm text-brand-400 text-center">Tidak ada pesanan di filter ini.</p>
+              <p className="px-4 py-8 text-sm text-brand-400 text-center">
+                {orderQuery.trim()
+                  ? "Nomor pesanan tidak ketemu di antrian hari ini."
+                  : "Tidak ada pesanan di filter ini."}
+              </p>
             ) : (
               <>
                 <div className="md:hidden divide-y divide-brand-100">

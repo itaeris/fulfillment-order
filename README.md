@@ -420,7 +420,7 @@ vercel.json                       # Cron /api/refresh-status tiap 15 menit
 | Ref No | - | - | ref_no |
 | Pickup Time | - | RTS Time | pickup_time_store |
 
-Excel sering memformat `40` jadi `40.000` dan total jadi `4624960.000`. Parser tidak menghapus semua titik (itu yang dulu bikin qty 40000 dan total miliaran). Kalau harga satuan kosong, diisi dari total ÷ qty.
+Angka Excel dibaca beda untuk qty vs uang: qty `40.000` = 40 item; uang `149.000` = Rp 149.000. Total di preview = harga satuan × qty (bukan Total Pembayaran Shopee, yang sudah dipotong voucher/koin).
 
 ## License
 

@@ -185,6 +185,20 @@ const COLUMN_MAPPINGS: Record<Platform, Record<string, string>> = {
     // Customer
     "contact_id": "contactId",
     "customer_name": "customerName",
+    "contact_name": "recipientName",
+    "recipient_name": "recipientName",
+    "shipping_name": "recipientName",
+    "shipping_full_name": "recipientName",
+    "phone": "phone",
+    "shipping_phone": "phone",
+    "contact_phone": "phone",
+    "shipping_address": "shippingAddress",
+    "shipping_full_address": "shippingAddress",
+    "address": "shippingAddress",
+    "shipping_city": "city",
+    "city": "city",
+    "shipping_province": "province",
+    "province": "province",
     
     // Product & quantity
     "qty": "quantity",
@@ -535,39 +549,67 @@ function parseDate(value: unknown): Date {
   return isNaN(parsed.getTime()) ? new Date() : parsed;
 }
 
-function parseNumber(value: unknown): number {
+function finishNumber(s: string): number {
+  s = s.replace(/[^\d.-]/g, "");
+  if (!s || s === "-" || s === ".") return 0;
+  const num = parseFloat(s);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function stripMoneyPrefix(value: unknown): string {
+  return String(value ?? "").trim().replace(/Rp\.?|IDR/gi, "").replace(/\s/g, "");
+}
+
+/** Qty / gram: "40.000" = 40 (Excel 3 desimal), bukan 40000. */
+function parseQuantity(value: unknown): number {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   if (value == null || value === "") return 0;
 
-  let s = String(value).trim().replace(/Rp\.?|IDR/gi, "").replace(/\s/g, "");
+  let s = stripMoneyPrefix(value);
   if (!s) return 0;
 
   const lastComma = s.lastIndexOf(",");
   const lastDot = s.lastIndexOf(".");
 
   if (lastComma !== -1 && lastDot !== -1) {
-    if (lastComma > lastDot) {
-      s = s.replace(/\./g, "").replace(",", ".");
-    } else {
-      s = s.replace(/,/g, "");
-    }
+    if (lastComma > lastDot) s = s.replace(/\./g, "").replace(",", ".");
+    else s = s.replace(/,/g, "");
   } else if (lastComma !== -1) {
     const frac = s.slice(lastComma + 1);
     if (frac.length <= 2 || /^0+$/.test(frac)) s = s.replace(",", ".");
     else s = s.replace(/,/g, "");
   } else if (lastDot !== -1) {
     const parts = s.split(".");
-    if (parts.length > 2) {
-      s = s.replace(/\./g, "");
-    } else if (parts[1].length === 3 && !/^0+$/.test(parts[1]) && parts[0].replace("-", "").length <= 3) {
-      s = parts[0] + parts[1];
-    }
+    if (parts.length > 2) s = s.replace(/\./g, "");
   }
 
-  s = s.replace(/[^\d.-]/g, "");
-  if (!s || s === "-" || s === ".") return 0;
-  const num = parseFloat(s);
-  return Number.isFinite(num) ? num : 0;
+  return finishNumber(s);
+}
+
+/** Uang IDR: "149.000" = 149000, "133.220" = 133220. Titik = pemisah ribuan. */
+function parseMoney(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (value == null || value === "") return 0;
+
+  let s = stripMoneyPrefix(value);
+  if (!s) return 0;
+
+  const lastComma = s.lastIndexOf(",");
+  const lastDot = s.lastIndexOf(".");
+
+  if (lastComma !== -1 && lastDot !== -1) {
+    if (lastComma > lastDot) s = s.replace(/\./g, "").replace(",", ".");
+    else s = s.replace(/,/g, "");
+  } else if (lastComma !== -1) {
+    const frac = s.slice(lastComma + 1);
+    if (frac.length <= 2) s = s.replace(",", ".");
+    else s = s.replace(/,/g, "");
+  } else if (lastDot !== -1) {
+    const parts = s.split(".");
+    if (parts.length > 2 || parts[1].length === 3) s = parts.join("").replace(/\./g, "");
+  }
+
+  return finishNumber(s);
 }
 
 function isTruthyPoFlag(value: unknown): boolean {
@@ -786,16 +828,20 @@ export function parseExcelFile(
     const finalOrderNumber = orderNumber || row[0]?.toString()?.trim() || "";
     if (!finalOrderNumber) continue;
     
-    let quantity = parseNumber(getValue("quantity")) || parseNumber(getValue("totalQty")) || 1;
-    let price = parseNumber(getValue("price"));
-    const originalPrice = parseNumber(getValue("originalPrice")) || price;
-    let totalAmount = parseNumber(getValue("totalAmount"));
-    
-    // Calculate total if not available
-    if (!totalAmount && price) {
+    let quantity = parseQuantity(getValue("quantity")) || parseQuantity(getValue("totalQty")) || 1;
+    let price = parseMoney(getValue("price"));
+    const originalPrice = parseMoney(getValue("originalPrice")) || price;
+    const subtotal = parseMoney(getValue("subtotal"));
+    let totalAmount = parseMoney(getValue("totalAmount"));
+
+    // Total produk = harga satuan × qty. Jangan pakai Total Pembayaran
+    // (itu sisa bayar pembeli setelah voucher Shopee/koin).
+    if (price > 0) {
       totalAmount = price * quantity;
-    }
-    if ((!price || price === 0) && totalAmount && quantity) {
+    } else if (subtotal > 0) {
+      totalAmount = subtotal;
+      price = quantity ? subtotal / quantity : subtotal;
+    } else if (totalAmount > 0 && quantity) {
       price = totalAmount / quantity;
     }
     
@@ -830,7 +876,7 @@ export function parseExcelFile(
       courier: getValue("courier")?.toString()?.trim(),
       phone: getValue("phone")?.toString()?.trim(),
       notes: getValue("notes")?.toString()?.trim(),
-      weight: parseNumber(getValue("weight")) || undefined,
+      weight: parseQuantity(getValue("weight")) || undefined,
       channelName: getValue("channelName")?.toString()?.trim(),
       storeName: getValue("storeName")?.toString()?.trim(),
       refNo: getValue("refNo")?.toString()?.trim() || getValue("invoiceNo")?.toString()?.trim(),

@@ -1,4 +1,5 @@
 import { Order, OrderStatus } from "@/types/order";
+import { preferClear } from "@/lib/utils";
 
 function toDate(value?: Date | string | null): Date | undefined {
   if (!value) return undefined;
@@ -70,7 +71,11 @@ export function overlayImportedWithApi(imported: Order, api: Order): Order {
     sku: imported.sku || api.sku,
     variation: imported.variation || api.variation,
     customerName: customerUnknown ? api.customerName || imported.customerName : imported.customerName,
-    recipientName: imported.recipientName || api.recipientName,
+    recipientName: preferClear(imported.recipientName, api.recipientName, api.customerName),
+    phone: preferClear(imported.phone, api.phone),
+    shippingAddress: preferClear(imported.shippingAddress, api.shippingAddress),
+    city: preferClear(imported.city, api.city),
+    province: preferClear(imported.province, api.province),
   };
 }
 

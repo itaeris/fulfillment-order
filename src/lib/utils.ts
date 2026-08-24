@@ -19,10 +19,54 @@ export function formatNumber(num: number): string {
   return new Intl.NumberFormat("id-ID").format(num);
 }
 
+export function isMaskedPii(value?: string | null): boolean {
+  const text = String(value || "").trim();
+  if (!text) return true;
+  return /\*{2,}/.test(text);
+}
+
+export function preferClear(...candidates: (string | undefined | null)[]): string | undefined {
+  for (const value of candidates) {
+    const text = String(value || "").trim();
+    if (text && !/\*{2,}/.test(text)) return text;
+  }
+  for (const value of candidates) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return undefined;
+}
+
+export function fillClearContact(order: Order, source?: Order): Order {
+  if (!source) return order;
+  const recipientName = preferClear(order.recipientName, source.recipientName, source.customerName);
+  const phone = preferClear(order.phone, source.phone);
+  const shippingAddress = preferClear(order.shippingAddress, source.shippingAddress);
+  const city = preferClear(order.city, source.city);
+  const province = preferClear(order.province, source.province);
+  if (
+    recipientName === order.recipientName &&
+    phone === order.phone &&
+    shippingAddress === order.shippingAddress &&
+    city === order.city &&
+    province === order.province
+  ) {
+    return order;
+  }
+  return { ...order, recipientName, phone, shippingAddress, city, province };
+}
+
+function restoreLostThousands(n: number): number {
+  if (n <= 0 || n >= 2000) return n;
+  const scaled = n * 1000;
+  return scaled >= 10_000 && scaled <= 10_000_000 ? scaled : n;
+}
+
 /**
- * Excel often formats 40 as "40.000". An older parser stripped every dot,
- * turning qty into 40000 and totals into billions. Undo that when weight
- * makes the inflated qty impossible, and fill unit price from total.
+ * Perbaiki angka yang sudah tersimpan salah:
+ * - qty 40000 + berat 115g → qty 40 (Excel "40.000")
+ * - harga 149 dari "149.000" → Rp 149.000
+ * - total = harga satuan × qty, bukan Total Pembayaran (setelah voucher)
  */
 export function sanitizeOrderMetrics(order: Order): Order {
   let quantity = Number(order.quantity) || 0;
@@ -31,19 +75,23 @@ export function sanitizeOrderMetrics(order: Order): Order {
   const weight = Number(order.weight) || 0;
   let originalPrice = order.originalPrice != null ? Number(order.originalPrice) : undefined;
 
-  const inflated = () => {
-    if (quantity < 1000 || quantity % 1000 !== 0) return false;
-    if (weight > 0 && weight / quantity < 0.05) return true;
-    return false;
-  };
+  const inflatedQty = () =>
+    quantity >= 1000 && quantity % 1000 === 0 && weight > 0 && weight / quantity < 0.05;
 
-  while (inflated()) {
+  while (inflatedQty()) {
     quantity /= 1000;
     if (totalAmount >= 1000 && totalAmount % 1000 === 0) totalAmount /= 1000;
   }
 
   if (quantity <= 0) quantity = 1;
-  if ((!price || price === 0) && totalAmount > 0) {
+
+  price = restoreLostThousands(price);
+  if (originalPrice) originalPrice = restoreLostThousands(originalPrice);
+  if (totalAmount > 0 && totalAmount < 2000) totalAmount = restoreLostThousands(totalAmount);
+
+  if (price > 0) {
+    totalAmount = price * quantity;
+  } else if (totalAmount > 0) {
     price = totalAmount / quantity;
   }
   if ((!originalPrice || originalPrice === 0) && price) {

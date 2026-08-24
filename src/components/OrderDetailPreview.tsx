@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Order } from "@/types/order";
 import {
   cn,
+  fillClearContact,
   formatCurrency,
   formatDateTime,
   getPlatformName,
@@ -53,7 +54,7 @@ function OrderFields({ order, hideMoney }: { order: Order; hideMoney?: boolean }
       {!hideMoney && (
         <>
           <Field
-            label="Harga"
+            label="Harga satuan"
             value={order.price ? formatCurrency(order.price) : "—"}
           />
           <Field
@@ -186,7 +187,15 @@ export function OrderDetailPreview({
                 </div>
               ) : null}
 
-              {sections.map((section) => (
+              {sections.map((section) => {
+                const siblings = sections
+                  .filter((item) => item.order.id !== section.order.id)
+                  .map((item) => item.order);
+                const order = siblings.reduce(
+                  (current, source) => fillClearContact(current, source),
+                  section.order
+                );
+                return (
                 <section
                   key={`${section.label}-${section.order.id}`}
                   className="rounded-xl border border-brand-200 bg-white p-3 sm:p-4 space-y-3"
@@ -196,9 +205,10 @@ export function OrderDetailPreview({
                       {section.label}
                     </h3>
                   ) : null}
-                  <OrderFields order={section.order} hideMoney={hideMoney} />
+                  <OrderFields order={order} hideMoney={hideMoney} />
                 </section>
-              ))}
+                );
+              })}
             </div>
           </motion.aside>
         </div>
