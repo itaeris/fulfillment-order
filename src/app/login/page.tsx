@@ -309,14 +309,6 @@ export default function LoginPage() {
     onGoogle: handleGoogle,
   };
 
-  if (authLoading) {
-    return (
-      <div className="min-h-dvh flex items-center justify-center" style={{ background: HERO_BG }}>
-        <div className="loader loader-light" />
-      </div>
-    );
-  }
-
   if (user) return null;
 
   return (

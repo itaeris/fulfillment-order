@@ -13,8 +13,10 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: "Order Dashboard - Aeris Beaute",
-  description: "Dashboard untuk mengelola order dari marketplace",
+  metadataBase: new URL("https://fulfillment-order.vercel.app"),
+  title: "Order Dashboard",
+  description: "Fulfillment dashboard for From This Island.",
+  applicationName: "Order Dashboard",
   manifest: "/manifest.json",
   icons: {
     icon: "/icons/icon-192.png",
@@ -24,6 +26,18 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: "default",
     title: "Order Dashboard",
+  },
+  openGraph: {
+    title: "Order Dashboard",
+    description: "Fulfillment dashboard for From This Island.",
+    siteName: "From This Island",
+    locale: "id_ID",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Order Dashboard",
+    description: "Fulfillment dashboard for From This Island.",
   },
   other: {
     "mobile-web-app-capable": "yes",
