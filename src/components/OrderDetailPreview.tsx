@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
-import { X } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Check, Copy, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Order } from "@/types/order";
 import {
@@ -13,6 +13,30 @@ import {
   getStatusColor,
   getStatusLabel,
 } from "@/lib/utils";
+
+function CopyOrderIdButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  if (!value) return null;
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1500);
+        } catch {
+          setCopied(false);
+        }
+      }}
+      className="inline-flex items-center justify-center p-1 rounded-md text-brand-400 hover:text-brand-700 hover:bg-cream-200 shrink-0"
+      aria-label={copied ? "Nomor pesanan tersalin" : "Salin nomor pesanan"}
+      title={copied ? "Tersalin" : "Salin nomor pesanan"}
+    >
+      {copied ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  );
+}
 
 function Field({ label, value }: { label: string; value?: ReactNode }) {
   if (value == null || value === "") return null;
@@ -27,7 +51,15 @@ function Field({ label, value }: { label: string; value?: ReactNode }) {
 function OrderFields({ order, hideMoney }: { order: Order; hideMoney?: boolean }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
-      <Field label="No. pesanan" value={<span className="font-mono font-medium">{order.orderNumber}</span>} />
+      <Field
+        label="No. pesanan"
+        value={
+          <span className="inline-flex items-center gap-1 min-w-0">
+            <span className="font-mono font-medium break-all">{order.orderNumber}</span>
+            <CopyOrderIdButton value={order.orderNumber} />
+          </span>
+        }
+      />
       <Field label="Ref no" value={order.refNo ? <span className="font-mono">{order.refNo}</span> : null} />
       <Field
         label="Platform"
@@ -162,9 +194,12 @@ export function OrderDetailPreview({
             <header className="shrink-0 bg-white border-b border-brand-200 px-4 py-3 flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[11px] text-brand-400">Preview pesanan</p>
-                <h2 className="text-sm sm:text-base font-semibold text-brand-800 font-mono break-all leading-snug">
-                  {title}
-                </h2>
+                <div className="flex items-start gap-1.5 min-w-0">
+                  <h2 className="text-sm sm:text-base font-semibold text-brand-800 font-mono break-all leading-snug">
+                    {title}
+                  </h2>
+                  <CopyOrderIdButton value={title} />
+                </div>
               </div>
               <button
                 type="button"

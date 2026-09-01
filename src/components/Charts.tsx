@@ -32,7 +32,6 @@ interface ChartsProps {
 const PLATFORM_COLORS = {
   shopee: "#ee4d2d",
   tiktok: "#3D2319",
-  jubelio: "#7A4232",
 };
 
 const STATUS_COLORS = {
@@ -67,11 +66,6 @@ export default function Charts({ dailyStats, summary, userRole }: ChartsProps) {
       name: "TikTok & Tokopedia",
       value: combinedTiktokRevenue,
       color: PLATFORM_COLORS.tiktok,
-    },
-    {
-      name: "Jubelio",
-      value: summary.byPlatform.jubelio.revenue,
-      color: PLATFORM_COLORS.jubelio,
     },
   ].filter((item) => item.value > 0);
 
@@ -167,18 +161,6 @@ export default function Charts({ dailyStats, summary, userRole }: ChartsProps) {
                       stopOpacity={0}
                     />
                   </linearGradient>
-                  <linearGradient id="jubelioGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop
-                      offset="5%"
-                      stopColor={PLATFORM_COLORS.jubelio}
-                      stopOpacity={0.3}
-                    />
-                    <stop
-                      offset="95%"
-                      stopColor={PLATFORM_COLORS.jubelio}
-                      stopOpacity={0}
-                    />
-                  </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E8DDD3" />
                 <XAxis
@@ -217,14 +199,6 @@ export default function Charts({ dailyStats, summary, userRole }: ChartsProps) {
                   name="TikTok & Tokopedia"
                   stroke={PLATFORM_COLORS.tiktok}
                   fill="url(#tiktokGradient)"
-                  strokeWidth={2}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="jubelio"
-                  name="Jubelio"
-                  stroke={PLATFORM_COLORS.jubelio}
-                  fill="url(#jubelioGradient)"
                   strokeWidth={2}
                 />
               </AreaChart>

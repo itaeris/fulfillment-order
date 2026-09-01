@@ -525,7 +525,8 @@ function DataSection({
               Jubelio
             </h3>
             <p className="text-xs sm:text-sm text-brand-400 mt-0.5 sm:mt-1 max-w-lg leading-snug">
-              Ambil pesanan <strong>Siap Kirim</strong> dari Jubelio.
+              Ambil pesanan <strong>Siap Kirim</strong> dari Jubelio sebagai cermin omnichannel.
+              Data ini tidak menambah total penjualan Shopee/TikTok.
               <span className="hidden sm:inline">
                 {" "}Yang sudah ada dipakai lagi — sync berikutnya lebih cepat, tidak tarik ulang semua.
               </span>

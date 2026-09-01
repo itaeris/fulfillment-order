@@ -108,6 +108,43 @@ function platformBadge(name?: string) {
   return "text-brand-600 bg-cream-200";
 }
 
+async function copyOrderNumbers(rows: DueDateRow[]) {
+  const text = rows.map((row) => row.orderNumber).join("\n");
+  await navigator.clipboard.writeText(text);
+}
+
+function CopyListButton({
+  rows,
+  listId,
+  copiedList,
+  onCopied,
+}: {
+  rows: DueDateRow[];
+  listId: string;
+  copiedList: string | null;
+  onCopied: (id: string | null) => void;
+}) {
+  const copied = copiedList === listId;
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await copyOrderNumbers(rows);
+          onCopied(listId);
+          window.setTimeout(() => onCopied(null), 2000);
+        } catch {
+          onCopied(null);
+        }
+      }}
+      className="inline-flex items-center gap-1.5 self-start px-2.5 py-1.5 text-[11px] font-medium text-brand-800 bg-white border border-brand-200 rounded-lg hover:bg-cream-50"
+    >
+      {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+      {copied ? "Tersalin" : "Salin semua nomor"}
+    </button>
+  );
+}
+
 type TypeFilter = "instant" | "regular" | "all";
 type PlatformFilter = "all" | "shopee" | "tiktok" | "jubelio";
 
@@ -194,7 +231,7 @@ export default function DueDateOverviewView({
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("instant");
   const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
   const [previewRow, setPreviewRow] = useState<DueDateRow | null>(null);
-  const [copiedMismatch, setCopiedMismatch] = useState(false);
+  const [copiedList, setCopiedList] = useState<string | null>(null);
   const [orderQuery, setOrderQuery] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const uploadTarget = useRef<Platform>("shopee");
@@ -211,6 +248,7 @@ export default function DueDateOverviewView({
   };
   const matchesPlatform = (row: DueDateRow) => {
     if (platformFilter === "all") return true;
+    if (platformFilter === "jubelio") return !row.jubelioOrder;
     return rowPlatform(row) === platformFilter;
   };
   const matchesSearch = (row: DueDateRow) => {
@@ -229,10 +267,9 @@ export default function DueDateOverviewView({
       .toLowerCase();
     return hay.includes(q);
   };
-  const visibleRows = overview.rows.filter((row) => {
-    if (orderQuery.trim()) return matchesSearch(row);
-    return matchesType(row) && matchesPlatform(row);
-  });
+  const visibleRows = orderQuery.trim()
+    ? overview.rows.filter(matchesSearch)
+    : overview.rows.filter((row) => matchesType(row) && matchesPlatform(row));
   const typeCount = (id: TypeFilter) =>
     overview.rows.filter((row) => {
       if (!matchesPlatform(row)) return false;
@@ -244,6 +281,7 @@ export default function DueDateOverviewView({
     overview.rows.filter((row) => {
       if (!matchesType(row)) return false;
       if (id === "all") return true;
+      if (id === "jubelio") return !row.jubelioOrder;
       return rowPlatform(row) === id;
     }).length;
 
@@ -339,9 +377,9 @@ export default function DueDateOverviewView({
               <div>
                 <h2 className="text-sm font-semibold text-brand-800">Masukkan data 3 platform</h2>
                 <p className="text-xs text-brand-400 mt-0.5">
-                  Daily worker wajib unggah Excel/CSV dari Shopee, TikTok, dan Jubelio.
-                  TikTok & Jubelio otomatis dicocokkan dengan data realtime toko/gudang.
-                  Data halaman ini terpisah dari dashboard utama.
+                  Daily worker unggah Excel/CSV dari Shopee, TikTok, dan Jubelio.
+                  Antrian kirim dihitung dari Shopee & TikTok saja. Jubelio dipakai sebagai cermin
+                  omnichannel: cek yang miss atau belum realtime, bukan menambah jumlah pesanan.
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -394,7 +432,8 @@ export default function DueDateOverviewView({
                   </span>
                 </div>
                 <div className="flex flex-col gap-1.5 rounded-lg border border-brand-200 px-3 py-2.5">
-                  <span className="text-xs font-semibold text-brand-800">Jubelio</span>
+                  <span className="text-xs font-semibold text-brand-800">Jubelio (cermin)</span>
+                  <p className="text-[11px] text-brand-400">Tidak menambah antrian kirim</p>
                   <a
                     href="https://v2.jubelio.com/"
                     target="_blank"
@@ -447,8 +486,8 @@ export default function DueDateOverviewView({
                 <Bell className="w-4 h-4 text-brand-600 shrink-0 mt-0.5" />
                 <p className="text-xs sm:text-sm text-brand-700">
                   <span className="font-semibold">Pengingat:</span>{" "}
-                  {formatNumber(overview.totalOrders)} pesanan perlu dikirim hari ini
-                  ({formatNumber(overview.totalItems)} item). Preorder yang jatuh tempo hari ini ikut dihitung.
+                  {formatNumber(overview.totalOrders)} pesanan Shopee/TikTok perlu dikirim hari ini
+                  ({formatNumber(overview.totalItems)} item). Jubelio tidak dijumlahkan. Preorder yang jatuh tempo hari ini ikut dihitung.
                 </p>
               </div>
               {overview.overdue > 0 || overview.dueSoon > 0 || overview.critical > 0 ? (
@@ -472,7 +511,7 @@ export default function DueDateOverviewView({
             <StatCard
               label="Perlu dikirim hari ini"
               value={formatNumber(overview.totalOrders)}
-              hint={`${formatNumber(overview.totalItems)} item${overview.preorder ? ` · ${overview.preorder} preorder` : ""}`}
+              hint={`${formatNumber(overview.totalItems)} item · Shopee + TikTok, tanpa Jubelio${overview.preorder ? ` · ${overview.preorder} preorder` : ""}`}
             />
             <StatCard
               label="Wajib dikirim sekarang"
@@ -494,11 +533,119 @@ export default function DueDateOverviewView({
               shipping={overview.tiktokShipping}
             />
             <StatCard
-              label="Jubelio"
-              value={formatNumber(overview.totalOrders - overview.shopee - overview.tiktok)}
-              hint="Hanya di gudang, belum ketemu di Shopee / TikTok"
+              label="Belum di Jubelio"
+              value={formatNumber(overview.missingJubelioRows.length)}
+              valueClass={overview.missingJubelioRows.length > 0 ? "text-amber-700" : undefined}
+              hint="Ada di Shopee/TikTok, belum tercermin di Jubelio"
             />
           </div>
+
+          {overview.totalOrders > 0 ? (
+            <section className="bg-white rounded-xl shadow-sm border border-brand-200 overflow-hidden">
+              <div className="px-3 sm:px-4 py-2.5 border-b border-brand-100 flex flex-col sm:flex-row sm:items-start gap-2 sm:justify-between">
+                <div>
+                  <h2 className="text-sm font-semibold text-brand-800">Cermin Jubelio</h2>
+                  <p className="text-[11px] text-brand-400 mt-0.5">
+                    Jubelio hanya mirroring omnichannel. Tidak menambah jumlah pesanan Shopee/TikTok.
+                    Pakai daftar ini untuk cek yang miss atau belum realtime.
+                    {" "}
+                    {formatNumber(overview.jubelio)} dari {formatNumber(overview.totalOrders)} pesanan Shopee / TikTok / Tokopedia sudah tercermin.
+                  </p>
+                </div>
+                <Link
+                  href="/overview-duedate/cermin"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 self-start px-2.5 py-1.5 text-[11px] font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Full size
+                </Link>
+              </div>
+              {overview.missingJubelioRows.length === 0 && overview.jubelioOnlyRows.length === 0 ? (
+                <p className="px-3 sm:px-4 py-3 text-xs text-brand-600">
+                  Semua pesanan Shopee / TikTok / Tokopedia hari ini sudah ada di Jubelio. Tidak ada data Jubelio yang tidak ketemu di Shopee / TikTok / Tokopedia.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-brand-100">
+                  <div>
+                    <div className="px-3 sm:px-4 py-2.5 flex items-start justify-between gap-2 bg-amber-50/70">
+                      <div>
+                        <h3 className="text-xs font-semibold text-amber-900">Ada di Shopee / TikTok / Tokopedia, belum di Jubelio</h3>
+                        <p className="text-[11px] text-amber-800 mt-0.5">
+                          {formatNumber(overview.missingJubelioRows.length)} nomor — miss atau delay realtime
+                        </p>
+                      </div>
+                      {overview.missingJubelioRows.length > 0 ? (
+                        <CopyListButton
+                          rows={overview.missingJubelioRows}
+                          listId="missing"
+                          copiedList={copiedList}
+                          onCopied={setCopiedList}
+                        />
+                      ) : null}
+                    </div>
+                    {overview.missingJubelioRows.length === 0 ? (
+                      <p className="px-3 sm:px-4 py-3 text-[11px] text-brand-400">Tidak ada.</p>
+                    ) : (
+                      <div className="max-h-56 overflow-y-auto divide-y divide-brand-100">
+                        {overview.missingJubelioRows.map((row) => (
+                          <button
+                            key={row.key}
+                            type="button"
+                            onClick={() => setPreviewRow(row)}
+                            className="w-full text-left px-3 sm:px-4 py-2 hover:bg-cream-50"
+                          >
+                            <p className="text-xs font-semibold font-mono break-all text-brand-800">{row.orderNumber}</p>
+                            <p className="text-[11px] text-brand-500 mt-0.5">
+                              {row.marketplace || "Marketplace"} {formatDueLabel(row.marketplaceDue)}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="px-3 sm:px-4 py-2.5 flex items-start justify-between gap-2 bg-cream-50">
+                      <div>
+                        <h3 className="text-xs font-semibold text-brand-800">Ada di Jubelio, tidak di Shopee / TikTok / Tokopedia</h3>
+                        <p className="text-[11px] text-brand-500 mt-0.5">
+                          {formatNumber(overview.jubelioOnlyRows.length)} nomor — tidak masuk antrian / total kirim
+                        </p>
+                      </div>
+                      {overview.jubelioOnlyRows.length > 0 ? (
+                        <CopyListButton
+                          rows={overview.jubelioOnlyRows}
+                          listId="jubelioOnly"
+                          copiedList={copiedList}
+                          onCopied={setCopiedList}
+                        />
+                      ) : null}
+                    </div>
+                    {overview.jubelioOnlyRows.length === 0 ? (
+                      <p className="px-3 sm:px-4 py-3 text-[11px] text-brand-400">Tidak ada.</p>
+                    ) : (
+                      <div className="max-h-56 overflow-y-auto divide-y divide-brand-100">
+                        {overview.jubelioOnlyRows.map((row) => (
+                          <button
+                            key={row.key}
+                            type="button"
+                            onClick={() => setPreviewRow(row)}
+                            className="w-full text-left px-3 sm:px-4 py-2 hover:bg-cream-50"
+                          >
+                            <p className="text-xs font-semibold font-mono break-all text-brand-800">{row.orderNumber}</p>
+                            <p className="text-[11px] text-brand-500 mt-0.5">
+                              Tidak di Shopee / TikTok / Tokopedia · {formatDueLabel(row.jubelioDue)}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </section>
+          ) : null}
 
           {overview.mismatchRows.length > 0 ? (
             <section className="bg-white rounded-xl shadow-sm border border-amber-200 overflow-hidden">
@@ -516,19 +663,18 @@ export default function DueDateOverviewView({
                 <button
                   type="button"
                   onClick={async () => {
-                    const text = overview.mismatchRows.map((row) => row.orderNumber).join("\n");
                     try {
-                      await navigator.clipboard.writeText(text);
-                      setCopiedMismatch(true);
-                      window.setTimeout(() => setCopiedMismatch(false), 2000);
+                      await copyOrderNumbers(overview.mismatchRows);
+                      setCopiedList("mismatch");
+                      window.setTimeout(() => setCopiedList(null), 2000);
                     } catch {
-                      setCopiedMismatch(false);
+                      setCopiedList(null);
                     }
                   }}
                   className="inline-flex items-center gap-1.5 self-start px-2.5 py-1.5 text-[11px] font-medium text-amber-900 bg-white border border-amber-200 rounded-lg hover:bg-amber-50"
                 >
-                  {copiedMismatch ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  {copiedMismatch ? "Tersalin" : "Salin semua nomor"}
+                  {copiedList === "mismatch" ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedList === "mismatch" ? "Tersalin" : "Salin semua nomor"}
                 </button>
               </div>
               <div className="max-h-56 overflow-y-auto divide-y divide-amber-100">
@@ -555,7 +701,7 @@ export default function DueDateOverviewView({
             <div className="px-3 sm:px-4 py-2.5 border-b border-brand-100">
               <h2 className="text-sm font-semibold text-brand-800">Pesanan per tenggat</h2>
               <p className="text-[11px] text-brand-400">
-                Total Shopee/TikTok dulu, lalu pecahan reguler, instan, dan same-day. Termasuk preorder yang jatuh tempo hari ini.
+                Total Shopee/TikTok dulu, lalu pecahan reguler, instan, dan same-day. Jubelio tidak dijumlahkan.
               </p>
             </div>
             {overview.buckets.length === 0 ? (
@@ -662,7 +808,7 @@ export default function DueDateOverviewView({
                     { id: "all" as const, label: "Semua platform" },
                     { id: "shopee" as const, label: "Shopee" },
                     { id: "tiktok" as const, label: "TikTok / Tokopedia" },
-                    { id: "jubelio" as const, label: "Jubelio" },
+                    { id: "jubelio" as const, label: "Belum di Jubelio" },
                   ]).map((tab) => (
                     <FilterPill key={tab.id} active={platformFilter === tab.id} onClick={() => setPlatformFilter(tab.id)}>
                       {tab.label} {platformCount(tab.id)}

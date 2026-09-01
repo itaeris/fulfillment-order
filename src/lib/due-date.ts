@@ -81,6 +81,8 @@ export interface DueDateOverview {
   buckets: DeadlineBucket[];
   couriers: CourierStat[];
   mismatchRows: DueDateRow[];
+  missingJubelioRows: DueDateRow[];
+  jubelioOnlyRows: DueDateRow[];
 }
 
 function toDate(value?: Date | string | null): Date | undefined {
@@ -163,9 +165,9 @@ function isSameDayShip(order?: Order): boolean {
   return /same[\s-]?day|sameday|hari ini|same day/.test(text);
 }
 
-function classifyShipping(marketplaceOrder?: Order, jubelioOrder?: Order): ShippingKind {
-  if (isSameDayShip(marketplaceOrder) || isSameDayShip(jubelioOrder)) return "same_day";
-  if (isInstant(marketplaceOrder) || isInstant(jubelioOrder)) return "instant";
+function classifyShipping(order?: Order): ShippingKind {
+  if (isSameDayShip(order)) return "same_day";
+  if (isInstant(order)) return "instant";
   return "regular";
 }
 
@@ -256,21 +258,65 @@ function isDueTodayOrPast(due: Date | undefined, today: string): boolean {
   return Boolean(key && key <= today);
 }
 
-function isRelevantToday(row: DueDateRow, today: string): boolean {
-  const marketplacePo = looksLikePreorder(row.marketplaceOrder);
-  const jubelioPo = looksLikePreorder(row.jubelioOrder);
+function isMarketplaceRelevantToday(row: DueDateRow, today: string): boolean {
+  if (!row.marketplaceOrder) return false;
 
-  if (marketplacePo && row.marketplaceDue && !isDueTodayOrPast(row.marketplaceDue, today)) {
-    return false;
-  }
-
-  if (!row.marketplaceOrder && jubelioPo && row.jubelioDue && !isDueTodayOrPast(row.jubelioDue, today)) {
+  if (
+    looksLikePreorder(row.marketplaceOrder) &&
+    row.marketplaceDue &&
+    !isDueTodayOrPast(row.marketplaceDue, today)
+  ) {
     return false;
   }
 
   const mk = dayKey(row.marketplaceDue);
+  if (!mk) return false;
+  return mk === today || row.overdue;
+}
+
+/** Pesanan toko (bukan Jubelio) yang masih terbuka dan tenggatnya pada `dateKey` (YYYY-MM-DD, Asia/Jakarta). */
+export function isMarketplaceShipOnDate(order: Order, dateKey: string, now = new Date()): boolean {
+  if (order.platform === "jubelio") return false;
+  if (!isOpen(order)) return false;
+  const due = toDate(order.mustShipBefore);
+  const mk = dayKey(due);
+  if (!mk) return false;
+  const today = todayKey(now);
+  if (dateKey === today) {
+    if (looksLikePreorder(order) && due && !isDueTodayOrPast(due, today)) return false;
+    return mk <= today;
+  }
+  return mk === dateKey;
+}
+
+export function isMarketplaceShipToday(order: Order, now = new Date()): boolean {
+  return isMarketplaceShipOnDate(order, todayKey(now), now);
+}
+
+export function formatDayKeyLabel(dateKey: string): string {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  if (!year || !month || !day) return dateKey;
+  const date = new Date(Date.UTC(year, month - 1, day, 12));
+  return date.toLocaleDateString("id-ID", {
+    timeZone: TZ,
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function isJubelioOnlyRelevantToday(row: DueDateRow, today: string): boolean {
+  if (row.marketplaceOrder || !row.jubelioOrder) return false;
+  if (
+    looksLikePreorder(row.jubelioOrder) &&
+    row.jubelioDue &&
+    !isDueTodayOrPast(row.jubelioDue, today)
+  ) {
+    return false;
+  }
   const jk = dayKey(row.jubelioDue);
-  return mk === today || jk === today || row.overdue;
+  return jk === today || row.overdue;
 }
 
 function isPreorderDueToday(order?: Order, due?: Date, today?: string): boolean {
@@ -336,15 +382,16 @@ function buildRow(args: {
   const { marketplaceOrder, jubelioOrder, now, today } = args;
   const marketplaceDue = toDate(marketplaceOrder?.mustShipBefore);
   const jubelioDue = toDate(jubelioOrder?.mustShipBefore);
-  const effectiveDue = marketplaceDue || jubelioDue;
+  const queueOrder = marketplaceOrder || jubelioOrder;
+  const effectiveDue = marketplaceOrder ? marketplaceDue : jubelioDue;
   const remain = remaining(effectiveDue, now);
   const marketplace = marketplaceName(marketplaceOrder);
-  const shippingKind = classifyShipping(marketplaceOrder, jubelioOrder);
+  const shippingKind = classifyShipping(queueOrder);
   const instant = shippingKind === "instant" || shippingKind === "same_day";
   const deadlineMismatch = Boolean(marketplaceOrder && jubelioOrder && isDeadlineMismatch(marketplaceDue, jubelioDue));
-  const preorder =
-    isPreorderDueToday(marketplaceOrder, marketplaceDue, today) ||
-    isPreorderDueToday(jubelioOrder, jubelioDue, today);
+  const preorder = marketplaceOrder
+    ? isPreorderDueToday(marketplaceOrder, marketplaceDue, today)
+    : isPreorderDueToday(jubelioOrder, jubelioDue, today);
   const dueSoon = !remain.overdue && remain.ms <= URGENT_MS;
   const critical = remain.overdue || dueSoon || instant;
   const { level, reason: baseReason } = criticalReason({
@@ -367,7 +414,7 @@ function buildRow(args: {
   return {
     key: marketplaceOrder?.id || jubelioOrder?.id || orderNumber,
     orderNumber,
-    quantity: marketplaceOrder?.quantity || jubelioOrder?.quantity || 1,
+    quantity: (marketplaceOrder ? marketplaceOrder.quantity : jubelioOrder?.quantity) || 1,
     marketplace,
     marketplaceOrder,
     jubelioOrder,
@@ -385,8 +432,8 @@ function buildRow(args: {
     critical,
     criticalLevel: level,
     preorder,
-    courier: courierName(marketplaceOrder || jubelioOrder),
-    shipping: (marketplaceOrder?.shippingOption || jubelioOrder?.shippingOption || "—").trim() || "—",
+    courier: courierName(queueOrder),
+    shipping: (queueOrder?.shippingOption || "—").trim() || "—",
     reason,
   };
 }
@@ -428,10 +475,11 @@ export function buildDueDateOverview(orders: Order[], now = new Date()): DueDate
   );
 
   const { pairs, matchedJubelio, matchedPlatform } = matchOrders(jubelioOrders, platformOrders);
-  const allRows: DueDateRow[] = [];
+  const pairedAndPlatform: DueDateRow[] = [];
+  const unmatchedJubelio: DueDateRow[] = [];
 
   for (const pair of pairs) {
-    allRows.push(
+    pairedAndPlatform.push(
       buildRow({
         marketplaceOrder: pair.platform,
         jubelioOrder: pair.jubelio,
@@ -442,26 +490,33 @@ export function buildDueDateOverview(orders: Order[], now = new Date()): DueDate
   }
   for (const p of platformOrders) {
     if (matchedPlatform.has(p.id)) continue;
-    allRows.push(buildRow({ marketplaceOrder: p, now, today }));
+    pairedAndPlatform.push(buildRow({ marketplaceOrder: p, now, today }));
   }
   for (const j of jubelioOrders) {
     if (matchedJubelio.has(j.id)) continue;
-    allRows.push(buildRow({ jubelioOrder: j, now, today }));
+    unmatchedJubelio.push(buildRow({ jubelioOrder: j, now, today }));
   }
 
-  const rows = allRows
-    .filter((row) => isRelevantToday(row, today))
-    .sort((a, b) => {
-      const rank = (row: DueDateRow) => {
-        if (row.overdue) return 0;
-        if (row.dueSoon) return 1;
-        if (row.instant) return 2;
-        return 3;
-      };
-      const diff = rank(a) - rank(b);
-      if (diff !== 0) return diff;
-      return a.remainingMs - b.remainingMs;
-    });
+  const byUrgency = (a: DueDateRow, b: DueDateRow) => {
+    const rank = (row: DueDateRow) => {
+      if (row.overdue) return 0;
+      if (row.dueSoon) return 1;
+      if (row.instant) return 2;
+      return 3;
+    };
+    const diff = rank(a) - rank(b);
+    if (diff !== 0) return diff;
+    return a.remainingMs - b.remainingMs;
+  };
+
+  const rows = pairedAndPlatform
+    .filter((row) => Boolean(row.marketplaceOrder) && isMarketplaceRelevantToday(row, today))
+    .sort(byUrgency);
+  const jubelioOnlyRows = unmatchedJubelio
+    .filter((row) => isJubelioOnlyRelevantToday(row, today))
+    .sort(byUrgency);
+  const missingJubelioRows = rows.filter((row) => !row.jubelioOrder);
+  const mismatchRows = rows.filter((row) => row.deadlineMismatch);
 
   const bucketsMap = new Map<string, DeadlineBucket>();
   const shopeeShipping = emptyShipping();
@@ -482,13 +537,14 @@ export function buildDueDateOverview(orders: Order[], now = new Date()): DueDate
       };
       bucketsMap.set(meta.key, bucket);
     }
-    bucket.orders += 1;
-    addShipping(shipping, row.shippingKind);
     if (row.marketplace === "Shopee") {
+      bucket.orders += 1;
+      addShipping(shipping, row.shippingKind);
       addShipping(bucket.shopee, row.shippingKind);
       addShipping(shopeeShipping, row.shippingKind);
-    }
-    if (row.marketplace === "TikTok" || row.marketplace === "Tokopedia") {
+    } else if (row.marketplace === "TikTok" || row.marketplace === "Tokopedia") {
+      bucket.orders += 1;
+      addShipping(shipping, row.shippingKind);
       addShipping(bucket.tiktok, row.shippingKind);
       addShipping(tiktokShipping, row.shippingKind);
     }
@@ -496,6 +552,9 @@ export function buildDueDateOverview(orders: Order[], now = new Date()): DueDate
 
   const courierMap = new Map<string, CourierStat>();
   for (const row of rows) {
+    if (row.marketplace !== "Shopee" && row.marketplace !== "TikTok" && row.marketplace !== "Tokopedia") {
+      continue;
+    }
     const current = courierMap.get(row.courier) || {
       name: row.courier,
       orders: 0,
@@ -508,14 +567,17 @@ export function buildDueDateOverview(orders: Order[], now = new Date()): DueDate
     courierMap.set(row.courier, current);
   }
 
+  const shopee = rows.filter((r) => r.marketplace === "Shopee").length;
+  const tiktok = rows.filter((r) => r.marketplace === "TikTok" || r.marketplace === "Tokopedia").length;
+
   return {
     analyzedAt: now,
     todayKey: today,
     rows,
-    totalOrders: rows.length,
+    totalOrders: shopee + tiktok,
     totalItems: rows.reduce((sum, row) => sum + row.quantity, 0),
-    shopee: rows.filter((r) => r.marketplace === "Shopee").length,
-    tiktok: rows.filter((r) => r.marketplace === "TikTok" || r.marketplace === "Tokopedia").length,
+    shopee,
+    tiktok,
     jubelio: rows.filter((r) => r.jubelioOrder).length,
     instant: rows.filter((r) => r.instant).length,
     urgent: rows.filter((r) => r.critical).length,
@@ -526,8 +588,10 @@ export function buildDueDateOverview(orders: Order[], now = new Date()): DueDate
     shopeeShipping,
     tiktokShipping,
     shipping,
-    buckets: Array.from(bucketsMap.values()).sort((a, b) => a.sortAt - b.sortAt),
+    buckets: Array.from(bucketsMap.values()).filter((bucket) => bucket.orders > 0).sort((a, b) => a.sortAt - b.sortAt),
     couriers: Array.from(courierMap.values()).sort((a, b) => b.orders - a.orders),
-    mismatchRows: rows.filter((row) => row.deadlineMismatch),
+    mismatchRows,
+    missingJubelioRows,
+    jubelioOnlyRows,
   };
 }

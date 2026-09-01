@@ -72,7 +72,10 @@ export function TableSkeleton({
 
 export function CardsSkeleton({ count = 4, delay = 0 }: { count?: number; delay?: number }) {
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
+    <div className={cn(
+      "grid gap-2 sm:gap-4",
+      count > 4 ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5" : "grid-cols-2 lg:grid-cols-4"
+    )}>
       {Array.from({ length: count }).map((_, i) => (
         <motion.div
           key={i}

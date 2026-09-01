@@ -19,6 +19,10 @@ export function formatNumber(num: number): string {
   return new Intl.NumberFormat("id-ID").format(num);
 }
 
+export function isMarketplacePlatform(platform: Platform): boolean {
+  return platform === "shopee" || platform === "tiktok" || platform === "tokopedia";
+}
+
 export function isMaskedPii(value?: string | null): boolean {
   const text = String(value || "").trim();
   if (!text) return true;
@@ -122,7 +126,7 @@ export function formatDateTime(date: Date | string): string {
 
 export function calculateSummary(orders: Order[]): OrderSummary {
   const summary: OrderSummary = {
-    totalOrders: orders.length,
+    totalOrders: 0,
     totalRevenue: 0,
     totalItems: 0,
     byPlatform: {
@@ -142,10 +146,12 @@ export function calculateSummary(orders: Order[]): OrderSummary {
   };
 
   for (const order of orders) {
-    summary.totalRevenue += order.totalAmount;
-    summary.totalItems += order.quantity;
     summary.byPlatform[order.platform].orders += 1;
     summary.byPlatform[order.platform].revenue += order.totalAmount;
+    if (!isMarketplacePlatform(order.platform)) continue;
+    summary.totalOrders += 1;
+    summary.totalRevenue += order.totalAmount;
+    summary.totalItems += order.quantity;
     summary.byStatus[order.status] += 1;
   }
 
@@ -156,6 +162,7 @@ export function calculateDailyStats(orders: Order[]): DailyStats[] {
   const statsMap = new Map<string, DailyStats>();
 
   for (const order of orders) {
+    if (!isMarketplacePlatform(order.platform)) continue;
     const dateKey = format(startOfDay(order.orderDate), "yyyy-MM-dd");
     
     if (!statsMap.has(dateKey)) {

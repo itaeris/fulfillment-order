@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Order, Platform, OrderStatus } from "@/types/order";
-import { cn, formatCurrency, formatDate, formatDateTime, getPlatformName, getStatusColor, getStatusLabel } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, formatDateTime, getPlatformName, getStatusColor, getStatusLabel, isMarketplacePlatform } from "@/lib/utils";
 import { isBefore, addHours } from "date-fns";
 import type { UserRole } from "@/contexts/AuthContext";
 import { TableSkeleton } from "@/components/Skeleton";
@@ -84,7 +84,7 @@ function matchesPlatform(
   selectedPlatform: Platform | "all",
   ttsChannelFilter: TtsChannelFilter
 ) {
-  if (selectedPlatform === "all") return true;
+  if (selectedPlatform === "all") return isMarketplacePlatform(order.platform);
   if (selectedPlatform === "tiktok") {
     if (order.platform !== "tiktok" && order.platform !== "tokopedia") return false;
     if (ttsChannelFilter !== "all" && ttsChannelOf(order) !== ttsChannelFilter) return false;
@@ -169,7 +169,7 @@ export default function OrderTable({
 
   const platformCounts: Record<string, number> = useMemo(() => {
     return {
-      all: orders.length,
+      all: orders.filter((o) => isMarketplacePlatform(o.platform)).length,
       shopee: orders.filter(o => o.platform === "shopee").length,
       tiktok: orders.filter(o => o.platform === "tiktok" || o.platform === "tokopedia").length,
       jubelio: orders.filter(o => o.platform === "jubelio").length,
@@ -345,7 +345,7 @@ export default function OrderTable({
     { value: "all", label: "Semua", color: "bg-brand-400" },
     { value: "shopee", label: "Shopee", color: "bg-shopee-500" },
     { value: "tiktok", label: "TikTok & Tokopedia", color: "bg-brand-800" },
-    { value: "jubelio", label: "Jubelio", color: "bg-brand-500" },
+    { value: "jubelio", label: "Jubelio (cermin)", color: "bg-brand-500" },
   ];
 
   const showSyncSkeleton = isLoading || !!apiSync.syncing || isRefreshing;
@@ -355,7 +355,7 @@ export default function OrderTable({
       <div className="px-3 sm:px-4 pt-3 sm:pt-4">
         <ApiSyncBar
           {...apiSync}
-          hint="Ambil pesanan siap dikirim dan selesai (30 hari) dari TikTok, Tokopedia, dan Jubelio. Cukup sekali, hasilnya sama di semua menu."
+          hint="Total penjualan dari Shopee, TikTok, dan Tokopedia. Jubelio hanya cermin gudang, tidak dijumlahkan ke total order."
         />
       </div>
 

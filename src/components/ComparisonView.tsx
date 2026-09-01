@@ -21,6 +21,8 @@ import type { UserRole } from "@/contexts/AuthContext";
 import { CardsSkeleton, TableSkeleton } from "@/components/Skeleton";
 import ApiSyncBar, { type ApiSyncState } from "@/components/ApiSyncBar";
 import { OrderDetailPreview } from "@/components/OrderDetailPreview";
+import { DayPicker } from "@/components/DayPicker";
+import { formatDayKeyLabel, isMarketplaceShipOnDate, todayKey } from "@/lib/due-date";
 
 interface ComparisonViewProps {
   orders: Order[];
@@ -30,7 +32,7 @@ interface ComparisonViewProps {
 }
 
 type MatchStatus = "matched" | "jubelio_only" | "platform_only" | "mismatch";
-type FilterTab = "all" | "matched" | "mismatch" | "jubelio_only" | "platform_only";
+type FilterTab = "all" | "matched" | "mismatch" | "jubelio_only" | "platform_only" | "ship_today";
 type CompSortField = "status" | "orderNumber" | "matchedBy" | "customer" | "jubelioAmount" | "platformAmount" | "amountDiff" | "statusOrder";
 type CompSortDir = "asc" | "desc";
 
@@ -85,6 +87,18 @@ function comparisonOf(jOrder: Order, pOrder: Order, matchedBy: string): Comparis
 
 type MarketplaceFilter = "all" | "tiktok" | "shopee";
 type TtsChannelFilter = "all" | "tts" | "tokopedia";
+type ShippingFilter = "all" | "instant" | "reguler";
+
+const INSTANT_KEYWORDS = [
+  "instant", "instan", "same day", "sameday", "same-day",
+  "grab", "gojek", "gosend", "now", "ojol",
+];
+
+function classifyShipping(order?: Order): Exclude<ShippingFilter, "all"> {
+  if (!order) return "reguler";
+  const text = [order.shippingOption, order.courier].filter(Boolean).join(" ").toLowerCase();
+  return INSTANT_KEYWORDS.some((kw) => text.includes(kw)) ? "instant" : "reguler";
+}
 
 function marketplaceOf(order?: Order): Exclude<MarketplaceFilter, "all"> {
   if (!order) return "tiktok";
@@ -117,11 +131,24 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
   const [filterTab, setFilterTab] = useState<FilterTab>("all");
   const [marketplaceFilter, setMarketplaceFilter] = useState<MarketplaceFilter>("all");
   const [ttsChannelFilter, setTtsChannelFilter] = useState<TtsChannelFilter>("all");
+  const [shippingFilter, setShippingFilter] = useState<ShippingFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState<CompSortField>("status");
   const [sortDir, setSortDir] = useState<CompSortDir>("asc");
   const [previewRow, setPreviewRow] = useState<ComparisonRow | null>(null);
+  const [shipDate, setShipDate] = useState(() => todayKey());
+  const today = todayKey();
+  const shipDateIsToday = shipDate === today;
+
+  const setSelectedShipDate = (next: string) => {
+    setShipDate(next);
+    setFilterTab("ship_today");
+    setMarketplaceFilter("all");
+    setTtsChannelFilter("all");
+    setShippingFilter("all");
+    setCurrentPage(1);
+  };
 
   const { rows, summary } = useMemo(() => {
     const jubelioOrders = orders.filter((o) => o.platform === "jubelio");
@@ -223,23 +250,41 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
     };
   }, [orders]);
 
+  const shipTodayCount = useMemo(
+    () =>
+      rows.filter(
+        (row) => row.platformOrder && isMarketplaceShipOnDate(row.platformOrder, shipDate)
+      ).length,
+    [rows, shipDate]
+  );
+
   const filteredRows = useMemo(() => {
     let result = rows;
 
-    if (filterTab !== "all") {
+    if (filterTab !== "all" && filterTab !== "ship_today") {
       result = result.filter((r) => r.status === filterTab);
     }
 
-    if (filterTab === "platform_only" && marketplaceFilter !== "all") {
+    if (filterTab === "ship_today") {
+      result = result.filter(
+        (r) => r.platformOrder && isMarketplaceShipOnDate(r.platformOrder, shipDate)
+      );
+    }
+
+    if ((filterTab === "platform_only" || filterTab === "ship_today") && marketplaceFilter !== "all") {
       result = result.filter((r) => marketplaceOf(r.platformOrder) === marketplaceFilter);
     }
 
     if (
-      filterTab === "platform_only" &&
+      (filterTab === "platform_only" || filterTab === "ship_today") &&
       marketplaceFilter === "tiktok" &&
       ttsChannelFilter !== "all"
     ) {
       result = result.filter((r) => ttsChannelOf(r.platformOrder) === ttsChannelFilter);
+    }
+
+    if (filterTab === "ship_today" && shippingFilter !== "all") {
+      result = result.filter((r) => classifyShipping(r.platformOrder) === shippingFilter);
     }
 
     if (searchQuery) {
@@ -292,7 +337,7 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
     });
 
     return result;
-  }, [rows, filterTab, marketplaceFilter, ttsChannelFilter, searchQuery, sortField, sortDir]);
+  }, [rows, filterTab, marketplaceFilter, ttsChannelFilter, shippingFilter, searchQuery, sortField, sortDir, shipDate]);
 
   const totalPages = Math.ceil(filteredRows.length / ITEMS_PER_PAGE);
   const paginatedRows = filteredRows.slice(
@@ -336,7 +381,7 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
           Belum Ada Data untuk Komparasi
         </h3>
         <p className="text-brand-400 text-sm sm:text-base">
-          Ambil data Jubelio dan Shopee / TikTok dulu supaya bisa dibandingkan.
+          Ambil data Jubelio dan Shopee / TikTok dulu. Jubelio dipakai sebagai cermin, bukan saluran penjualan.
         </p>
       </div>
     );
@@ -353,7 +398,7 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
           Data {missing} Belum Ada
         </h3>
         <p className="text-brand-400 text-sm sm:text-base">
-          Komparasi membutuhkan data dari <strong>Jubelio</strong> dan minimal satu platform (<strong>Shopee / TikTok</strong>).
+          Komparasi menandai yang miss atau belum realtime. Jubelio adalah cermin omnichannel, bukan saluran penjualan tambahan.
         </p>
       </div>
     );
@@ -366,38 +411,64 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
       case "mismatch":
         return { label: "Beda", color: "bg-red-100 text-red-700", icon: AlertTriangle };
       case "jubelio_only":
-        return { label: "Hanya Jubelio", color: "bg-amber-100 text-amber-700", icon: Package };
+        return { label: "Ada di Jubelio, tidak di Shopee / TikTok", color: "bg-amber-100 text-amber-700", icon: Package };
       case "platform_only":
-        return { label: "Hanya toko online", color: "bg-blue-100 text-blue-700", icon: ShoppingBag };
+        return { label: "Ada di Shopee / TikTok, belum di Jubelio", color: "bg-blue-100 text-blue-700", icon: ShoppingBag };
     }
   };
 
+  const marketplaceSourceRows = useMemo(() => {
+    if (filterTab === "ship_today") {
+      return rows.filter(
+        (r) => r.platformOrder && isMarketplaceShipOnDate(r.platformOrder, shipDate)
+      );
+    }
+    return rows.filter((r) => r.status === "platform_only");
+  }, [rows, filterTab, shipDate]);
+
   const marketplaceCounts = useMemo(() => {
-    const only = rows.filter((r) => r.status === "platform_only");
     return {
-      all: only.length,
-      tiktok: only.filter((r) => marketplaceOf(r.platformOrder) === "tiktok").length,
-      shopee: only.filter((r) => marketplaceOf(r.platformOrder) === "shopee").length,
+      all: marketplaceSourceRows.length,
+      tiktok: marketplaceSourceRows.filter((r) => marketplaceOf(r.platformOrder) === "tiktok").length,
+      shopee: marketplaceSourceRows.filter((r) => marketplaceOf(r.platformOrder) === "shopee").length,
     };
-  }, [rows]);
+  }, [marketplaceSourceRows]);
 
   const ttsChannelCounts = useMemo(() => {
-    const only = rows.filter(
-      (r) => r.status === "platform_only" && marketplaceOf(r.platformOrder) === "tiktok"
-    );
+    const only = marketplaceSourceRows.filter((r) => marketplaceOf(r.platformOrder) === "tiktok");
     return {
       all: only.length,
       tts: only.filter((r) => ttsChannelOf(r.platformOrder) === "tts").length,
       tokopedia: only.filter((r) => ttsChannelOf(r.platformOrder) === "tokopedia").length,
     };
-  }, [rows]);
+  }, [marketplaceSourceRows]);
+
+  const shippingSourceRows = useMemo(() => {
+    let result = marketplaceSourceRows;
+    if (marketplaceFilter !== "all") {
+      result = result.filter((r) => marketplaceOf(r.platformOrder) === marketplaceFilter);
+    }
+    if (marketplaceFilter === "tiktok" && ttsChannelFilter !== "all") {
+      result = result.filter((r) => ttsChannelOf(r.platformOrder) === ttsChannelFilter);
+    }
+    return result;
+  }, [marketplaceSourceRows, marketplaceFilter, ttsChannelFilter]);
+
+  const shippingCounts = useMemo(() => {
+    return {
+      all: shippingSourceRows.length,
+      instant: shippingSourceRows.filter((r) => classifyShipping(r.platformOrder) === "instant").length,
+      reguler: shippingSourceRows.filter((r) => classifyShipping(r.platformOrder) === "reguler").length,
+    };
+  }, [shippingSourceRows]);
 
   const filterTabs: { value: FilterTab; label: string; count: number; color: string }[] = [
     { value: "all", label: "Semua", count: summary.total, color: "text-brand-700" },
+    { value: "ship_today", label: shipDateIsToday ? "Dikirim hari ini" : `Dikirim ${formatDayKeyLabel(shipDate)}`, count: shipTodayCount, color: "text-orange-600" },
     { value: "matched", label: "Cocok", count: summary.matched, color: "text-green-600" },
     { value: "mismatch", label: "Beda", count: summary.mismatch, color: "text-red-600" },
-    { value: "jubelio_only", label: "Hanya Jubelio", count: summary.jubelioOnly, color: "text-amber-600" },
-    { value: "platform_only", label: "Hanya toko online", count: summary.platformOnly, color: "text-blue-600" },
+    { value: "jubelio_only", label: "Ada di Jubelio, tidak di Shopee / TikTok", count: summary.jubelioOnly, color: "text-amber-600" },
+    { value: "platform_only", label: "Ada di Shopee / TikTok, belum di Jubelio", count: summary.platformOnly, color: "text-blue-600" },
   ];
 
   const matchRate =
@@ -408,29 +479,87 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
       {/* Header + Sync */}
       <ApiSyncBar
         {...apiSync}
-        hint="Bandingkan pesanan Jubelio dengan Shopee / TikTok. Cukup ambil data sekali, hasilnya sama di semua menu."
+        hint="Cermin omnichannel: cek yang miss atau belum realtime. Jubelio tidak menambah jumlah penjualan Shopee/TikTok."
       />
 
       {!!apiSync.syncing || isRefreshing ? (
         <>
-          <CardsSkeleton />
+          <CardsSkeleton count={5} />
           <TableSkeleton rows={8} columns={7} />
         </>
       ) : (
       <>
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         {[
-          { label: "Jubelio", value: formatNumber(summary.jubelioCount), sub: "order", border: "border-brand-200", valueColor: "text-brand-800", labelColor: "text-brand-400", subColor: "text-brand-300" },
+          { label: "Jubelio", value: formatNumber(summary.jubelioCount), sub: "cermin WMS", border: "border-brand-200", valueColor: "text-brand-800", labelColor: "text-brand-400", subColor: "text-brand-300" },
           { label: "Platform", value: formatNumber(summary.platformCount), sub: "Shopee + TikTok", border: "border-brand-200", valueColor: "text-brand-800", labelColor: "text-brand-400", subColor: "text-brand-300" },
-          { label: "Tercocokkan", value: formatNumber(summary.matched + summary.mismatch), sub: `${matchRate.toFixed(1)}% match rate`, border: "border-green-200", valueColor: "text-green-700", labelColor: "text-green-600", subColor: "text-green-500" },
-          { label: "Tidak Cocok", value: formatNumber(summary.jubelioOnly + summary.platformOnly), sub: "perlu dicek", border: "border-red-200", valueColor: "text-red-700", labelColor: "text-red-600", subColor: "text-red-400" },
         ].map((card, i) => (
           <motion.div
             key={card.label}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.03 * i, duration: 0.18, ease: "easeOut" }}
+            className={cn("bg-white rounded-xl shadow-sm border p-4", card.border)}
+          >
+            <p className={cn("text-xs font-medium", card.labelColor)}>{card.label}</p>
+            <p className={cn("text-xl sm:text-2xl font-bold mt-1", card.valueColor)}>{card.value}</p>
+            <p className={cn("text-[10px] sm:text-xs mt-1", card.subColor)}>{card.sub}</p>
+          </motion.div>
+        ))}
+
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.06, duration: 0.18, ease: "easeOut" }}
+          className={cn(
+            "relative z-20 overflow-visible bg-white rounded-xl shadow-sm border border-orange-200 p-4",
+            filterTab === "ship_today" && "ring-2 ring-orange-300"
+          )}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setFilterTab(filterTab === "ship_today" ? "all" : "ship_today");
+              setMarketplaceFilter("all");
+              setTtsChannelFilter("all");
+              setShippingFilter("all");
+              setCurrentPage(1);
+            }}
+            className="w-full text-left"
+          >
+            <p className="text-xs font-medium text-orange-600">
+              {shipDateIsToday ? "Dikirim hari ini" : "Dikirim"}
+            </p>
+            <p className="text-xl sm:text-2xl font-bold mt-1 text-orange-700">
+              {formatNumber(shipTodayCount)}
+            </p>
+            <p className="text-[10px] sm:text-xs mt-1 text-orange-500">
+              Shopee + TikTok
+              {shipDateIsToday ? " · termasuk terlambat" : ` · ${formatDayKeyLabel(shipDate)}`}
+            </p>
+          </button>
+          <DayPicker value={shipDate} onChange={setSelectedShipDate} />
+          {!shipDateIsToday ? (
+            <button
+              type="button"
+              onClick={() => setSelectedShipDate(today)}
+              className="mt-1 text-[10px] text-orange-600 hover:underline"
+            >
+              Kembali ke hari ini
+            </button>
+          ) : null}
+        </motion.div>
+
+        {[
+          { label: "Tercermin", value: formatNumber(summary.matched + summary.mismatch), sub: `${matchRate.toFixed(1)}% match rate`, border: "border-green-200", valueColor: "text-green-700", labelColor: "text-green-600", subColor: "text-green-500" },
+          { label: "Miss / delay", value: formatNumber(summary.jubelioOnly + summary.platformOnly), sub: "perlu dicek", border: "border-red-200", valueColor: "text-red-700", labelColor: "text-red-600", subColor: "text-red-400" },
+        ].map((card, i) => (
+          <motion.div
+            key={card.label}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.09 + 0.03 * i, duration: 0.18, ease: "easeOut" }}
             className={cn("bg-white rounded-xl shadow-sm border p-4", card.border)}
           >
             <p className={cn("text-xs font-medium", card.labelColor)}>{card.label}</p>
@@ -466,6 +595,8 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
                   onClick={() => {
                     setFilterTab(tab.value);
                     setMarketplaceFilter("all");
+                    setTtsChannelFilter("all");
+                    setShippingFilter("all");
                     setCurrentPage(1);
                   }}
                   className={cn(
@@ -490,7 +621,25 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
           </div>
         </div>
 
-        {filterTab === "platform_only" && (
+        {filterTab === "ship_today" && (
+          <div className="relative z-20 px-3 sm:px-4 py-2 sm:py-2.5 border-b border-brand-100 flex flex-wrap items-center gap-2">
+            <span className="text-[10px] sm:text-xs font-medium text-brand-400">Tanggal kirim:</span>
+            <DayPicker value={shipDate} onChange={setSelectedShipDate} compact />
+            {!shipDateIsToday ? (
+              <button
+                type="button"
+                onClick={() => setSelectedShipDate(today)}
+                className="text-[11px] font-medium text-orange-600 hover:underline"
+              >
+                Hari ini
+              </button>
+            ) : (
+              <span className="text-[11px] text-brand-400">Termasuk yang terlambat</span>
+            )}
+          </div>
+        )}
+
+        {(filterTab === "platform_only" || filterTab === "ship_today") && (
           <div className="px-3 sm:px-4 py-2 sm:py-2.5 border-b border-brand-100 flex flex-wrap items-center gap-1.5 sm:gap-2">
             <span className="text-[10px] sm:text-xs font-medium text-brand-400 mr-0.5 sm:mr-1">Marketplace:</span>
             {([
@@ -506,6 +655,7 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
                   onClick={() => {
                     setMarketplaceFilter(item.value);
                     setTtsChannelFilter("all");
+                    setShippingFilter("all");
                     setCurrentPage(1);
                   }}
                   className={cn(
@@ -530,7 +680,7 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
           </div>
         )}
 
-        {filterTab === "platform_only" && marketplaceFilter === "tiktok" && (
+        {(filterTab === "platform_only" || filterTab === "ship_today") && marketplaceFilter === "tiktok" && (
           <div className="px-3 sm:px-4 py-2 sm:py-2.5 border-b border-brand-100 flex flex-wrap items-center gap-1.5 sm:gap-2">
             <span className="text-[10px] sm:text-xs font-medium text-brand-400 mr-0.5 sm:mr-1">Platform:</span>
             {([
@@ -545,12 +695,52 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
                   key={item.value}
                   onClick={() => {
                     setTtsChannelFilter(item.value);
+                    setShippingFilter("all");
                     setCurrentPage(1);
                   }}
                   className={cn(
                     "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
                     isActive
                       ? "bg-brand-600 text-white shadow-sm"
+                      : "bg-cream-200 text-brand-400 hover:bg-cream-300"
+                  )}
+                >
+                  {item.label}
+                  <span
+                    className={cn(
+                      "px-1.5 py-0.5 rounded-full text-[10px]",
+                      isActive ? "bg-white/20" : "bg-brand-200 text-brand-500"
+                    )}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {filterTab === "ship_today" && (
+          <div className="px-3 sm:px-4 py-2 sm:py-2.5 border-b border-brand-100 flex flex-wrap items-center gap-1.5 sm:gap-2">
+            <span className="text-[10px] sm:text-xs font-medium text-brand-400 mr-0.5 sm:mr-1">Pengiriman:</span>
+            {([
+              { value: "all" as ShippingFilter, label: "Semua" },
+              { value: "reguler" as ShippingFilter, label: "Reguler" },
+              { value: "instant" as ShippingFilter, label: "Instant" },
+            ]).map((item) => {
+              const isActive = shippingFilter === item.value;
+              const count = shippingCounts[item.value];
+              return (
+                <button
+                  key={item.value}
+                  onClick={() => {
+                    setShippingFilter(item.value);
+                    setCurrentPage(1);
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                    isActive
+                      ? "bg-orange-600 text-white shadow-sm"
                       : "bg-cream-200 text-brand-400 hover:bg-cream-300"
                   )}
                 >

@@ -1,6 +1,6 @@
 # Order Dashboard - Aeris Beaute Fulfillment
 
-Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **Shopee**, **TikTok Shop / Tokopedia**, dan **Jubelio**. Data Shopee diimport dari Excel; order TikTok & Tokopedia ditarik dari **TikTok Shop Open API**; order Jubelio ditarik dari **Jubelio WMS API**. Penyimpanan di **Supabase** (PostgreSQL): dashboard utama memakai tabel `orders`, halaman **Kirim hari ini** memakai tabel terpisah `overview_orders`.
+Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **Shopee** dan **TikTok Shop / Tokopedia**. **Jubelio** dipakai sebagai cermin omnichannel (WMS), bukan saluran penjualan tambahan: untuk memantau yang miss atau belum realtime. Data Shopee diimport dari Excel; order TikTok & Tokopedia ditarik dari **TikTok Shop Open API**; order Jubelio ditarik dari **Jubelio WMS API**. Penyimpanan di **Supabase** (PostgreSQL): dashboard utama memakai tabel `orders`, halaman **Kirim hari ini** memakai tabel terpisah `overview_orders`.
 
 **Live**: [fulfillment-fti.aerisbeaute.com](https://fulfillment-fti.aerisbeaute.com)
 
@@ -95,25 +95,25 @@ flowchart TD
 ### Navigasi
 - **Dashboard**: Kartu ringkasan + grafik (tren, platform, status)
 - **Pesanan**: Tabel order dengan filter, pencarian, dan pagination
-- **Komparasi**: Bandingkan Jubelio dengan Shopee / TikTok
+- **Komparasi**: Cermin Jubelio vs Shopee / TikTok (miss / delay realtime)
 - **Settings**: Import Excel Shopee, sync TikTok & Jubelio, export, reset data, profil, password, kelola user
 - **Kirim hari ini**: Antrian gudang terpisah (`/overview-duedate`) — dari sidebar terbuka di tab baru
 
 ### Sumber Data
 - **Shopee**: Import Excel/CSV (drag & drop)
 - **TikTok & Tokopedia**: Sync API — tarik order siap dikirim (`AWAITING_SHIPMENT` + `AWAITING_COLLECTION`) dan order **selesai** (`COMPLETED` + `DELIVERED`, 30 hari terakhir). Channel dibaca dari `commerce_platform` (`TIKTOK_SHOP` / `TOKOPEDIA`)
-- **Jubelio**: Sync API — tarik order Siap Kirim (`channel_status` Ready To Ship)
+- **Jubelio**: Sync API — tarik order Siap Kirim (`channel_status` Ready To Ship) sebagai **cermin WMS**, tidak dijumlahkan ke total penjualan
 - Status live mengikuti webhook TikTok / Jubelio dan cron 15 menit (`/api/refresh-status`)
-- **Kirim hari ini**: Excel/CSV wajib dari 3 platform; TikTok & Jubelio dicocokkan ke API realtime
+- **Kirim hari ini**: Excel/CSV wajib dari 3 platform; antrian kirim dari Shopee & TikTok; Jubelio dicocokkan sebagai cermin
 
 ### Dashboard
 - Total order, pendapatan, item terjual, dan rata-rata order
-- Breakdown per platform (Shopee, TikTok & Tokopedia, Jubelio)
+- Breakdown per platform (Shopee, TikTok & Tokopedia). Jubelio tidak masuk kartu/grafik penjualan
 - Grafik tren pendapatan, distribusi platform, distribusi status
 - Data dibaca langsung dari Supabase (paralel), disimpan di memori sesi supaya pindah menu tidak fetch ulang
 
 ### Pesanan
-- Filter platform: Semua | Shopee | TikTok & Tokopedia | Jubelio
+- Filter platform: Semua (marketplace) | Shopee | TikTok & Tokopedia | Jubelio (cermin WMS, tidak masuk tab Semua)
 - Sub-filter TikTok & Tokopedia: Semua | TikTok Shop by Tokopedia | Tokopedia
 - Filter status: Belum Bayar, Perlu Dikirim, Dikirim, Selesai, Batal/Retur
 - Sub-filter pengiriman: Instant / Reguler
@@ -123,8 +123,9 @@ flowchart TD
 - Export CSV (Settings)
 
 ### Komparasi
-- Cocokkan Jubelio vs marketplace via order number, ref number, atau tracking number
-- Filter Platform Only: Semua | TikTok & Tokopedia | Shopee, plus sub-filter TTS vs Tokopedia
+- Cermin omnichannel: Jubelio vs marketplace via order number, ref number, atau tracking number
+- Filter: Dikirim hari ini · Ada di toko belum di Jubelio · Ada di Jubelio saja · Beda data
+- Kartu **Dikirim hari ini**: pesanan Shopee/TikTok berdasarkan tanggal tenggat (pemilih tanggal; default hari ini, termasuk yang terlambat). Klik kartu atau ubah tanggal untuk filter tabel
 - Tombol Ambil TikTok dan Ambil Jubelio di halaman yang sama
 - Klik baris → preview Jubelio + marketplace (status komparasi, match via)
 
@@ -133,16 +134,18 @@ Halaman kerja daily warehouse. **Data terpisah dari dashboard utama** (Supabase 
 
 **Import (wajib 3 platform)**
 - Daily worker unggah Excel/CSV Shopee, TikTok, dan Jubelio
-- Shopee dipakai apa adanya
+- Shopee & TikTok dipakai sebagai antrian kirim
+- Jubelio dipakai sebagai **cermin omnichannel** (tidak menambah jumlah pesanan)
 - TikTok & Jubelio: backend memindai nomor pesanan dari file, lalu menyamakan dengan data realtime toko/gudang (tenggat, kurir, resi, pickup, status, preorder)
 - Kalau API gagal, data Excel tetap dipakai
 - Loading memakai skeleton (bukan spinner)
 
 **Yang ditampilkan**
 - Hanya pesanan yang perlu dikirim **hari ini** (termasuk preorder yang jatuh tempo hari ini; preorder masa depan disembunyikan)
-- Kartu: Perlu dikirim hari ini · Wajib dikirim sekarang · Shopee · TikTok / Tokopedia · Jubelio
+- Kartu: Perlu dikirim hari ini · Wajib dikirim sekarang · Shopee · TikTok / Tokopedia · Belum di Jubelio
 - **Shopee / TikTok**: total pesanan marketplace hari ini (semua jenis kirim), lalu pecahan **Reguler · Instan · Same-day** di bawahnya
-- **Jubelio**: pesanan yang hanya ada di gudang, belum ketemu pasangan di Shopee / TikTok
+- **Belum di Jubelio**: pesanan toko yang belum tercermin di Jubelio (miss atau belum realtime)
+- **Cermin Jubelio**: daftar toko tanpa Jubelio vs Jubelio tanpa toko — yang kedua bukan antrian kirim tambahan
 - **Wajib dikirim sekarang**: terlambat atau sisa ≤ 1 jam
 - **Pesanan per tenggat**: jumlah pesanan saja (tanpa kolom qty). Per bucket: total Shopee dan TikTok, lalu Reguler / Instan / Same-day terpisah — bukan satu baris campur
 - **Instant**: kurir instant (SPX Instant, GoSend, Grab Express, dll.). **Same-day** dihitung terpisah. Bukan Hemat/Standard
@@ -150,7 +153,7 @@ Halaman kerja daily warehouse. **Data terpisah dari dashboard utama** (Supabase 
 
 **Filter antrian**
 - Jenis kirim: Instant · Reguler · Semua
-- Platform: Semua · Shopee · TikTok / Tokopedia · Jubelio
+- Platform: Semua · Shopee · TikTok / Tokopedia · Belum di Jubelio
 
 Klik baris antrian → preview detail (sisa waktu, kurir, catatan, preorder, data marketplace + Jubelio). Role warehouse tidak melihat harga. Qty / harga / total di-normalisasi dari Excel (titik ribuan vs desimal) supaya tidak membengkak jadi puluhan ribu item atau total miliaran.
 
@@ -311,7 +314,7 @@ Token Jubelio kadaluarsa 12 jam dan di-login ulang otomatis ([docs WMS](https://
 |----------|--------|------|
 | Shopee | Seller Centre > Pesanan > Export | Unggah Excel/CSV |
 | TikTok & Tokopedia | Export Excel/CSV toko | Unggah Excel/CSV → otomatis dicocokkan API |
-| Jubelio | Export Excel/CSV gudang | Unggah Excel/CSV → otomatis dicocokkan API |
+| Jubelio | Export Excel/CSV gudang (cermin, bukan antrian tambahan) | Unggah Excel/CSV → otomatis dicocokkan API |
 
 ### Google OAuth Setup
 

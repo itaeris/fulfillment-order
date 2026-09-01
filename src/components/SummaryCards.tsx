@@ -78,14 +78,6 @@ export default function SummaryCards({ summary, userRole }: SummaryCardsProps) {
       barColor: "bg-brand-800",
       data: combinedTiktokData,
     },
-    {
-      platform: "jubelio" as const,
-      name: "Jubelio",
-      dotColor: "bg-brand-500",
-      borderColor: "border-brand-200",
-      barColor: "bg-brand-500",
-      data: summary.byPlatform.jubelio,
-    },
   ];
 
   return (
@@ -118,7 +110,7 @@ export default function SummaryCards({ summary, userRole }: SummaryCardsProps) {
       </div>
 
       {/* Platform Breakdown */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 sm:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
         {platformCards.map((card, i) => {
           const data = card.data;
           const percentage =

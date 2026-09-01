@@ -395,9 +395,9 @@ export default function Dashboard() {
   }
 
   const pageTitles: Record<string, { title: string; subtitle: string }> = {
-    dashboard: { title: "Dashboard", subtitle: "Ringkasan performa order dari semua platform" },
-    orders: { title: "Pesanan", subtitle: "Daftar pesanan dari semua platform" },
-    compare: { title: "Komparasi", subtitle: "Bandingkan data Jubelio dengan Shopee / TikTok" },
+    dashboard: { title: "Dashboard", subtitle: "Ringkasan penjualan Shopee, TikTok, dan Tokopedia" },
+    orders: { title: "Pesanan", subtitle: "Daftar pesanan marketplace. Tab Jubelio hanya untuk cermin WMS." },
+    compare: { title: "Komparasi", subtitle: "Cermin Jubelio vs Shopee / TikTok — cek yang miss atau belum realtime" },
     settings: { title: "Settings", subtitle: "Kelola data, profil, password, dan user" },
   };
   const pageTitle = pageTitles[activeTab].title;
