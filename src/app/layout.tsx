@@ -12,12 +12,17 @@ const poppins = Poppins({
   variable: "--font-poppins",
 });
 
+const SITE_URL = "https://fulfillment-fti.aerisbeaute.com";
+
 export const metadata: Metadata = {
-  metadataBase: new URL("https://fulfillment-order.vercel.app"),
+  metadataBase: new URL(SITE_URL),
   title: "Order Dashboard",
   description: "Fulfillment dashboard for From This Island.",
   applicationName: "Order Dashboard",
   manifest: "/manifest.json",
+  alternates: {
+    canonical: "/",
+  },
   icons: {
     icon: "/icons/icon-192.png",
     apple: "/icons/icon-512.png",
@@ -30,6 +35,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Order Dashboard",
     description: "Fulfillment dashboard for From This Island.",
+    url: SITE_URL,
     siteName: "From This Island",
     locale: "id_ID",
     type: "website",

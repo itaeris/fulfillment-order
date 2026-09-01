@@ -2,7 +2,7 @@
 
 Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **Shopee**, **TikTok Shop / Tokopedia**, dan **Jubelio**. Data Shopee diimport dari Excel; order TikTok & Tokopedia ditarik dari **TikTok Shop Open API**; order Jubelio ditarik dari **Jubelio WMS API**. Penyimpanan di **Supabase** (PostgreSQL): dashboard utama memakai tabel `orders`, halaman **Kirim hari ini** memakai tabel terpisah `overview_orders`.
 
-**Live**: [fulfillment-order.vercel.app](https://fulfillment-order.vercel.app)
+**Live**: [fulfillment-fti.aerisbeaute.com](https://fulfillment-fti.aerisbeaute.com)
 
 ## Alur sistem
 
@@ -242,20 +242,20 @@ JUBELIO_WEBHOOK_FORWARD_URL=  # opsional; URL sistem lama (bisa koma-pisah)
 Di Partner Center, Redirect URL boleh:
 
 ```
-https://fulfillment-order.vercel.app/
-https://fulfillment-order.vercel.app/api/tiktok/callback
+https://fulfillment-fti.aerisbeaute.com/
+https://fulfillment-fti.aerisbeaute.com/api/tiktok/callback
 ```
 
 Webhook TikTok:
 
 ```
-https://fulfillment-order.vercel.app/api/tiktok/webhook
+https://fulfillment-fti.aerisbeaute.com/api/tiktok/webhook
 ```
 
 Webhook Jubelio (field Pesanan / Create):
 
 ```
-https://fulfillment-order.vercel.app/api/jubelio/webhook?secret=<JUBELIO_WEBHOOK_SECRET>
+https://fulfillment-fti.aerisbeaute.com/api/jubelio/webhook?secret=<JUBELIO_WEBHOOK_SECRET>
 ```
 
 Keduanya ditangani (callback ke `/` diteruskan ke `/api/tiktok/callback`). Lokal: `http://localhost:3000/` atau `http://localhost:3000/api/tiktok/callback`.
