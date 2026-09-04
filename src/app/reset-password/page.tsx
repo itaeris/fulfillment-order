@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent, useEffect } from "react";
+import { useState, FormEvent, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
+import { Turnstile, verifyTurnstileClient, type TurnstileHandle } from "@/components/Turnstile";
 
 type Mode = "request" | "update" | "done";
 
@@ -26,6 +27,8 @@ export default function ResetPasswordPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const turnstileRef = useRef<TurnstileHandle | null>(null);
 
   useEffect(() => {
     const {
@@ -53,11 +56,20 @@ export default function ResetPasswordPage() {
     }
 
     setIsSubmitting(true);
+    const turnstileError = await verifyTurnstileClient(turnstileToken);
+    if (turnstileError) {
+      setError(turnstileError);
+      turnstileRef.current?.reset();
+      setIsSubmitting(false);
+      return;
+    }
+
     const { error: resetError } = await resetPassword(emailOrUsername);
     setIsSubmitting(false);
 
     if (resetError) {
       setError(resetError);
+      turnstileRef.current?.reset();
     } else {
       setMode("done");
     }
@@ -151,6 +163,8 @@ export default function ResetPasswordPage() {
                   className="w-full px-4 py-3 border border-brand-200 rounded-xl text-sm text-brand-800 placeholder:text-brand-300 bg-cream-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all"
                 />
               </div>
+
+              <Turnstile ref={turnstileRef} onToken={setTurnstileToken} />
 
               <button
                 type="submit"

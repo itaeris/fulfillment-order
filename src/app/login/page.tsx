@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent, useEffect, useMemo } from "react";
+import { useState, FormEvent, useEffect, useMemo, useRef, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import {
   CalendarDays,
@@ -15,6 +15,7 @@ import {
   Truck,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { Turnstile, verifyTurnstileClient, type TurnstileHandle } from "@/components/Turnstile";
 
 const FEATURES = [
   { label: "Dashboard", icon: LayoutDashboard },
@@ -126,6 +127,8 @@ function LoginCard({
   isGoogleLoading,
   onSubmit,
   onGoogle,
+  onTurnstileToken,
+  turnstileRef,
 }: {
   identifier: string;
   setIdentifier: (value: string) => void;
@@ -138,6 +141,8 @@ function LoginCard({
   isGoogleLoading: boolean;
   onSubmit: (e: FormEvent) => void;
   onGoogle: () => void;
+  onTurnstileToken: (token: string) => void;
+  turnstileRef: RefObject<TurnstileHandle | null>;
 }) {
   return (
     <div className="w-full">
@@ -199,6 +204,8 @@ function LoginCard({
           </div>
         </div>
 
+        <Turnstile ref={turnstileRef} onToken={onTurnstileToken} />
+
         <button
           type="submit"
           disabled={isSubmitting}
@@ -258,6 +265,8 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const turnstileRef = useRef<TurnstileHandle | null>(null);
 
   useEffect(() => {
     if (!authLoading && user) {
@@ -275,11 +284,20 @@ export default function LoginPage() {
     }
 
     setIsSubmitting(true);
+    const turnstileError = await verifyTurnstileClient(turnstileToken);
+    if (turnstileError) {
+      setError(turnstileError);
+      turnstileRef.current?.reset();
+      setIsSubmitting(false);
+      return;
+    }
+
     const { error: signInError } = await signIn(identifier, password);
     setIsSubmitting(false);
 
     if (signInError) {
       setError(signInError);
+      turnstileRef.current?.reset();
     } else {
       router.replace("/");
     }
@@ -288,9 +306,17 @@ export default function LoginPage() {
   const handleGoogle = async () => {
     setIsGoogleLoading(true);
     setError("");
+    const turnstileError = await verifyTurnstileClient(turnstileToken);
+    if (turnstileError) {
+      setError(turnstileError);
+      turnstileRef.current?.reset();
+      setIsGoogleLoading(false);
+      return;
+    }
     const { error: gError } = await signInWithGoogle();
     if (gError) {
       setError(gError);
+      turnstileRef.current?.reset();
       setIsGoogleLoading(false);
     }
   };
@@ -307,6 +333,8 @@ export default function LoginPage() {
     isGoogleLoading,
     onSubmit: handleSubmit,
     onGoogle: handleGoogle,
+    onTurnstileToken: setTurnstileToken,
+    turnstileRef,
   };
 
   if (user) return null;

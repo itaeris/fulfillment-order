@@ -161,6 +161,7 @@ Timezone tenggat: `Asia/Jakarta`. Tombol **Hapus data halaman ini** hanya mengos
 
 ### Autentikasi & Keamanan
 - Login: email/username + password, atau Google OAuth
+- Cloudflare Turnstile di login dan request reset password (wajib di production)
 - Google OAuth hanya untuk domain `@aerisbeaute.com` dan `@fromthisisland.com`
 - User harus didaftarkan admin sebelum bisa login (termasuk Google)
 - **Admin**: akses penuh
@@ -219,28 +220,11 @@ npm install
 
 ### Environment Variables
 
-Buat file `.env.local`:
-
-```env
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-
-# TikTok Shop Open API
-TIKTOK_APP_KEY=
-TIKTOK_APP_SECRET=
-TIKTOK_SHOP_CIPHER=
-TIKTOK_SERVICE_ID=            # opsional, dari "Copy authorization link"
-TIKTOK_BASE_URL=https://open-api.tiktokglobalshop.com
-TIKTOK_API_VERSION=202309
-
-# Jubelio WMS / Omnichannel API
-JUBELIO_EMAIL=
-JUBELIO_PASSWORD=
-JUBELIO_BASE_URL=https://api2.jubelio.com
-JUBELIO_WEBHOOK_SECRET=       # query ?secret= pada URL webhook
-JUBELIO_WEBHOOK_FORWARD_URL=  # opsional; URL sistem lama (bisa koma-pisah)
+```bash
+cp .env.example .env
 ```
+
+Isi nilai di `.env` (atau `.env.local`). Daftar lengkap variabel ada di `.env.example`. Jangan commit secret.
 
 Di Partner Center, Redirect URL boleh:
 
@@ -291,6 +275,17 @@ npm start
 ```
 
 Untuk Vercel: push ke GitHub, import di Vercel, set environment variables di Settings. Cron di `vercel.json` memanggil `/api/refresh-status` setiap 15 menit.
+
+**Cloudflare Turnstile** wajib di production (login + request reset password). Di Vercel → project yang serve `fulfillment-fti.aerisbeaute.com` → Settings → Environment Variables, tambah:
+
+| Name | Environment |
+|------|-------------|
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Production, Preview |
+| `TURNSTILE_SECRET_KEY` | Production, Preview |
+
+`NEXT_PUBLIC_TURNSTILE_SITE_KEY` di-bake saat **build**, jadi setelah menambah env harus **Redeploy** (bukan hanya restart instance). Tanpa secret di production, `/api/turnstile/verify` menolak login.
+
+Di Cloudflare Dashboard → Turnstile, hostname widget harus termasuk `fulfillment-fti.aerisbeaute.com` (dan `localhost` kalau mau tes lokal dengan key production). Site key boleh di client; secret key hanya di server / env Vercel, jangan di repo.
 
 ## Cara Penggunaan
 
@@ -344,6 +339,7 @@ src/
 │   │   ├── overview/live-status/ # Status live webhook untuk overlay
 │   │   ├── refresh-status/       # Cron 15 menit (TikTok + Jubelio)
 │   │   ├── time/                 # Jam Asia/Jakarta
+│   │   ├── turnstile/verify/     # Verifikasi Cloudflare Turnstile
 │   │   ├── jubelio/sync/         # Tarik order Siap Kirim
 │   │   ├── jubelio/webhook/      # Status live + forward URL lama
 │   │   ├── jubelio/refresh-status/
@@ -366,6 +362,7 @@ src/
 │   ├── Charts.tsx
 │   ├── ComparisonView.tsx
 │   ├── DueDateOverview.tsx       # UI Kirim hari ini
+│   ├── Turnstile.tsx             # Cloudflare Turnstile (login)
 │   ├── FileUpload.tsx            # Import Shopee (dashboard)
 │   ├── OrderDetailPreview.tsx    # Drawer detail klik baris
 │   ├── OrderTable.tsx
