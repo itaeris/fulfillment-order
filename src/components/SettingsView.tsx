@@ -995,7 +995,10 @@ function AddUserForm({ onSuccess }: { onSuccess: () => void }) {
 
   return (
     <div className="mb-4 sm:mb-6 p-3 sm:p-5 bg-cream-50 border border-brand-200 rounded-lg sm:rounded-xl">
-      <h4 className="text-xs sm:text-sm font-semibold text-brand-800 mb-3 sm:mb-4">Tambah User Baru</h4>
+      <h4 className="text-xs sm:text-sm font-semibold text-brand-800 mb-1">Tambah User Baru</h4>
+      <p className="text-[11px] text-brand-400 mb-3 sm:mb-4">
+        Email bebas (tidak harus domain kantor). User ini login pakai email/username + password, bukan Google.
+      </p>
       <form onSubmit={handleSubmit} className="space-y-3">
         {error && (
           <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">{error}</div>

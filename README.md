@@ -163,6 +163,7 @@ Timezone tenggat: `Asia/Jakarta`. Tombol **Hapus data halaman ini** hanya mengos
 - Login: email/username + password, atau Google OAuth
 - Cloudflare Turnstile di login dan request reset password (wajib di production)
 - Google OAuth hanya untuk domain `@aerisbeaute.com` dan `@fromthisisland.com`
+- User yang dibuat admin (password) boleh email domain apa saja — restriction domain hanya untuk Google
 - User harus didaftarkan admin sebelum bisa login (termasuk Google)
 - **Admin**: akses penuh
 - **Warehouse**: akses penuh, data keuangan disembunyikan

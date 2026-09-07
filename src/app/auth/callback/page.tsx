@@ -5,8 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import { toIndonesianError } from "@/lib/errors";
-
-const ALLOWED_DOMAINS = ["aerisbeaute.com", "fromthisisland.com"];
+import { googleEmailDomain, isAllowedGoogleEmail } from "@/lib/auth-domains";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
@@ -33,10 +32,12 @@ export default function AuthCallbackPage() {
         return;
       }
 
-      const domain = session.user.email.split("@")[1]?.toLowerCase();
-      if (!ALLOWED_DOMAINS.includes(domain)) {
+      if (!isAllowedGoogleEmail(session.user.email)) {
+        const domain = googleEmailDomain(session.user.email);
         await supabase.auth.signOut();
-        setError(`Domain @${domain} tidak diizinkan. Hanya @aerisbeaute.com dan @fromthisisland.com yang bisa login.`);
+        setError(
+          `Domain @${domain} tidak diizinkan untuk Google. Hanya @aerisbeaute.com dan @fromthisisland.com.`
+        );
         return;
       }
 

@@ -27,11 +27,21 @@ export async function POST(req: NextRequest) {
       { auth: { autoRefreshToken: false, persistSession: false } }
     );
 
+    const normalizedUsername = String(username).trim();
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const normalizedName = String(name).trim();
+    const normalizedRole = role || "warehouse";
+
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
-      email,
+      email: normalizedEmail,
       password,
       email_confirm: true,
-      user_metadata: { username, name, role: role || "warehouse", approved: true },
+      user_metadata: {
+        username: normalizedUsername,
+        name: normalizedName,
+        role: normalizedRole,
+        approved: true,
+      },
     });
 
     if (error) {
@@ -44,7 +54,13 @@ export async function POST(req: NextRequest) {
     if (data.user) {
       await supabaseAdmin
         .from("profiles")
-        .update({ role: role || "warehouse", username, name, approved: true })
+        .update({
+          role: normalizedRole,
+          username: normalizedUsername,
+          name: normalizedName,
+          email: normalizedEmail,
+          approved: true,
+        })
         .eq("id", data.user.id);
     }
 

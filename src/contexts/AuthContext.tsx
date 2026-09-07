@@ -10,6 +10,7 @@ import {
 } from "react";
 import { supabase } from "@/lib/supabase";
 import { toIndonesianError } from "@/lib/errors";
+import { isAllowedGoogleEmail, isGoogleUser } from "@/lib/auth-domains";
 import type { User } from "@supabase/supabase-js";
 
 export type UserRole = "admin" | "warehouse";
@@ -23,7 +24,6 @@ export interface UserProfile {
   approved: boolean;
 }
 
-const ALLOWED_DOMAINS = ["aerisbeaute.com", "fromthisisland.com"];
 const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 const SESSION_KEY = "login_timestamp";
 const PROFILE_CACHE_KEY = "fo_profile_v1";
@@ -199,16 +199,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearProfileCache();
         localStorage.removeItem(SESSION_KEY);
       }
-      if (session?.user) {
-        const email = session.user.email || "";
-        const domain = email.split("@")[1]?.toLowerCase();
-        if (domain && !ALLOWED_DOMAINS.includes(domain)) {
-          clearProfileCache();
-          await supabase.auth.signOut();
-          setUser(null);
-          setProfile(null);
-          return;
-        }
+      // Domain lock is Google OAuth only. Admin-created password users
+      // (e.g. Shopee tester) may use any email.
+      if (session?.user && isGoogleUser(session.user) && !isAllowedGoogleEmail(session.user.email || "")) {
+        clearProfileCache();
+        await supabase.auth.signOut();
+        setUser(null);
+        setProfile(null);
+        return;
       }
       await applySession(session, event);
     });
@@ -233,7 +231,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { data, error } = await supabase
           .from("profiles")
           .select("email")
-          .eq("username", email)
+          .ilike("username", email)
           .single();
 
         if (error || !data) {
@@ -242,7 +240,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email = data.email;
       }
 
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data: authData, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -251,9 +249,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: toIndonesianError(error.message, "Email/username atau password salah") };
       }
 
+      const userId = authData.user?.id;
+      if (userId) {
+        const ok = await fetchProfile(userId, authData.user.email || email);
+        if (!ok) {
+          return { error: "Akun belum aktif. Hubungi admin." };
+        }
+      }
+
       return { error: null };
     },
-    []
+    [fetchProfile]
   );
 
   const signInWithGoogle = useCallback(async (): Promise<{ error: string | null }> => {
