@@ -23,6 +23,7 @@ import ApiSyncBar, { type ApiSyncState } from "@/components/ApiSyncBar";
 import { OrderDetailPreview } from "@/components/OrderDetailPreview";
 import { DayPicker } from "@/components/DayPicker";
 import { formatDayKeyLabel, isMarketplaceShipOnDate, todayKey } from "@/lib/due-date";
+import { orderNumberKeys, trackingKeys } from "@/lib/order-match";
 
 interface ComparisonViewProps {
   orders: Order[];
@@ -48,27 +49,16 @@ interface ComparisonRow {
 
 const ITEMS_PER_PAGE = 20;
 
-function normalize(s: string): string {
-  return s.replace(/[\s\-_.#]+/g, "").toUpperCase();
-}
-
-function indexOrders(orders: Order[], keyOf: (order: Order) => string | undefined) {
+function indexOrdersByKeys(orders: Order[], keysOf: (order: Order) => string[]) {
   const map = new Map<string, Order[]>();
   for (const order of orders) {
-    const key = keyOf(order);
-    if (!key) continue;
-    const list = map.get(key);
-    if (list) list.push(order);
-    else map.set(key, [order]);
+    for (const key of keysOf(order)) {
+      const list = map.get(key);
+      if (list) list.push(order);
+      else map.set(key, [order]);
+    }
   }
   return map;
-}
-
-function takeOrder(list: Order[] | undefined, used: Set<string>) {
-  if (!list) return undefined;
-  const hit = list.find((order) => !used.has(order.id));
-  if (hit) used.add(hit.id);
-  return hit;
 }
 
 function comparisonOf(jOrder: Order, pOrder: Order, matchedBy: string): ComparisonRow {
@@ -156,46 +146,30 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
       (o) => o.platform === "shopee" || o.platform === "tiktok" || o.platform === "tokopedia"
     );
 
-    const byOrderNumber = indexOrders(platformOrders, (order) => normalize(order.orderNumber));
-    const byTracking = indexOrders(platformOrders, (order) => {
-      const tracking = order.trackingNumber ? normalize(order.trackingNumber) : "";
-      return tracking.length >= 5 ? tracking : undefined;
-    });
+    const byOrderNumber = indexOrdersByKeys(platformOrders, orderNumberKeys);
+    const byTracking = indexOrdersByKeys(platformOrders, trackingKeys);
 
     const matched = new Map<string, ComparisonRow>();
     const matchedJubelioIds = new Set<string>();
     const matchedPlatformIds = new Set<string>();
 
-    const pair = (jOrder: Order, pOrder: Order | undefined, matchedBy: string, key: string) => {
-      if (!pOrder) return false;
-      matched.set(key, comparisonOf(jOrder, pOrder, matchedBy));
-      matchedJubelioIds.add(jOrder.id);
-      matchedPlatformIds.add(pOrder.id);
-      return true;
+    const pairAll = (jOrder: Order, candidates: Order[], matchedBy: string) => {
+      let hit = false;
+      for (const pOrder of candidates) {
+        if (matchedPlatformIds.has(pOrder.id)) continue;
+        matched.set(`${jOrder.id}-${pOrder.id}`, comparisonOf(jOrder, pOrder, matchedBy));
+        matchedJubelioIds.add(jOrder.id);
+        matchedPlatformIds.add(pOrder.id);
+        hit = true;
+      }
+      return hit;
     };
 
     for (const jOrder of jubelioOrders) {
-      const refKey = jOrder.refNo ? normalize(jOrder.refNo) : "";
-      if (!refKey) continue;
-      pair(jOrder, takeOrder(byOrderNumber.get(refKey), matchedPlatformIds), "Ref No", refKey);
-    }
-
-    for (const jOrder of jubelioOrders) {
-      if (matchedJubelioIds.has(jOrder.id)) continue;
-      const jKey = normalize(jOrder.orderNumber);
-      pair(jOrder, takeOrder(byOrderNumber.get(jKey), matchedPlatformIds), "Order No", jKey);
-    }
-
-    for (const jOrder of jubelioOrders) {
-      if (matchedJubelioIds.has(jOrder.id)) continue;
-      const jTracking = jOrder.trackingNumber ? normalize(jOrder.trackingNumber) : "";
-      if (jTracking.length < 5) continue;
-      pair(
-        jOrder,
-        takeOrder(byTracking.get(jTracking), matchedPlatformIds),
-        "Resi",
-        `tracking-${jTracking}`
-      );
+      if (orderNumberKeys(jOrder).some((key) => pairAll(jOrder, byOrderNumber.get(key) || [], "No. pesanan / source"))) {
+        continue;
+      }
+      trackingKeys(jOrder).some((key) => pairAll(jOrder, byTracking.get(key) || [], "Resi"));
     }
 
     const comparisonRows: ComparisonRow[] = Array.from(matched.values());

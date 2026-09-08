@@ -54,13 +54,15 @@ function CopyButton({
 function matchesQuery(row: DueDateRow, query: string) {
   const q = query.replace(/[\s\-_.#]+/g, "").toLowerCase();
   if (!q) return true;
-  const hay = [
-    row.orderNumber,
-    row.marketplaceOrder?.orderNumber,
-    row.jubelioOrder?.orderNumber,
-    row.jubelioOrder?.refNo,
-    row.marketplaceOrder?.refNo,
-  ]
+    const hay = [
+      row.orderNumber,
+      row.marketplaceOrder?.orderNumber,
+      row.jubelioOrder?.orderNumber,
+      row.jubelioOrder?.refNo,
+      row.marketplaceOrder?.refNo,
+      row.marketplaceOrder?.trackingNumber,
+      row.jubelioOrder?.trackingNumber,
+    ]
     .filter(Boolean)
     .join(" ")
     .replace(/[\s\-_.#]+/g, "")
@@ -132,7 +134,7 @@ export default function CerminJubelioFullView({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Cari nomor pesanan..."
+            placeholder="Cari nomor pesanan, source, atau resi..."
             className="w-full pl-8 pr-8 py-1.5 text-sm border border-brand-200 rounded-lg bg-cream-50 text-brand-800 placeholder:text-brand-300 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           />
           {query ? (

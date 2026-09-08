@@ -260,6 +260,8 @@ export default function DueDateOverviewView({
       row.jubelioOrder?.orderNumber,
       row.jubelioOrder?.refNo,
       row.marketplaceOrder?.refNo,
+      row.marketplaceOrder?.trackingNumber,
+      row.jubelioOrder?.trackingNumber,
     ]
       .filter(Boolean)
       .join(" ")

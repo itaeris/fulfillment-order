@@ -234,6 +234,7 @@ const COLUMN_MAPPINGS: Record<Platform, Record<string, string>> = {
     "source": "source",
     "source_name": "sourceName",
     "channel_name": "channelName",
+    "order_source_no": "orderSourceNo",
     
     // Order details
     "ref_no": "refNo",
@@ -413,6 +414,11 @@ const JUBELIO_STATUS_MAPPINGS: Record<string, OrderStatus> = {
   "ready to pack": "processing",
   "packing": "processing",
   "packed": "processing",
+  "processed": "processing",
+  "awaiting_collection": "processing",
+  "awaiting collection": "processing",
+  "to_confirm_receive": "processing",
+  "to confirm receive": "processing",
 
   // Shipped
   "shipped": "shipped",
@@ -871,7 +877,7 @@ export function parseExcelFile(
       shippingAddress: getValue("shippingAddress")?.toString()?.trim(),
       city: getValue("city")?.toString()?.trim(),
       province: getValue("province")?.toString()?.trim(),
-      trackingNumber: getValue("trackingNumber")?.toString()?.trim(),
+      trackingNumber: String(getValue("trackingNumber") ?? "").trim() || undefined,
       shippingOption: getValue("shippingOption")?.toString()?.trim(),
       courier: getValue("courier")?.toString()?.trim(),
       phone: getValue("phone")?.toString()?.trim(),
@@ -879,7 +885,11 @@ export function parseExcelFile(
       weight: parseQuantity(getValue("weight")) || undefined,
       channelName: getValue("channelName")?.toString()?.trim(),
       storeName: getValue("storeName")?.toString()?.trim(),
-      refNo: getValue("refNo")?.toString()?.trim() || getValue("invoiceNo")?.toString()?.trim(),
+      refNo:
+        String(getValue("orderSourceNo") ?? "").trim() ||
+        String(getValue("refNo") ?? "").trim() ||
+        String(getValue("invoiceNo") ?? "").trim() ||
+        undefined,
       pickupTime: (() => {
         const candidates = [
           getValue("pickupTime"),

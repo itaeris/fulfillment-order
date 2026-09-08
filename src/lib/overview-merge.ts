@@ -1,5 +1,6 @@
 import { Order, OrderStatus } from "@/types/order";
 import { preferClear } from "@/lib/utils";
+import { expandMatchKeys, normalizeMatchKey } from "@/lib/order-match";
 
 function toDate(value?: Date | string | null): Date | undefined {
   if (!value) return undefined;
@@ -8,7 +9,7 @@ function toDate(value?: Date | string | null): Date | undefined {
 }
 
 function normalize(value?: string | null): string {
-  return String(value || "").replace(/[\s\-_.#]+/g, "").toUpperCase();
+  return normalizeMatchKey(value);
 }
 
 function push(map: Map<string, Order[]>, key: string, order: Order) {
@@ -31,7 +32,7 @@ export function uniqueLookupNumbers(orders: Order[]): string[] {
   const seen = new Set<string>();
   const numbers: string[] = [];
   for (const order of orders) {
-    for (const value of [order.orderNumber, order.refNo]) {
+    for (const value of [order.orderNumber, order.refNo, order.trackingNumber]) {
       const trimmed = String(value || "").trim();
       if (!trimmed || seen.has(trimmed)) continue;
       seen.add(trimmed);
@@ -94,8 +95,9 @@ export function mergeImportedWithApi(
     push(byFull, `${numberKey}|${skuKey}|${normalize(order.productName)}`, order);
     push(byOrderSku, `${numberKey}|${skuKey}`, order);
     push(byOrder, numberKey, order);
-    push(byRef, normalize(order.refNo), order);
-    push(byRef, normalize(order.trackingNumber), order);
+    for (const key of expandMatchKeys(order.refNo)) push(byRef, key, order);
+    for (const key of expandMatchKeys(order.orderNumber)) push(byOrder, key, order);
+    for (const key of expandMatchKeys(order.trackingNumber)) push(byRef, key, order);
   }
 
   const used = new Set<string>();
@@ -110,13 +112,22 @@ export function mergeImportedWithApi(
   const orders = imported.map((row) => {
     const numberKey = normalize(row.orderNumber);
     const skuKey = normalize(row.sku);
-    const apiHit =
+    let apiHit =
       take(byFull.get(`${numberKey}|${skuKey}|${normalize(row.productName)}`)) ||
       take(byOrderSku.get(`${numberKey}|${skuKey}`)) ||
-      take(byOrder.get(numberKey)) ||
-      take(byRef.get(normalize(row.refNo))) ||
-      take(byOrder.get(normalize(row.refNo))) ||
-      take(byRef.get(normalize(row.trackingNumber)));
+      take(byOrder.get(numberKey));
+    if (!apiHit) {
+      for (const key of expandMatchKeys(row.refNo)) {
+        apiHit = take(byRef.get(key)) || take(byOrder.get(key));
+        if (apiHit) break;
+      }
+    }
+    if (!apiHit) {
+      for (const key of expandMatchKeys(row.trackingNumber)) {
+        apiHit = take(byRef.get(key));
+        if (apiHit) break;
+      }
+    }
 
     if (!apiHit) return row;
     matched += 1;

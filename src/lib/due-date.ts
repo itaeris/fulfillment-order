@@ -1,4 +1,5 @@
 import { Order } from "@/types/order";
+import { orderNumberKeys, trackingKeys } from "@/lib/order-match";
 
 const TZ = "Asia/Jakarta";
 const URGENT_MS = 60 * 60 * 1000;
@@ -129,10 +130,6 @@ export function formatAnalyzedAt(value: Date): string {
   });
 }
 
-function normalize(s: string): string {
-  return s.replace(/[\s\-_.#]+/g, "").toUpperCase();
-}
-
 function marketplaceName(order?: Order): MarketplaceName | undefined {
   if (!order) return undefined;
   if (order.platform === "shopee") return "Shopee";
@@ -148,6 +145,22 @@ function marketplaceName(order?: Order): MarketplaceName | undefined {
 
 function isOpen(order: Order): boolean {
   return !SKIP_STATUS.has(order.status);
+}
+
+function isMatchableJubelio(order: Order): boolean {
+  return order.platform === "jubelio" && order.status !== "cancelled" && order.status !== "returned";
+}
+
+function indexByKeys(orders: Order[], keysOf: (order: Order) => string[]) {
+  const map = new Map<string, Order[]>();
+  for (const order of orders) {
+    for (const key of keysOf(order)) {
+      const list = map.get(key) || [];
+      list.push(order);
+      map.set(key, list);
+    }
+  }
+  return map;
 }
 
 function isInstant(order?: Order): boolean {
@@ -329,45 +342,34 @@ function matchOrders(jubelioOrders: Order[], platformOrders: Order[]) {
   const matchedPlatform = new Set<string>();
   const pairs: { jubelio: Order; platform: Order }[] = [];
 
-  const byOrderNumber = new Map<string, Order[]>();
-  const byTracking = new Map<string, Order[]>();
-  for (const p of platformOrders) {
-    const key = normalize(p.orderNumber);
-    const list = byOrderNumber.get(key) || [];
-    list.push(p);
-    byOrderNumber.set(key, list);
-    if (p.trackingNumber) {
-      const t = normalize(p.trackingNumber);
-      if (t.length >= 5) {
-        const tList = byTracking.get(t) || [];
-        tList.push(p);
-        byTracking.set(t, tList);
+  const byOrder = indexByKeys(platformOrders, orderNumberKeys);
+  const byTracking = indexByKeys(platformOrders, trackingKeys);
+
+  const takeAll = (j: Order, candidates: Order[]) => {
+    let hit = false;
+    const pool: Order[] = [];
+    for (const p of candidates) {
+      pool.push(p);
+      for (const key of orderNumberKeys(p)) {
+        pool.push(...(byOrder.get(key) || []));
       }
     }
-  }
-
-  const take = (j: Order, p: Order) => {
-    if (matchedJubelio.has(j.id) || matchedPlatform.has(p.id)) return false;
-    pairs.push({ jubelio: j, platform: p });
-    matchedJubelio.add(j.id);
-    matchedPlatform.add(p.id);
-    return true;
+    const seen = new Set<string>();
+    for (const p of pool) {
+      if (seen.has(p.id) || matchedPlatform.has(p.id)) continue;
+      seen.add(p.id);
+      pairs.push({ jubelio: j, platform: p });
+      matchedJubelio.add(j.id);
+      matchedPlatform.add(p.id);
+      hit = true;
+    }
+    return hit;
   };
 
   for (const j of jubelioOrders) {
-    if (j.refNo) {
-      const candidates = byOrderNumber.get(normalize(j.refNo)) || [];
-      if (candidates.some((p) => take(j, p))) continue;
-    }
-    const byNo = byOrderNumber.get(normalize(j.orderNumber)) || [];
-    if (byNo.some((p) => take(j, p))) continue;
-    if (j.trackingNumber) {
-      const t = normalize(j.trackingNumber);
-      if (t.length >= 5) {
-        const byT = byTracking.get(t) || [];
-        byT.some((p) => take(j, p));
-      }
-    }
+    const orderKeys = orderNumberKeys(j);
+    if (orderKeys.some((key) => takeAll(j, byOrder.get(key) || []))) continue;
+    trackingKeys(j).some((key) => takeAll(j, byTracking.get(key) || []));
   }
 
   return { pairs, matchedJubelio, matchedPlatform };
@@ -469,12 +471,13 @@ function bucketLabel(row: DueDateRow, now: Date): { key: string; label: string; 
 export function buildDueDateOverview(orders: Order[], now = new Date()): DueDateOverview {
   const today = todayKey(now);
   const open = orders.filter(isOpen);
-  const jubelioOrders = open.filter((o) => o.platform === "jubelio");
+  const openJubelio = open.filter((o) => o.platform === "jubelio");
+  const matchableJubelio = orders.filter(isMatchableJubelio);
   const platformOrders = open.filter(
     (o) => o.platform === "shopee" || o.platform === "tiktok" || o.platform === "tokopedia"
   );
 
-  const { pairs, matchedJubelio, matchedPlatform } = matchOrders(jubelioOrders, platformOrders);
+  const { pairs, matchedJubelio, matchedPlatform } = matchOrders(matchableJubelio, platformOrders);
   const pairedAndPlatform: DueDateRow[] = [];
   const unmatchedJubelio: DueDateRow[] = [];
 
@@ -492,7 +495,7 @@ export function buildDueDateOverview(orders: Order[], now = new Date()): DueDate
     if (matchedPlatform.has(p.id)) continue;
     pairedAndPlatform.push(buildRow({ marketplaceOrder: p, now, today }));
   }
-  for (const j of jubelioOrders) {
+  for (const j of openJubelio) {
     if (matchedJubelio.has(j.id)) continue;
     unmatchedJubelio.push(buildRow({ jubelioOrder: j, now, today }));
   }

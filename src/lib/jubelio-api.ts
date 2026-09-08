@@ -1,5 +1,6 @@
 import { Order, OrderStatus } from "@/types/order";
 import { sanitizeOrderMetrics } from "@/lib/utils";
+import { expandMatchKeys, identityKeys } from "@/lib/order-match";
 import {
   ensureJubelioToken,
   getJubelioBaseUrl,
@@ -47,6 +48,8 @@ interface JubelioRawOrder {
   shipper?: string;
   tracking_no?: string;
   tracking_number?: string;
+  order_source_no?: string;
+  source_no?: string;
   shipment_type?: string;
   store_name?: string;
   channel_name?: string;
@@ -353,7 +356,7 @@ function mapRawOrder(raw: JubelioRawOrder): Order {
     courier: raw.shipper,
     channelName: raw.channel_name || raw.source_name,
     storeName: raw.store_name,
-    refNo: raw.ref_no || raw.invoice_no,
+    refNo: raw.order_source_no || raw.source_no || raw.ref_no || raw.invoice_no,
     notes: [raw.picklist_no, raw.invoice_no, raw.location_name].filter(Boolean).join(" · ") || undefined,
     phone: raw.phone,
     shippingAddress: raw.shipping_address,
@@ -564,14 +567,7 @@ function normalizeLookup(value?: string): string {
 }
 
 function jubelioLookupKeys(order: Order): string[] {
-  return [
-    order.orderNumber,
-    order.refNo,
-    order.trackingNumber,
-    String(order.id).replace(/^jubelio-/i, ""),
-  ]
-    .map(normalizeLookup)
-    .filter(Boolean);
+  return identityKeys(order);
 }
 
 /**
@@ -580,7 +576,7 @@ function jubelioLookupKeys(order: Order): string[] {
  * Tidak menulis ke database.
  */
 export async function fetchJubelioOrdersMatching(numbers: string[]): Promise<Order[]> {
-  const wanted = new Set(numbers.map(normalizeLookup).filter(Boolean));
+  const wanted = new Set(numbers.flatMap((value) => expandMatchKeys(value)));
   if (wanted.size === 0) return [];
 
   const found: Order[] = [];
@@ -654,12 +650,19 @@ export async function fetchJubelioOrderByKey(key: string): Promise<Order | undef
       page: "1",
       pageSize: "20",
     });
-    const want = normalizeLookup(trimmed);
-    const match = flattenOrderRows(extractList(json)).find((row) =>
-      [row.salesorder_no, String(row.salesorder_id ?? ""), row.ref_no]
-        .map((value) => normalizeLookup(String(value || "")))
-        .includes(want)
-    );
+    const wanted = new Set(expandMatchKeys(trimmed));
+    const match = flattenOrderRows(extractList(json)).find((row) => {
+      const keys = [
+        row.salesorder_no,
+        String(row.salesorder_id ?? ""),
+        row.ref_no,
+        row.order_source_no,
+        row.source_no,
+        row.tracking_no,
+        row.tracking_number,
+      ].flatMap((value) => expandMatchKeys(String(value || "")));
+      return keys.some((key) => wanted.has(key));
+    });
     if (match) return mapRawOrder(match);
   } catch {
     return undefined;
