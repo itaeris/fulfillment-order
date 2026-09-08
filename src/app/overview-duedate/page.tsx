@@ -96,8 +96,8 @@ export default function OverviewDueDatePage() {
       fetch("/api/tiktok/token").then((res) => res.json()).catch(() => null),
     ]).then(([shopee, tiktok]) => {
       if (cancelled) return;
-      if (shopee) setShopeeLinked(Boolean(shopee.hasRefreshToken));
-      if (tiktok) setTiktokLinked(Boolean(tiktok.hasRefreshToken));
+      if (typeof shopee?.hasRefreshToken === "boolean") setShopeeLinked(shopee.hasRefreshToken);
+      if (typeof tiktok?.hasRefreshToken === "boolean") setTiktokLinked(tiktok.hasRefreshToken);
     });
     return () => {
       cancelled = true;

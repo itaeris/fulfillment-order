@@ -149,7 +149,11 @@ async function readDbTokens(): Promise<ShopeeStoredTokens | null> {
     .select("*")
     .eq("id", TOKEN_ROW_ID)
     .maybeSingle();
-  if (error || !data) return null;
+  if (error) {
+    console.error("shopee_tokens read failed:", error.message);
+    return null;
+  }
+  if (!data) return null;
   return {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
@@ -195,7 +199,19 @@ async function writeDbTokens(tokens: ShopeeStoredTokens): Promise<void> {
 export async function loadStoredTokens(): Promise<ShopeeStoredTokens | null> {
   const db = await readDbTokens();
   if (db?.refreshToken || db?.accessToken) return db;
-  return readFileTokens();
+  const file = await readFileTokens();
+  if (file?.refreshToken || file?.accessToken) {
+    try {
+      await writeDbTokens(file);
+    } catch (error) {
+      console.error(
+        "Shopee token ada di cache lokal, gagal disimpan ke database:",
+        error instanceof Error ? error.message : error
+      );
+    }
+    return file;
+  }
+  return null;
 }
 
 export async function saveStoredTokens(tokens: ShopeeStoredTokens): Promise<void> {
@@ -211,9 +227,32 @@ export async function saveStoredTokens(tokens: ShopeeStoredTokens): Promise<void
   }
 }
 
+function refreshTokenDying(tokens: ShopeeStoredTokens | null): boolean {
+  return (
+    isExpired(tokens?.refreshTokenExpireAt) ||
+    expiresWithin(tokens?.refreshTokenExpireAt, REFRESH_TOKEN_REAUTH_MS, false)
+  );
+}
+
+function accessNeedsRefresh(tokens: ShopeeStoredTokens): boolean {
+  if (!tokens.accessToken) return true;
+  if (tokens.accessTokenExpireAt) {
+    return expiresWithin(tokens.accessTokenExpireAt, ACCESS_REFRESH_BUFFER_MS, false);
+  }
+  if (tokens.updatedAt) {
+    const assumedExpiry = new Date(tokens.updatedAt).getTime() + 4 * 60 * 60 * 1000;
+    return assumedExpiry - Date.now() <= ACCESS_REFRESH_BUFFER_MS;
+  }
+  return false;
+}
+
 export async function getTokenStatus(): Promise<ShopeeTokenStatus> {
   const tokens = await loadStoredTokens();
-  return toStatus(tokens, { hadConnection: Boolean(tokens?.refreshToken) });
+  const hadConnection = Boolean(tokens?.refreshToken);
+  return toStatus(tokens, {
+    hadConnection,
+    needsReauth: hadConnection && refreshTokenDying(tokens),
+  });
 }
 
 export function getRequestOrigin(req: Request): string {
@@ -358,36 +397,12 @@ export async function ensureFreshTokens(): Promise<ShopeeStoredTokens> {
   if (!current?.refreshToken || !current.shopId) {
     throw new Error("Shopee belum terhubung. Hubungkan toko di Settings.");
   }
-  const needAccessRefresh = expiresWithin(
-    current.accessTokenExpireAt,
-    ACCESS_REFRESH_BUFFER_MS,
-    true
-  );
-  if (current.accessToken && !needAccessRefresh) return current;
+  if (!accessNeedsRefresh(current)) return current;
   return refreshAccessToken();
 }
 
 export async function maintainShopeeTokens(): Promise<ShopeeTokenStatus> {
-  const before = await loadStoredTokens();
-  const hadConnection = Boolean(before?.refreshToken);
-
-  if (hadConnection) {
-    try {
-      await ensureFreshTokens();
-    } catch {
-      return toStatus(before, { needsReauth: true, hadConnection: true });
-    }
-  }
-
-  const after = await loadStoredTokens();
-  const refreshDying =
-    isExpired(after?.refreshTokenExpireAt) ||
-    expiresWithin(after?.refreshTokenExpireAt, REFRESH_TOKEN_REAUTH_MS, false);
-
-  return toStatus(after, {
-    hadConnection,
-    needsReauth: hadConnection && refreshDying,
-  });
+  return getTokenStatus();
 }
 
 export function isShopeeAuthError(error?: string, message?: string): boolean {

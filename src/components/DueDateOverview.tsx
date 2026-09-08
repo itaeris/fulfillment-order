@@ -197,7 +197,9 @@ function SourceCard({
     <div className="flex flex-col gap-1.5 rounded-lg border border-brand-200 px-3 py-2.5">
       <span className={cn("text-xs font-semibold", titleClass)}>{title}</span>
       {hint ? <p className="text-[11px] text-brand-400">{hint}</p> : null}
-      {linked != null && (
+      {linked == null ? (
+        <p className="text-[11px] text-brand-400">Memeriksa status toko...</p>
+      ) : (
         <p className={cn("text-[11px]", linked ? "text-green-700" : "text-amber-700")}>
           {linked ? "Toko sudah terhubung" : "Toko belum terhubung"}
         </p>

@@ -399,8 +399,12 @@ function DataSection({
       ]);
       const tiktokData = await tiktokRes.json();
       const shopeeData = await shopeeRes.json();
-      if (tiktokRes.ok) setTokenStatus(tiktokData);
-      if (shopeeRes.ok) setShopeeTokenStatus(shopeeData);
+      if (tiktokRes.ok && typeof tiktokData.hasRefreshToken === "boolean") {
+        setTokenStatus(tiktokData);
+      }
+      if (shopeeRes.ok && typeof shopeeData.hasRefreshToken === "boolean") {
+        setShopeeTokenStatus(shopeeData);
+      }
     } catch {
       // ignore
     }
@@ -513,7 +517,9 @@ function DataSection({
                 Toko cukup dihubungkan sekali. Access token diperbarui otomatis (~4 jam).
               </p>
               <p className="text-[11px] sm:text-xs mt-1">
-                {shopeeTokenStatus?.hasRefreshToken ? (
+                {shopeeTokenStatus == null ? (
+                  <span className="text-brand-400">Memeriksa status toko...</span>
+                ) : shopeeTokenStatus.hasRefreshToken ? (
                   <span className="text-green-700">Toko sudah terhubung</span>
                 ) : (
                   <span className="text-amber-700">Toko belum terhubung</span>
@@ -603,7 +609,9 @@ function DataSection({
                 tanpa menghubungkan ulang setiap hari.
               </p>
               <p className="text-[11px] sm:text-xs mt-1">
-                {tokenStatus?.hasRefreshToken ? (
+                {tokenStatus == null ? (
+                  <span className="text-brand-400">Memeriksa status toko...</span>
+                ) : tokenStatus.hasRefreshToken ? (
                   <span className="text-green-700">Toko sudah terhubung</span>
                 ) : (
                   <span className="text-amber-700">Toko belum terhubung</span>

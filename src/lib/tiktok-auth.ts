@@ -192,30 +192,18 @@ export async function saveStoredTokens(tokens: TikTokStoredTokens): Promise<void
 
 export async function getTokenStatus(): Promise<TikTokTokenStatus> {
   const tokens = await loadStoredTokens();
-  return toStatus(tokens, { hadConnection: Boolean(tokens?.refreshToken) });
-}
-
-export async function maintainTikTokTokens(): Promise<TikTokTokenStatus> {
-  const before = await loadStoredTokens();
-  const hadConnection = Boolean(before?.refreshToken);
-
-  if (hadConnection) {
-    try {
-      await ensureFreshTokens();
-    } catch {
-      return toStatus(before, { needsReauth: true, hadConnection: true });
-    }
-  }
-
-  const after = await loadStoredTokens();
+  const hadConnection = Boolean(tokens?.refreshToken);
   const refreshDying =
-    isExpired(after?.refreshTokenExpireAt) ||
-    expiresWithin(after?.refreshTokenExpireAt, REFRESH_TOKEN_REAUTH_MS, false);
-
-  return toStatus(after, {
+    isExpired(tokens?.refreshTokenExpireAt) ||
+    expiresWithin(tokens?.refreshTokenExpireAt, REFRESH_TOKEN_REAUTH_MS, false);
+  return toStatus(tokens, {
     hadConnection,
     needsReauth: hadConnection && refreshDying,
   });
+}
+
+export async function maintainTikTokTokens(): Promise<TikTokTokenStatus> {
+  return getTokenStatus();
 }
 
 async function callTokenEndpoint(
