@@ -4,7 +4,7 @@ import { RefreshCw, CloudOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UploadedFile } from "@/types/order";
 
-export type ApiSyncSource = "tiktok" | "jubelio";
+export type ApiSyncSource = "tiktok" | "jubelio" | "shopee";
 
 export interface ApiSyncState {
   syncing: ApiSyncSource | null;
@@ -14,8 +14,10 @@ export interface ApiSyncState {
   onSync: (source: ApiSyncSource) => void;
   lastTiktokSync: string | null;
   lastJubelioSync: string | null;
+  lastShopeeSync: string | null;
   lastTiktokCount?: number;
   lastJubelioCount?: number;
+  lastShopeeCount?: number;
 }
 
 function formatSyncAt(value?: Date | string) {
@@ -30,6 +32,9 @@ function formatSyncAt(value?: Date | string) {
 }
 
 export function getApiSyncLabels(uploadedFiles: UploadedFile[]) {
+  const shopee = [...uploadedFiles]
+    .filter((f) => f.platform === "shopee")
+    .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())[0];
   const tiktok = [...uploadedFiles]
     .filter((f) => f.platform === "tiktok" || f.platform === "tokopedia")
     .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())[0];
@@ -40,8 +45,10 @@ export function getApiSyncLabels(uploadedFiles: UploadedFile[]) {
   return {
     lastTiktokSync: formatSyncAt(tiktok?.uploadedAt),
     lastJubelioSync: formatSyncAt(jubelio?.uploadedAt),
+    lastShopeeSync: formatSyncAt(shopee?.uploadedAt),
     lastTiktokCount: tiktok?.orderCount,
     lastJubelioCount: jubelio?.orderCount,
+    lastShopeeCount: shopee?.orderCount,
   };
 }
 
@@ -52,6 +59,7 @@ export default function ApiSyncBar({
   onSync,
   lastTiktokSync,
   lastJubelioSync,
+  lastShopeeSync,
   hint = "Cukup ambil data sekali. Yang sudah ada disimpan, sync berikutnya hanya yang berubah.",
   compact = false,
 }: ApiSyncState & { hint?: string; compact?: boolean }) {
@@ -67,7 +75,21 @@ export default function ApiSyncBar({
         <span className="hidden sm:block" />
       )}
       <div className="flex flex-col gap-1.5 w-full sm:w-auto sm:items-end sm:ml-auto">
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+        <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+          <button
+            onClick={() => onSync("shopee")}
+            disabled={busy}
+            className={cn(
+              "flex items-center justify-center gap-1.5 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-shopee-600 disabled:opacity-50 transition-all",
+              compact ? "px-2.5 py-2 sm:px-3 sm:py-1.5" : "px-3 py-2.5 sm:px-4 sm:py-2",
+              "bg-shopee-500"
+            )}
+          >
+            <RefreshCw className={cn("w-4 h-4 shrink-0", syncing === "shopee" && "animate-spin")} />
+            <span className="truncate">
+              {syncing === "shopee" ? progressLabel : "Ambil Shopee"}
+            </span>
+          </button>
           <button
             onClick={() => onSync("tiktok")}
             disabled={busy}
@@ -103,6 +125,9 @@ export default function ApiSyncBar({
           </span>
         ) : (
           <span className="text-[11px] sm:text-xs text-brand-400 sm:text-right leading-snug">
+            Shopee: {lastShopeeSync || "belum diambil"}
+            <span className="hidden sm:inline"> · </span>
+            <br className="sm:hidden" />
             TikTok: {lastTiktokSync || "belum diambil"}
             <span className="hidden sm:inline"> · </span>
             <br className="sm:hidden" />

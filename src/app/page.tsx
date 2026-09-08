@@ -73,9 +73,14 @@ export default function Dashboard() {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code") || params.get("auth_code");
+    if (code && (params.has("shop_id") || params.has("main_account_id")) && !params.has("shopee")) {
+      window.location.replace(`/api/shopee/callback?${params.toString()}`);
+      return;
+    }
     if (
       code &&
       !params.has("tiktok") &&
+      !params.has("shopee") &&
       (params.has("app_key") || code.startsWith("ROW_"))
     ) {
       const qs = new URLSearchParams({ code });
@@ -84,9 +89,12 @@ export default function Dashboard() {
       window.location.replace(`/api/tiktok/callback?${qs.toString()}`);
       return;
     }
-    if (params.has("tiktok")) setActiveTab("settings");
+    if (params.has("tiktok") || params.has("shopee")) setActiveTab("settings");
     if (params.get("tiktok") === "connected") {
       sessionStorage.removeItem("tiktok_reauth_attempted");
+    }
+    if (params.get("shopee") === "connected") {
+      sessionStorage.removeItem("shopee_reauth_attempted");
     }
   }, [setActiveTab]);
 
@@ -94,19 +102,28 @@ export default function Dashboard() {
     if (authLoading || !user || isLoading) return;
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (params.has("tiktok")) return;
+    if (params.has("tiktok") || params.has("shopee")) return;
     if (params.has("code") || params.has("auth_code")) return;
-    if (sessionStorage.getItem("tiktok_reauth_attempted")) return;
 
-    fetch("/api/tiktok/token")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.needsReauth) {
-          sessionStorage.setItem("tiktok_reauth_attempted", "1");
-          window.location.href = "/api/tiktok/authorize";
-        }
-      })
-      .catch(() => {});
+    const tryReauth = async (
+      key: string,
+      tokenUrl: string,
+      authorizeUrl: string
+    ) => {
+      if (sessionStorage.getItem(key)) return false;
+      const data = await fetch(tokenUrl).then((res) => res.json()).catch(() => null);
+      if (!data?.needsReauth) return false;
+      sessionStorage.setItem(key, "1");
+      window.location.href = authorizeUrl;
+      return true;
+    };
+
+    void (async () => {
+      if (await tryReauth("tiktok_reauth_attempted", "/api/tiktok/token", "/api/tiktok/authorize")) {
+        return;
+      }
+      await tryReauth("shopee_reauth_attempted", "/api/shopee/token", "/api/shopee/authorize");
+    })();
   }, [authLoading, user, isLoading]);
 
   const summary: OrderSummary = calculateSummary(orders);
@@ -164,13 +181,20 @@ export default function Dashboard() {
       setSyncErrorSource(null);
       setSyncProgress(0);
       try {
-        if (source === "jubelio" || source === "tiktok") {
-          const label = source === "tiktok" ? "TikTok" : "Jubelio";
+        if (source === "jubelio" || source === "tiktok" || source === "shopee") {
+          const label =
+            source === "tiktok" ? "TikTok" : source === "shopee" ? "Shopee" : "Jubelio";
+          const syncUrl =
+            source === "tiktok"
+              ? "/api/tiktok/sync"
+              : source === "shopee"
+                ? "/api/shopee/sync"
+                : "/api/jubelio/sync";
           let startPage = 1;
           let insertedSoFar = 0;
           let cursor: unknown;
           while (true) {
-            const res = await fetch(source === "tiktok" ? "/api/tiktok/sync" : "/api/jubelio/sync", {
+            const res = await fetch(syncUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ startPage, insertedSoFar, cursor }),
@@ -210,6 +234,9 @@ export default function Dashboard() {
           }
           if (source === "tiktok") {
             void fetch("/api/tiktok/refresh-status", { method: "POST" });
+          }
+          if (source === "shopee") {
+            void fetch("/api/shopee/refresh-status", { method: "POST" });
           }
           await loadData();
           return;

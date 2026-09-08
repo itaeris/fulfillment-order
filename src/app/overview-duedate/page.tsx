@@ -83,6 +83,7 @@ export default function OverviewDueDatePage() {
       (order) =>
         order.platform === "tiktok" ||
         order.platform === "tokopedia" ||
+        order.platform === "shopee" ||
         order.platform === "jubelio"
     );
     const numbers = uniqueLookupNumbers(liveOrders);
@@ -142,7 +143,13 @@ export default function OverviewDueDatePage() {
     let apiError: string | undefined;
     let reconciled = false;
 
-    if (parsedOrders.length > 0 && (actualPlatform === "tiktok" || actualPlatform === "tokopedia" || actualPlatform === "jubelio")) {
+    if (
+      parsedOrders.length > 0 &&
+      (actualPlatform === "tiktok" ||
+        actualPlatform === "tokopedia" ||
+        actualPlatform === "shopee" ||
+        actualPlatform === "jubelio")
+    ) {
       try {
         const res = await fetch("/api/overview/reconcile", {
           method: "POST",

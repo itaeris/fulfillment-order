@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { refreshOpenTikTokStatuses } from "@/lib/tiktok-status";
+import { refreshOpenShopeeStatuses } from "@/lib/shopee-status";
 import { refreshOpenJubelioStatuses } from "@/lib/jubelio-status";
 import { toIndonesianError } from "@/lib/errors";
 
@@ -36,6 +37,35 @@ export async function GET() {
     );
   }
 
+  const remainingAfterTiktok = BUDGET_MS - (Date.now() - started);
+  let shopeeOffset = 0;
+  const shopee = {
+    checked: 0,
+    updated: 0,
+    done: false,
+    total: 0,
+    error: undefined as string | undefined,
+    skipped: remainingAfterTiktok <= 10_000,
+  };
+  if (!shopee.skipped) {
+    try {
+      while (Date.now() - started < BUDGET_MS - 8_000) {
+        const part = await refreshOpenShopeeStatuses({ limit: 40, offset: shopeeOffset });
+        shopee.checked += part.checked;
+        shopee.updated += part.updated;
+        shopee.total = part.total;
+        shopee.done = part.done;
+        if (part.done || part.checked === 0) break;
+        shopeeOffset = part.nextOffset;
+      }
+    } catch (error) {
+      shopee.error = toIndonesianError(
+        error instanceof Error ? error.message : null,
+        "Gagal memperbarui status Shopee"
+      );
+    }
+  }
+
   const remaining = BUDGET_MS - (Date.now() - started);
   const jubelio =
     remaining > 8_000
@@ -49,7 +79,7 @@ export async function GET() {
         }))
       : { checked: 0, updated: 0, skipped: true };
 
-  return NextResponse.json({ success: true, tiktok, jubelio });
+  return NextResponse.json({ success: true, tiktok, shopee, jubelio });
 }
 
 export async function POST() {

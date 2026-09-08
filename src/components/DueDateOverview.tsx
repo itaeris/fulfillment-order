@@ -403,7 +403,7 @@ export default function DueDateOverviewView({
                     className="inline-flex items-center gap-1.5 text-[11px] font-medium text-brand-700 hover:underline disabled:opacity-50 text-left"
                   >
                     <Upload className="w-3.5 h-3.5" />
-                    {uploading ? "Mengunggah..." : "Unggah Excel/CSV"}
+                    {uploading ? "Mengunggah & mencocokkan..." : "Unggah Excel/CSV"}
                   </button>
                   <span className="text-[11px] text-brand-400">
                     {lastShopeeFile || "Belum ada file"}

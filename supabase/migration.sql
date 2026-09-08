@@ -134,6 +134,21 @@ CREATE TABLE IF NOT EXISTS tiktok_tokens (
 
 ALTER TABLE tiktok_tokens ENABLE ROW LEVEL SECURITY;
 
+-- ── Shopee Open API token (access ~4 jam, refresh ~30 hari) ──
+CREATE TABLE IF NOT EXISTS shopee_tokens (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  access_token TEXT NOT NULL,
+  refresh_token TEXT NOT NULL,
+  shop_id BIGINT,
+  merchant_id BIGINT,
+  main_account_id BIGINT,
+  access_token_expire_at TIMESTAMPTZ,
+  refresh_token_expire_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE shopee_tokens ENABLE ROW LEVEL SECURITY;
+
 -- ── Jubelio token (login, berlaku 12 jam, di-refresh otomatis) ──
 CREATE TABLE IF NOT EXISTS jubelio_tokens (
   id TEXT PRIMARY KEY DEFAULT 'default',

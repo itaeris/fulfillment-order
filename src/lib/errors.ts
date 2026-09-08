@@ -75,12 +75,15 @@ export function toIndonesianError(
 
   // Technical / env / vendor English mixed into a message → don't show raw text
   if (
-    /TIKTOK_|JUBELIO_|SUPABASE_|\.env|refresh_token|access_token|service.?role|migration\.sql|Partner Center|Vercel|statusText|API error/i.test(
+    /TIKTOK_|JUBELIO_|SHOPEE_|SUPABASE_|\.env|refresh_token|access_token|service.?role|migration\.sql|Partner Center|Vercel|statusText|API error/i.test(
       text
     )
   ) {
     if (/tiktok/i.test(text)) {
       return "Gagal terhubung ke TikTok. Hubungi IT atau hubungkan ulang toko.";
+    }
+    if (/shopee/i.test(text)) {
+      return "Gagal terhubung ke Shopee. Hubungi IT atau hubungkan ulang toko.";
     }
     if (/jubelio/i.test(text)) {
       return "Gagal terhubung ke Jubelio. Hubungi IT.";

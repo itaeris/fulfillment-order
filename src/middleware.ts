@@ -7,10 +7,18 @@ import { NextRequest, NextResponse } from "next/server";
 export function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
   if (pathname !== "/") return NextResponse.next();
-  if (searchParams.has("tiktok")) return NextResponse.next();
+  if (searchParams.has("tiktok") || searchParams.has("shopee")) return NextResponse.next();
 
   const code = searchParams.get("code") || searchParams.get("auth_code");
   if (!code) return NextResponse.next();
+
+  const looksLikeShopee =
+    searchParams.has("shop_id") || searchParams.has("main_account_id");
+  if (looksLikeShopee) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/api/shopee/callback";
+    return NextResponse.redirect(url);
+  }
 
   const looksLikeTikTok =
     searchParams.has("app_key") ||

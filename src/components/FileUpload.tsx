@@ -13,7 +13,7 @@ interface FileUploadProps {
 }
 
 function isManualUpload(file: UploadedFile) {
-  return file.platform === "shopee";
+  return file.platform === "shopee" && !/API$/i.test(file.name);
 }
 
 export default function FileUpload({
@@ -84,7 +84,7 @@ export default function FileUpload({
   return (
     <div className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-brand-200 p-3 sm:p-6">
       <h2 className="text-sm sm:text-lg font-semibold text-brand-800 mb-2 sm:mb-4">
-        Import Data Shopee
+        Import Excel Shopee (cadangan)
       </h2>
 
       {/* Platform Selection */}
@@ -93,7 +93,7 @@ export default function FileUpload({
           Platform
         </label>
         <p className="text-[11px] sm:text-xs text-brand-400 mb-2 sm:mb-3 hidden sm:block">
-          TikTok, Tokopedia, dan Jubelio memakai tombol Ambil data di atas. Excel hanya untuk Shopee.
+          Shopee, TikTok, dan Jubelio memakai tombol Ambil data di atas. Excel Shopee opsional sebagai cadangan.
         </p>
         <div className="flex flex-wrap gap-2">
           {platforms.map((platform) => (

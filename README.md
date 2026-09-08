@@ -1,6 +1,6 @@
 # Order Dashboard - Aeris Beaute Fulfillment
 
-Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **Shopee** dan **TikTok Shop / Tokopedia**. **Jubelio** dipakai sebagai cermin omnichannel (WMS), bukan saluran penjualan tambahan: untuk memantau yang miss atau belum realtime. Data Shopee diimport dari Excel; order TikTok & Tokopedia ditarik dari **TikTok Shop Open API**; order Jubelio ditarik dari **Jubelio WMS API**. Penyimpanan di **Supabase** (PostgreSQL): dashboard utama memakai tabel `orders`, halaman **Kirim hari ini** memakai tabel terpisah `overview_orders`.
+Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **Shopee** dan **TikTok Shop / Tokopedia**. **Jubelio** dipakai sebagai cermin omnichannel (WMS), bukan saluran penjualan tambahan: untuk memantau yang miss atau belum realtime. Order Shopee, TikTok, dan Tokopedia ditarik dari API masing-masing (Excel Shopee tetap bisa sebagai cadangan). Order Jubelio ditarik dari **Jubelio WMS API**. Penyimpanan di **Supabase** (PostgreSQL): dashboard utama memakai tabel `orders`, halaman **Kirim hari ini** memakai tabel terpisah `overview_orders`.
 
 **Live**: [fulfillment-fti.aerisbeaute.com](https://fulfillment-fti.aerisbeaute.com)
 
@@ -11,32 +11,32 @@ Dua jalur data, dua tabel. Dashboard utama dan Kirim hari ini tidak saling menim
 ```mermaid
 flowchart TB
   subgraph sumber [Sumber]
-    ShopeeExcel[Shopee Excel/CSV]
+    ShopeeAPI[Shopee Open API]
     TikTokAPI[TikTok Shop API]
     JubelioAPI[Jubelio WMS API]
   end
 
   subgraph dash [Dashboard utama]
+    AmbilShopee[Ambil Shopee]
     AmbilTikTok[Ambil TikTok]
     AmbilJubelio[Ambil Jubelio]
-    UploadShopee[Unggah Shopee]
     TOrders[(orders)]
     UI1[Dashboard / Pesanan / Komparasi]
   end
 
   subgraph gudang [Kirim hari ini]
     Upload3[Unggah Excel 3 platform]
-    Reconcile[Cocokkan TikTok dan Jubelio ke API]
+    Reconcile[Cocokkan Shopee / TikTok / Jubelio ke API]
     TOverview[(overview_orders)]
     UI2[Antrian kirim hari ini]
   end
 
-  ShopeeExcel --> UploadShopee --> TOrders
+  ShopeeAPI --> AmbilShopee --> TOrders
   TikTokAPI --> AmbilTikTok --> TOrders
   JubelioAPI --> AmbilJubelio --> TOrders
   TOrders --> UI1
 
-  ShopeeExcel --> Upload3
+  ShopeeAPI --> Reconcile
   TikTokAPI --> Reconcile
   JubelioAPI --> Reconcile
   Upload3 --> Reconcile --> TOverview --> UI2
@@ -96,15 +96,15 @@ flowchart TD
 - **Dashboard**: Kartu ringkasan + grafik (tren, platform, status)
 - **Pesanan**: Tabel order dengan filter, pencarian, dan pagination
 - **Komparasi**: Cermin Jubelio vs Shopee / TikTok (miss / delay realtime)
-- **Settings**: Import Excel Shopee, sync TikTok & Jubelio, export, reset data, profil, password, kelola user
+- **Settings**: Hubungkan & Ambil Shopee / TikTok / Jubelio, Excel Shopee cadangan, export, reset data, profil, password, kelola user
 - **Kirim hari ini**: Antrian gudang terpisah (`/overview-duedate`) — dari sidebar terbuka di tab baru
 
 ### Sumber Data
-- **Shopee**: Import Excel/CSV (drag & drop)
+- **Shopee**: Sync API — tarik order siap dikirim (`get_shipment_list`), diproses, dan selesai 30 hari (`get_order_list`). Hubungkan toko sekali di Settings
 - **TikTok & Tokopedia**: Sync API — tarik order siap dikirim (`AWAITING_SHIPMENT` + `AWAITING_COLLECTION`) dan order **selesai** (`COMPLETED` + `DELIVERED`, 30 hari terakhir). Channel dibaca dari `commerce_platform` (`TIKTOK_SHOP` / `TOKOPEDIA`)
 - **Jubelio**: Sync API — tarik order Siap Kirim (`channel_status` Ready To Ship) sebagai **cermin WMS**, tidak dijumlahkan ke total penjualan
-- Status live mengikuti webhook TikTok / Jubelio dan cron 15 menit (`/api/refresh-status`)
-- **Kirim hari ini**: Excel/CSV wajib dari 3 platform; antrian kirim dari Shopee & TikTok; Jubelio dicocokkan sebagai cermin
+- Status live mengikuti webhook Shopee / TikTok / Jubelio dan cron 15 menit (`/api/refresh-status`)
+- **Kirim hari ini**: Excel/CSV dari 3 platform; antrian kirim dari Shopee & TikTok; Jubelio dicocokkan sebagai cermin. Unggahan Shopee/TikTok/Jubelio dicocokkan ke API
 
 ### Dashboard
 - Total order, pendapatan, item terjual, dan rata-rata order
@@ -169,6 +169,13 @@ Timezone tenggat: `Asia/Jakarta`. Tombol **Hapus data halaman ini** hanya mengos
 - **Warehouse**: akses penuh, data keuangan disembunyikan
 - Reset password via email atau Settings
 
+### Shopee Open API
+- Hubungkan toko sekali di Settings → **Hubungkan toko** (OAuth Seller Centre, bukan tempel token). Kode otorisasi kadaluarsa **10 menit**
+- Access token API habis ~4 jam; app memperbarui otomatis lewat `refresh_token` (~30 hari)
+- Redirect domain di [Shopee Open Platform](https://open.shopee.com/developer-guide/20): `{origin}` — callback app `{origin}/api/shopee/callback`
+- **Ambil Shopee** hanya menambah order baru (siap kirim + diproses + selesai 30 hari). Update status tidak digabung di request yang sama (hindari timeout 60 detik Vercel)
+- Webhook: `POST /api/shopee/webhook` — set Push URL di Open Platform (order status)
+
 ### TikTok Shop API
 - Hubungkan toko sekali di Settings → **Hubungkan TikTok** (OAuth seller, bukan tempel token)
 - Izin aplikasi ke toko bisa **Unlimited**; access token API tetap habis ~4 jam
@@ -212,6 +219,7 @@ Timezone tenggat: `Asia/Jakarta`. Tombol **Hapus data halaman ini** hanya mengos
 - npm
 - Supabase project ([supabase.com](https://supabase.com))
 - Aplikasi TikTok Shop di [Partner Center](https://partner.tiktokshop.com/) (untuk sync API)
+- Aplikasi Shopee di [Open Platform](https://open.shopee.com/) (untuk sync API)
 
 ### Installation
 
@@ -227,11 +235,23 @@ cp .env.example .env
 
 Isi nilai di `.env` (atau `.env.local`). Daftar lengkap variabel ada di `.env.example`. Jangan commit secret.
 
+Di Open Platform Shopee, Redirect URL Domain:
+
+```
+https://fulfillment-fti.aerisbeaute.com
+```
+
 Di Partner Center, Redirect URL boleh:
 
 ```
 https://fulfillment-fti.aerisbeaute.com/
 https://fulfillment-fti.aerisbeaute.com/api/tiktok/callback
+```
+
+Webhook Shopee:
+
+```
+https://fulfillment-fti.aerisbeaute.com/api/shopee/webhook
 ```
 
 Webhook TikTok:
@@ -246,13 +266,22 @@ Webhook Jubelio (field Pesanan / Create):
 https://fulfillment-fti.aerisbeaute.com/api/jubelio/webhook?secret=<JUBELIO_WEBHOOK_SECRET>
 ```
 
-Keduanya ditangani (callback ke `/` diteruskan ke `/api/tiktok/callback`). Lokal: `http://localhost:3000/` atau `http://localhost:3000/api/tiktok/callback`.
+Callback ke `/` diteruskan ke `/api/tiktok/callback` atau `/api/shopee/callback`. Lokal: `http://localhost:3000/` atau path callback masing-masing.
 
-Di **Vercel Environment Variables** hanya simpan kredensial statis. Access token TikTok yang berganti tiap 4 jam **tidak** ditulis ulang ke env Vercel. Setelah **Hubungkan TikTok** / sync, token baru disimpan di Supabase `tiktok_tokens`.
+Di **Vercel Environment Variables** hanya simpan kredensial statis. Access token TikTok/Shopee yang berganti **tidak** ditulis ulang ke env Vercel. Setelah **Hubungkan TikTok** / **Hubungkan Shopee**, token baru disimpan di Supabase `tiktok_tokens` / `shopee_tokens`.
+
+Tambah di Vercel (Production + Preview), lalu **Redeploy**:
+
+| Name | Keterangan |
+|------|------------|
+| `SHOPEE_PARTNER_ID` | Live Partner ID |
+| `SHOPEE_PARTNER_KEY` | Live API Partner Key |
+| `SHOPEE_BASE_URL` | `https://partner.shopeemobile.com` |
+| `SHOPEE_REDIRECT_ORIGIN` | `https://fulfillment-fti.aerisbeaute.com` (opsional, disarankan) |
 
 ### Database Setup
 
-Jalankan `supabase/migration.sql` di **Supabase Dashboard > SQL Editor** (tabel `orders`, `uploaded_files`, `overview_orders`, `overview_files`, `live_order_status`, `profiles`, `tiktok_tokens`, `jubelio_tokens`, trigger auth).
+Jalankan `supabase/migration.sql` di **Supabase Dashboard > SQL Editor** (tabel `orders`, `uploaded_files`, `overview_orders`, `overview_files`, `live_order_status`, `profiles`, `tiktok_tokens`, `shopee_tokens`, `jubelio_tokens`, trigger auth).
 
 Kalau database sudah ada, jalankan blok yang belum ada — termasuk **Kirim hari ini** (`overview_orders` / `overview_files`) dan `live_order_status`.
 
@@ -296,11 +325,11 @@ Di Cloudflare Dashboard → Turnstile, hostname widget harus termasuk `fulfillme
 
 | Platform | Sumber | Cara |
 |----------|--------|------|
-| Shopee | Seller Centre > Pesanan > Export | Settings → upload Excel/CSV |
+| Shopee | Shopee Open API (siap kirim + diproses + selesai 30 hari) | Settings → Hubungkan Shopee (sekali) → Ambil Shopee |
 | Jubelio | Jubelio WMS API (Shipping → Siap Kirim) | Settings / Pesanan / Komparasi → Ambil Jubelio |
 | TikTok & Tokopedia | TikTok Shop API (To Ship + Selesai 30 hari) | Settings → Hubungkan TikTok (sekali) → Ambil TikTok |
 
-**Ambil TikTok** menambah order baru saja; status *Terkirim / Selesai* menyusul dari webhook dan cron. Jangan tarik puluhan ribu order selesai sekaligus — sync membatasi halaman supaya tidak kena timeout 60 detik Vercel.
+**Ambil Shopee / Ambil TikTok** menambah order baru saja; status *Terkirim / Selesai* menyusul dari webhook dan cron. Jangan tarik puluhan ribu order selesai sekaligus — sync membatasi halaman supaya tidak kena timeout 60 detik Vercel.
 
 Token Jubelio kadaluarsa 12 jam dan di-login ulang otomatis ([docs WMS](https://docs-wms.jubelio.com/)).
 
@@ -308,7 +337,7 @@ Token Jubelio kadaluarsa 12 jam dan di-login ulang otomatis ([docs WMS](https://
 
 | Platform | Sumber | Cara |
 |----------|--------|------|
-| Shopee | Seller Centre > Pesanan > Export | Unggah Excel/CSV |
+| Shopee | Export Excel/CSV toko (cadangan) | Unggah Excel/CSV → otomatis dicocokkan API |
 | TikTok & Tokopedia | Export Excel/CSV toko | Unggah Excel/CSV → otomatis dicocokkan API |
 | Jubelio | Export Excel/CSV gudang (cermin, bukan antrian tambahan) | Unggah Excel/CSV → otomatis dicocokkan API |
 
@@ -334,16 +363,23 @@ src/
 │   │   ├── auth/create-user/     # Create user (admin, server-side)
 │   │   ├── orders/               # CRUD order (dashboard utama)
 │   │   ├── files/                # Riwayat file upload
-│   │   ├── overview/reconcile/   # Cocokkan Excel TikTok/Jubelio dengan API
+│   │   ├── overview/reconcile/   # Cocokkan Excel Shopee/TikTok/Jubelio dengan API
 │   │   ├── overview/orders/      # CRUD pesanan Kirim hari ini
 │   │   ├── overview/files/       # Riwayat unggah Kirim hari ini
 │   │   ├── overview/live-status/ # Status live webhook untuk overlay
-│   │   ├── refresh-status/       # Cron 15 menit (TikTok + Jubelio)
+│   │   ├── refresh-status/       # Cron 15 menit (Shopee + TikTok + Jubelio)
 │   │   ├── time/                 # Jam Asia/Jakarta
 │   │   ├── turnstile/verify/     # Verifikasi Cloudflare Turnstile
 │   │   ├── jubelio/sync/         # Tarik order Siap Kirim
 │   │   ├── jubelio/webhook/      # Status live + forward URL lama
 │   │   ├── jubelio/refresh-status/
+│   │   ├── shopee/
+│   │   │   ├── authorize/        # Mulai OAuth seller
+│   │   │   ├── callback/         # Tukar auth code → token
+│   │   │   ├── token/            # Status + jaga token tetap fresh
+│   │   │   ├── sync/             # Siap kirim + diproses + selesai 30 hari
+│   │   │   ├── webhook/          # Order status change
+│   │   │   └── refresh-status/
 │   │   └── tiktok/
 │   │       ├── authorize/        # Mulai OAuth seller
 │   │       ├── callback/         # Tukar auth code → token
@@ -364,7 +400,7 @@ src/
 │   ├── ComparisonView.tsx
 │   ├── DueDateOverview.tsx       # UI Kirim hari ini
 │   ├── Turnstile.tsx             # Cloudflare Turnstile (login)
-│   ├── FileUpload.tsx            # Import Shopee (dashboard)
+│   ├── FileUpload.tsx            # Import Excel Shopee cadangan (dashboard)
 │   ├── OrderDetailPreview.tsx    # Drawer detail klik baris
 │   ├── OrderTable.tsx
 │   ├── SettingsView.tsx
@@ -383,6 +419,9 @@ src/
 │   ├── overview-store.ts         # Tulis data Kirim hari ini ke Supabase
 │   ├── supabase.ts
 │   ├── supabase-admin.ts
+│   ├── shopee-api.ts
+│   ├── shopee-auth.ts
+│   ├── shopee-status.ts
 │   ├── tiktok-api.ts
 │   ├── tiktok-auth.ts
 │   ├── tiktok-status.ts

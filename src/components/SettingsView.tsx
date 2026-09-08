@@ -381,14 +381,26 @@ function DataSection({
     refreshTokenExpireAt?: string;
     needsRefresh: boolean;
   } | null>(null);
+  const [shopeeTokenStatus, setShopeeTokenStatus] = useState<{
+    hasRefreshToken: boolean;
+    hasAccessToken: boolean;
+    hasShopId?: boolean;
+  } | null>(null);
   const [tokenError, setTokenError] = useState("");
   const [tokenSaved, setTokenSaved] = useState(false);
+  const [shopeeError, setShopeeError] = useState("");
+  const [shopeeSaved, setShopeeSaved] = useState(false);
 
   const loadTokenStatus = useCallback(async () => {
     try {
-      const res = await fetch("/api/tiktok/token");
-      const data = await res.json();
-      if (res.ok) setTokenStatus(data);
+      const [tiktokRes, shopeeRes] = await Promise.all([
+        fetch("/api/tiktok/token"),
+        fetch("/api/shopee/token"),
+      ]);
+      const tiktokData = await tiktokRes.json();
+      const shopeeData = await shopeeRes.json();
+      if (tiktokRes.ok) setTokenStatus(tiktokData);
+      if (shopeeRes.ok) setShopeeTokenStatus(shopeeData);
     } catch {
       // ignore
     }
@@ -405,18 +417,30 @@ function DataSection({
         toIndonesianError(params.get("message"), "Gagal menghubungkan TikTok")
       );
     }
-    if (params.has("tiktok")) {
+    if (params.get("shopee") === "connected") {
+      setShopeeSaved(true);
+      setShopeeError("");
+    } else if (params.get("shopee") === "error") {
+      setShopeeError(
+        toIndonesianError(params.get("message"), "Gagal menghubungkan Shopee")
+      );
+    }
+    if (params.has("tiktok") || params.has("shopee")) {
       params.delete("tiktok");
+      params.delete("shopee");
       params.delete("message");
       const next = params.toString();
       window.history.replaceState({}, "", next ? `?${next}` : window.location.pathname);
     }
   }, [loadTokenStatus]);
 
+  const lastShopeeSyncCount = apiSync.lastShopeeCount;
+  const lastShopeeSyncLabel = apiSync.lastShopeeSync;
   const lastSyncCount = apiSync.lastTiktokCount;
   const lastJubelioSyncCount = apiSync.lastJubelioCount;
   const lastSyncLabel = apiSync.lastTiktokSync;
   const lastJubelioSyncLabel = apiSync.lastJubelioSync;
+  const syncingShopee = apiSync.syncing === "shopee";
   const syncingTiktok = apiSync.syncing === "tiktok";
   const syncingJubelio = apiSync.syncing === "jubelio";
 
@@ -424,8 +448,101 @@ function DataSection({
     window.location.href = "/api/tiktok/authorize";
   };
 
+  const handleConnectShopee = () => {
+    window.location.href = "/api/shopee/authorize";
+  };
+
   return (
     <div className="space-y-3 sm:space-y-6">
+      {/* Shopee API Sync */}
+      <div className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-brand-200 p-3 sm:p-6">
+        <div className="flex items-start justify-between gap-3 sm:gap-4 flex-wrap">
+          <div className="min-w-0 w-full sm:w-auto">
+            <h3 className="text-sm sm:text-lg font-semibold text-brand-800 flex items-center gap-1.5 sm:gap-2">
+              <Cloud className="w-4 h-4 sm:w-5 sm:h-5 text-shopee-500" />
+              Shopee
+            </h3>
+            <p className="text-xs sm:text-sm text-brand-400 mt-0.5 sm:mt-1 max-w-lg leading-snug">
+              Ambil pesanan <strong>siap dikirim</strong>, <strong>diproses</strong>, dan <strong>selesai</strong> (30 hari) dari Shopee Open API.
+              <span className="hidden sm:inline">
+                {" "}Yang sudah ada dipakai lagi — hanya pesanan baru yang ditambah.
+              </span>
+            </p>
+          </div>
+          <div className="flex flex-col items-stretch sm:items-end gap-1 w-full sm:w-auto shrink-0">
+            <button
+              onClick={() => apiSync.onSync("shopee")}
+              disabled={!!apiSync.syncing}
+              className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-shopee-500 text-white rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium hover:bg-shopee-600 disabled:opacity-50 transition-all w-full sm:w-auto"
+            >
+              {syncingShopee ? <Spinner className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
+              {syncingShopee
+                ? apiSync.syncProgress > 0
+                  ? `Mengambil data... ${apiSync.syncProgress.toLocaleString("id-ID")}`
+                  : "Mengambil data..."
+                : "Ambil data Shopee"}
+            </button>
+            <p className="text-[11px] sm:text-xs text-brand-400">
+              {lastShopeeSyncLabel ? (
+                <>
+                  Terakhir diambil:{" "}
+                  <span className="font-medium text-brand-700">{lastShopeeSyncLabel}</span>
+                  {typeof lastShopeeSyncCount === "number" && (
+                    <span> · {lastShopeeSyncCount} pesanan</span>
+                  )}
+                </>
+              ) : (
+                "Belum pernah diambil"
+              )}
+            </p>
+          </div>
+        </div>
+
+        {apiSync.syncError && apiSync.syncErrorSource === "shopee" && (
+          <div className="mt-2.5 sm:mt-3 p-2.5 sm:p-3 rounded-lg sm:rounded-xl text-xs sm:text-sm flex items-center gap-2 bg-red-50 border border-red-200 text-red-600">
+            <CloudOff className="w-4 h-4 shrink-0" />
+            {apiSync.syncError}
+          </div>
+        )}
+
+        <div className="mt-3 sm:mt-5 pt-3 sm:pt-5 border-t border-brand-100 space-y-2 sm:space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-2 sm:gap-3">
+            <div className="min-w-0">
+              <p className="text-xs sm:text-sm font-medium text-brand-800">Status toko Shopee</p>
+              <p className="text-[11px] sm:text-xs text-brand-400 mt-0.5 max-w-lg hidden sm:block">
+                Toko cukup dihubungkan sekali. Access token diperbarui otomatis (~4 jam).
+              </p>
+              <p className="text-[11px] sm:text-xs mt-1">
+                {shopeeTokenStatus?.hasRefreshToken ? (
+                  <span className="text-green-700">Toko sudah terhubung</span>
+                ) : (
+                  <span className="text-amber-700">Toko belum terhubung</span>
+                )}
+              </p>
+            </div>
+            <button
+              onClick={handleConnectShopee}
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 bg-cream-200 text-brand-700 rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium hover:bg-cream-300 transition-all w-full sm:w-auto shrink-0"
+            >
+              <Link2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              {shopeeTokenStatus?.hasRefreshToken ? "Hubungkan ulang" : "Hubungkan toko"}
+            </button>
+          </div>
+          {shopeeSaved && (
+            <p className="text-xs text-green-700">Toko Shopee sudah terhubung. Silakan ambil data.</p>
+          )}
+          {shopeeError && (
+            <p className="text-xs text-red-600">{shopeeError}</p>
+          )}
+        </div>
+
+        {(syncingShopee || isRefreshing) && (
+          <div className="mt-4">
+            <TableSkeleton rows={5} columns={4} showFilters={false} embedded />
+          </div>
+        )}
+      </div>
+
       {/* TikTok API Sync */}
       <div className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-brand-200 p-3 sm:p-6">
         <div className="flex items-start justify-between gap-3 sm:gap-4 flex-wrap">

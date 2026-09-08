@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Order, Platform } from "@/types/order";
 import { getTikTokConfig, fetchTikTokOrdersByNumbers } from "@/lib/tiktok-api";
+import { getShopeeConfig, fetchShopeeOrdersByNumbers } from "@/lib/shopee-api";
 import { fetchJubelioOrdersMatching } from "@/lib/jubelio-api";
 import { mergeImportedWithApi, uniqueLookupNumbers } from "@/lib/overview-merge";
 
@@ -9,13 +10,21 @@ export const maxDuration = 60;
 
 const MAX_LOOKUP = 400;
 
-function publicError(platform: "tiktok" | "jubelio", error: unknown): string {
+type ReconcileSource = "tiktok" | "shopee" | "jubelio";
+
+function publicError(platform: ReconcileSource, error: unknown): string {
   const message = error instanceof Error ? error.message : "";
   if (platform === "tiktok") {
     if (/belum lengkap|TIKTOK_/i.test(message)) return "TikTok belum terhubung di server. Hubungi IT.";
     if (/timeout|timed out|504/i.test(message)) return "Pengambilan data TikTok terlalu lama. Pakai data Excel dulu.";
     if (/401|unauthorized|token/i.test(message)) return "Gagal masuk ke TikTok. Hubungkan ulang toko.";
     return "Gagal mencocokkan data TikTok. Pakai data Excel dulu.";
+  }
+  if (platform === "shopee") {
+    if (/belum|SHOPEE_|shop_id/i.test(message)) return "Shopee belum terhubung di server. Hubungkan toko di Settings.";
+    if (/timeout|timed out|504/i.test(message)) return "Pengambilan data Shopee terlalu lama. Pakai data Excel dulu.";
+    if (/401|unauthorized|token|error_auth/i.test(message)) return "Gagal masuk ke Shopee. Hubungkan ulang toko.";
+    return "Gagal mencocokkan data Shopee. Pakai data Excel dulu.";
   }
   if (/belum di-set|JUBELIO_EMAIL|JUBELIO_PASSWORD/i.test(message)) {
     return "Jubelio belum terhubung di server. Hubungi IT.";
@@ -54,19 +63,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Data unggahan kosong." }, { status: 400 });
   }
 
-  const source = platform === "jubelio" ? "jubelio" : "tiktok";
+  const source: ReconcileSource =
+    platform === "jubelio" ? "jubelio" : platform === "shopee" ? "shopee" : "tiktok";
   const numbers =
-    source === "tiktok"
-      ? Array.from(
+    source === "jubelio"
+      ? uniqueLookupNumbers(imported).slice(0, MAX_LOOKUP)
+      : Array.from(
           new Set(imported.map((order) => String(order.orderNumber || "").trim()).filter(Boolean))
-        ).slice(0, MAX_LOOKUP)
-      : uniqueLookupNumbers(imported).slice(0, MAX_LOOKUP);
+        ).slice(0, MAX_LOOKUP);
 
   try {
     const apiOrders =
       source === "tiktok"
         ? await fetchTikTokOrdersByNumbers(await getTikTokConfig(), numbers)
-        : await fetchJubelioOrdersMatching(numbers);
+        : source === "shopee"
+          ? await fetchShopeeOrdersByNumbers(await getShopeeConfig(), numbers)
+          : await fetchJubelioOrdersMatching(numbers);
 
     const merged = mergeImportedWithApi(imported, apiOrders);
     return NextResponse.json({
