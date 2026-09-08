@@ -15,8 +15,7 @@ import ComparisonView from "@/components/ComparisonView";
 import SettingsView from "@/components/SettingsView";
 import { getApiSyncLabels, type ApiSyncSource } from "@/components/ApiSyncBar";
 import { DashboardSkeleton, CardsSkeleton } from "@/components/Skeleton";
-import { Order, Platform, UploadedFile, OrderSummary, DailyStats } from "@/types/order";
-import { parseExcelFile, detectPlatform } from "@/lib/excel-parser";
+import { Order, UploadedFile, OrderSummary, DailyStats } from "@/types/order";
 import { calculateSummary, calculateDailyStats } from "@/lib/utils";
 import { toIndonesianError } from "@/lib/errors";
 import { useAuth } from "@/contexts/AuthContext";
@@ -47,7 +46,6 @@ export default function Dashboard() {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [syncing, setSyncing] = useState<ApiSyncSource | null>(null);
   const [syncError, setSyncError] = useState("");
@@ -263,156 +261,6 @@ export default function Dashboard() {
     ...getApiSyncLabels(uploadedFiles),
   };
 
-  const saveOrdersToDb = async (newOrders: Order[]) => {
-    try {
-      setIsSaving(true);
-      await fetch("/api/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orders: newOrders }),
-      });
-    } catch (error) {
-      console.error("Error saving orders:", error);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const saveFileToDb = async (file: { name: string; platform: string; orderCount: number }) => {
-    try {
-      await fetch("/api/files", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(file),
-      });
-    } catch (error) {
-      console.error("Error saving file:", error);
-    }
-  };
-
-  const handleFileUpload = useCallback(
-    async (file: File, platform: Platform): Promise<number> => {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-
-        reader.onload = async (e) => {
-          const buffer = e.target?.result as ArrayBuffer;
-
-          const detectedPlatform = detectPlatform(file.name);
-          const finalPlatform =
-            detectedPlatform !== "shopee" ? detectedPlatform : platform;
-
-          const parsedOrders = parseExcelFile(buffer, finalPlatform);
-
-          setOrders((prev) => {
-            const existingIds = new Set(prev.map((o) => o.id));
-            const newOrders = parsedOrders.filter((o) => !existingIds.has(o.id));
-
-            if (newOrders.length > 0) {
-              saveOrdersToDb(newOrders);
-            }
-
-            return [...prev, ...newOrders];
-          });
-          dataGen.current += 1;
-          clearDashboardCache();
-
-          const uploadedFile = {
-            name: file.name,
-            platform: finalPlatform,
-            uploadedAt: new Date(),
-            orderCount: parsedOrders.length,
-          };
-
-          setUploadedFiles((prev) => [
-            ...prev.filter((f) => f.name !== file.name),
-            uploadedFile,
-          ]);
-
-          saveFileToDb({
-            name: file.name,
-            platform: finalPlatform,
-            orderCount: parsedOrders.length,
-          });
-
-          resolve(parsedOrders.length);
-        };
-
-        reader.readAsArrayBuffer(file);
-      });
-    },
-    []
-  );
-
-  const handleRemoveFile = useCallback(async (fileName: string) => {
-    const file = uploadedFiles.find((f) => f.name === fileName);
-    if (file) {
-      dataGen.current += 1;
-      clearDashboardCache();
-      setOrders((prev) =>
-        prev.filter((o) => !o.id.startsWith(`${file.platform}-`))
-      );
-      setUploadedFiles((prev) => prev.filter((f) => f.name !== fileName));
-
-      try {
-        await fetch(`/api/files?name=${encodeURIComponent(fileName)}`, {
-          method: "DELETE",
-        });
-      } catch (error) {
-        console.error("Error removing file:", error);
-      }
-    }
-  }, [uploadedFiles]);
-
-  const handleClearAll = useCallback(async () => {
-    dataGen.current += 1;
-    clearDashboardCache();
-    setOrders([]);
-    setUploadedFiles([]);
-
-    try {
-      await Promise.all([
-        fetch("/api/orders", { method: "DELETE" }),
-        fetch("/api/files", { method: "DELETE" }),
-      ]);
-    } catch (error) {
-      console.error("Error clearing data:", error);
-    }
-  }, []);
-
-  const handleExportCSV = useCallback(() => {
-    if (orders.length === 0) return;
-
-    const headers = [
-      "Order Number", "Platform", "Customer", "Recipient", "Product",
-      "Variation", "SKU", "Quantity", "Price", "Total", "Status",
-      "Order Date", "Must Ship Before", "Shipping Option", "Tracking",
-      "Phone", "City", "Province",
-    ];
-
-    const rows = orders.map((o) => [
-      o.orderNumber, o.platform, o.customerName, o.recipientName || "",
-      o.productName, o.variation || "", o.sku || "", o.quantity, o.price,
-      o.totalAmount, o.status,
-      o.orderDate instanceof Date ? o.orderDate.toISOString().split("T")[0] : o.orderDate,
-      o.mustShipBefore instanceof Date ? o.mustShipBefore.toISOString() : o.mustShipBefore || "",
-      o.shippingOption || "", o.trackingNumber || "", o.phone || "",
-      o.city || "", o.province || "",
-    ]);
-
-    const csvContent = [headers, ...rows]
-      .map((row) => row.map((cell) => `"${cell}"`).join(","))
-      .join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `orders-export-${new Date().toISOString().split("T")[0]}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }, [orders]);
-
   if (!authLoading && !user) {
     return null;
   }
@@ -437,7 +285,7 @@ export default function Dashboard() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         orderCount={orders.length}
-        isSaving={isSaving}
+        isSaving={false}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         profile={profile}
@@ -501,12 +349,6 @@ export default function Dashboard() {
                 transition={{ duration: 0.1 }}
               >
                 <SettingsView
-                  onFileUpload={handleFileUpload}
-                  uploadedFiles={uploadedFiles}
-                  onRemoveFile={handleRemoveFile}
-                  onExportCSV={handleExportCSV}
-                  onClearAll={handleClearAll}
-                  orderCount={orders.length}
                   apiSync={apiSync}
                   isRefreshing={isRefreshing}
                 />
@@ -576,7 +418,7 @@ function EmptyDataState({ onImport }: { onImport: () => void }) {
         Belum Ada Data
       </h3>
       <p className="text-brand-400 mb-3 sm:mb-4 text-xs sm:text-base">
-        Ambil data TikTok atau Jubelio, atau unggah Excel Shopee di Settings.
+        Ambil data Shopee, TikTok, atau Jubelio di Settings.
       </p>
       <button
         onClick={onImport}

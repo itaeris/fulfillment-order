@@ -172,6 +172,7 @@ function SourceCard({
   titleClass,
   hint,
   linked,
+  showLinkStatus = false,
   connectHref,
   sellerHref,
   lastFile,
@@ -184,6 +185,7 @@ function SourceCard({
   titleClass: string;
   hint?: string;
   linked?: boolean | null;
+  showLinkStatus?: boolean;
   connectHref?: string;
   sellerHref: string;
   lastFile?: string | null;
@@ -192,18 +194,20 @@ function SourceCard({
   onSync: () => void;
   onUpload: () => void;
 }) {
-  const needsConnect = linked === false && connectHref;
+  const needsConnect = showLinkStatus && linked === false && connectHref;
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border border-brand-200 px-3 py-2.5">
       <span className={cn("text-xs font-semibold", titleClass)}>{title}</span>
       {hint ? <p className="text-[11px] text-brand-400">{hint}</p> : null}
-      {linked == null ? (
-        <p className="text-[11px] text-brand-400">Memeriksa status toko...</p>
-      ) : (
-        <p className={cn("text-[11px]", linked ? "text-green-700" : "text-amber-700")}>
-          {linked ? "Toko sudah terhubung" : "Toko belum terhubung"}
-        </p>
-      )}
+      {showLinkStatus ? (
+        linked == null ? (
+          <p className="text-[11px] text-brand-400">Memeriksa status toko...</p>
+        ) : (
+          <p className={cn("text-[11px]", linked ? "text-green-700" : "text-amber-700")}>
+            {linked ? "Toko sudah terhubung" : "Toko belum terhubung"}
+          </p>
+        )
+      ) : null}
       {needsConnect ? (
         <a
           href={connectHref}
@@ -508,6 +512,7 @@ export default function DueDateOverviewView({
                 <SourceCard
                   title="Shopee"
                   titleClass="text-shopee-500"
+                  showLinkStatus
                   linked={shopeeLinked}
                   connectHref="/api/shopee/authorize?next=/overview-duedate"
                   sellerHref="https://accounts.shopee.co.id/seller/login?next=https%3A%2F%2Fseller.shopee.co.id%2F"
@@ -520,6 +525,7 @@ export default function DueDateOverviewView({
                 <SourceCard
                   title="TikTok / Tokopedia"
                   titleClass="text-brand-800"
+                  showLinkStatus
                   linked={tiktokLinked}
                   connectHref="/api/tiktok/authorize?next=/overview-duedate"
                   sellerHref="https://seller-id.tokopedia.com/"

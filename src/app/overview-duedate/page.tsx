@@ -26,6 +26,7 @@ import {
 } from "@/lib/client-data";
 import { toIndonesianError } from "@/lib/errors";
 import { type ApiSyncSource } from "@/components/ApiSyncBar";
+import { fetchMarketplaceTokenStatus, isShopLinkedPayload } from "@/lib/shop-link-status";
 import { Order, Platform, UploadedFile } from "@/types/order";
 
 const SYNC_URL: Record<ApiSyncSource, string> = {
@@ -90,19 +91,28 @@ export default function OverviewDueDatePage() {
   }, []);
 
   useEffect(() => {
+    if (authLoading || !user) return;
     let cancelled = false;
-    Promise.all([
-      fetch("/api/shopee/token").then((res) => res.json()).catch(() => null),
-      fetch("/api/tiktok/token").then((res) => res.json()).catch(() => null),
-    ]).then(([shopee, tiktok]) => {
+
+    const loadLinks = async () => {
+      const { shopee, tiktok } = await fetchMarketplaceTokenStatus();
       if (cancelled) return;
-      if (typeof shopee?.hasRefreshToken === "boolean") setShopeeLinked(shopee.hasRefreshToken);
-      if (typeof tiktok?.hasRefreshToken === "boolean") setTiktokLinked(tiktok.hasRefreshToken);
-    });
+      const shopeeLinkedNow = isShopLinkedPayload(shopee);
+      const tiktokLinkedNow = isShopLinkedPayload(tiktok);
+      if (shopeeLinkedNow !== null) setShopeeLinked(shopeeLinkedNow);
+      if (tiktokLinkedNow !== null) setTiktokLinked(tiktokLinkedNow);
+    };
+
+    void loadLinks();
+    const onFocus = () => {
+      void loadLinks();
+    };
+    window.addEventListener("focus", onFocus);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", onFocus);
     };
-  }, []);
+  }, [authLoading, user]);
 
   const loadData = useCallback(async (mode: "init" | "refresh" = "refresh") => {
     const gen = ++dataGen.current;

@@ -600,7 +600,7 @@ export default function OrderTable({
             <p className="text-brand-400 text-center">
               Belum ada pesanan.
               <br />
-              Klik Ambil data TikTok atau Ambil data Jubelio di atas.
+              Klik Ambil data Shopee, TikTok, atau Jubelio di atas.
             </p>
           </motion.div>
         ) : filteredAndSortedOrders.length === 0 ? (

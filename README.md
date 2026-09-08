@@ -96,7 +96,7 @@ flowchart TD
 - **Dashboard**: Kartu ringkasan + grafik (tren, platform, status)
 - **Pesanan**: Tabel order dengan filter, pencarian, dan pagination
 - **Komparasi**: Cermin Jubelio vs Shopee / TikTok (miss / delay realtime)
-- **Settings**: Hubungkan & Ambil Shopee / TikTok / Jubelio, Excel Shopee cadangan, export, reset data, profil, password, kelola user
+- **Settings**: Hubungkan & Ambil Shopee / TikTok / Jubelio, profil, password, kelola user
 - **Kirim hari ini**: Antrian gudang terpisah (`/overview-duedate`) — dari sidebar terbuka di tab baru
 
 ### Sumber Data
@@ -400,7 +400,6 @@ src/
 │   ├── ComparisonView.tsx
 │   ├── DueDateOverview.tsx       # UI Kirim hari ini
 │   ├── Turnstile.tsx             # Cloudflare Turnstile (login)
-│   ├── FileUpload.tsx            # Import Excel Shopee cadangan (dashboard)
 │   ├── OrderDetailPreview.tsx    # Drawer detail klik baris
 │   ├── OrderTable.tsx
 │   ├── SettingsView.tsx

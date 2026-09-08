@@ -16,7 +16,6 @@ import {
   ChevronDown,
   AlertTriangle,
   Database,
-  Download,
   RefreshCw,
   Cloud,
   CloudOff,
@@ -25,9 +24,8 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { toIndonesianError } from "@/lib/errors";
-import FileUpload from "./FileUpload";
+import { fetchMarketplaceTokenStatus } from "@/lib/shop-link-status";
 import { TableSkeleton } from "@/components/Skeleton";
-import { Platform, UploadedFile } from "@/types/order";
 import { type ApiSyncState } from "@/components/ApiSyncBar";
 
 function Spinner({ className = "w-4 h-4" }: { className?: string }) {
@@ -53,23 +51,11 @@ interface AllUser {
 }
 
 interface SettingsViewProps {
-  onFileUpload: (file: File, platform: Platform) => Promise<number>;
-  uploadedFiles: UploadedFile[];
-  onRemoveFile: (fileName: string) => void;
-  onExportCSV: () => void;
-  onClearAll: () => void;
-  orderCount: number;
   apiSync: ApiSyncState;
   isRefreshing?: boolean;
 }
 
 export default function SettingsView({
-  onFileUpload,
-  uploadedFiles,
-  onRemoveFile,
-  onExportCSV,
-  onClearAll,
-  orderCount,
   apiSync,
   isRefreshing,
 }: SettingsViewProps) {
@@ -116,12 +102,6 @@ export default function SettingsView({
         {activeSection === "data" && (
           <motion.div key="data" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.1 }}>
             <DataSection
-              onFileUpload={onFileUpload}
-              uploadedFiles={uploadedFiles}
-              onRemoveFile={onRemoveFile}
-              onExportCSV={onExportCSV}
-              onClearAll={onClearAll}
-              orderCount={orderCount}
               apiSync={apiSync}
               isRefreshing={!!isRefreshing}
             />
@@ -355,25 +335,12 @@ function PasswordSection() {
 }
 
 function DataSection({
-  onFileUpload,
-  uploadedFiles,
-  onRemoveFile,
-  onExportCSV,
-  onClearAll,
-  orderCount,
   apiSync,
   isRefreshing,
 }: {
-  onFileUpload: (file: File, platform: Platform) => Promise<number>;
-  uploadedFiles: UploadedFile[];
-  onRemoveFile: (fileName: string) => void;
-  onExportCSV: () => void;
-  onClearAll: () => void;
-  orderCount: number;
   apiSync: ApiSyncState;
   isRefreshing: boolean;
 }) {
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [tokenStatus, setTokenStatus] = useState<{
     hasRefreshToken: boolean;
     hasAccessToken: boolean;
@@ -393,17 +360,12 @@ function DataSection({
 
   const loadTokenStatus = useCallback(async () => {
     try {
-      const [tiktokRes, shopeeRes] = await Promise.all([
-        fetch("/api/tiktok/token"),
-        fetch("/api/shopee/token"),
-      ]);
-      const tiktokData = await tiktokRes.json();
-      const shopeeData = await shopeeRes.json();
-      if (tiktokRes.ok && typeof tiktokData.hasRefreshToken === "boolean") {
-        setTokenStatus(tiktokData);
+      const { shopee, tiktok } = await fetchMarketplaceTokenStatus();
+      if (tiktok && typeof tiktok.hasRefreshToken === "boolean") {
+        setTokenStatus(tiktok as typeof tokenStatus);
       }
-      if (shopeeRes.ok && typeof shopeeData.hasRefreshToken === "boolean") {
-        setShopeeTokenStatus(shopeeData);
+      if (shopee && typeof shopee.hasRefreshToken === "boolean") {
+        setShopeeTokenStatus(shopee as typeof shopeeTokenStatus);
       }
     } catch {
       // ignore
@@ -699,48 +661,6 @@ function DataSection({
           </div>
         )}
       </div>
-
-      <FileUpload
-        onFileUpload={onFileUpload}
-        uploadedFiles={uploadedFiles}
-        onRemoveFile={onRemoveFile}
-      />
-
-      {orderCount > 0 && (
-        <div className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-brand-200 p-3 sm:p-6">
-          <h3 className="text-sm sm:text-lg font-semibold text-brand-800 mb-3 sm:mb-4">Unduh / hapus data</h3>
-          <div className="flex flex-wrap gap-2 sm:gap-3">
-            <button
-              onClick={onExportCSV}
-              className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-brand-600 text-white rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium hover:bg-brand-700 transition-all"
-            >
-              <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              Unduh Excel
-            </button>
-            <button
-              onClick={() => setShowResetConfirm(true)}
-              className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-red-50 text-red-600 border border-red-200 rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium hover:bg-red-100 transition-all"
-            >
-              <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              Hapus semua data
-            </button>
-          </div>
-          <p className="text-[11px] sm:text-xs text-brand-400 mt-2 sm:mt-3">
-            Total {orderCount} pesanan tersimpan.
-          </p>
-        </div>
-      )}
-
-      <ConfirmModal
-        open={showResetConfirm}
-        title="Hapus semua data"
-        message="Yakin ingin menghapus semua pesanan? Tidak bisa dikembalikan."
-        onConfirm={() => {
-          onClearAll();
-          setShowResetConfirm(false);
-        }}
-        onCancel={() => setShowResetConfirm(false)}
-      />
     </div>
   );
 }
