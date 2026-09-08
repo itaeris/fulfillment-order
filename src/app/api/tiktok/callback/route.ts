@@ -1,16 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { exchangeAuthCode, getRequestOrigin } from "@/lib/tiktok-auth";
+import { consumeOauthReturn, redirectAfterOauth } from "@/lib/oauth-return";
 import { toIndonesianError } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
-
-function redirectHome(origin: string, params: Record<string, string>) {
-  const url = new URL("/", origin);
-  for (const [key, value] of Object.entries(params)) {
-    url.searchParams.set(key, value);
-  }
-  return NextResponse.redirect(url);
-}
 
 export async function GET(req: NextRequest) {
   const origin = getRequestOrigin(req);
@@ -20,9 +13,10 @@ export async function GET(req: NextRequest) {
   const state = req.nextUrl.searchParams.get("state");
   const oauthError = req.nextUrl.searchParams.get("error");
   const savedState = req.cookies.get("tiktok_oauth_state")?.value;
+  const next = consumeOauthReturn(req);
 
   const finish = (params: Record<string, string>) => {
-    const res = redirectHome(origin, params);
+    const res = redirectAfterOauth(origin, params, next);
     res.cookies.delete("tiktok_oauth_state");
     return res;
   };

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { getAuthorizeUrl, getCallbackUrl, getRequestOrigin } from "@/lib/tiktok-auth";
+import { attachOauthReturnCookie, oauthReturnFromRequest } from "@/lib/oauth-return";
 import { toIndonesianError } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
       maxAge: 10 * 60,
       path: "/",
     });
-    return res;
+    return attachOauthReturnCookie(res, origin, oauthReturnFromRequest(req));
   } catch (error) {
     const message = toIndonesianError(
       error instanceof Error ? error.message : null,

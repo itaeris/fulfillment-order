@@ -5,8 +5,10 @@ import {
   AlertTriangle,
   Check,
   Clock,
+  Cloud,
   Copy,
   ExternalLink,
+  Link2,
   LogOut,
   Search,
   Upload,
@@ -25,6 +27,7 @@ import {
 } from "@/lib/due-date";
 import { Order, Platform } from "@/types/order";
 import { OrderDetailPreview } from "@/components/OrderDetailPreview";
+import { type ApiSyncSource } from "@/components/ApiSyncBar";
 
 export type OverviewUploadResult = {
   count: number;
@@ -34,9 +37,19 @@ export type OverviewUploadResult = {
   apiError?: string;
 };
 
+export type OverviewSyncResult = {
+  count: number;
+  error?: string;
+};
+
 interface DueDateOverviewViewProps {
   orders: Order[];
   onUploadExcel: (file: File, platform: Platform) => Promise<OverviewUploadResult>;
+  onSyncApi: (source: ApiSyncSource) => Promise<OverviewSyncResult>;
+  syncing: ApiSyncSource | null;
+  shopeeLinked: boolean | null;
+  tiktokLinked: boolean | null;
+  connectMsg?: string;
   onClear: () => Promise<void> | void;
   lastShopeeFile?: string | null;
   lastTiktokFile?: string | null;
@@ -154,6 +167,86 @@ function rowPlatform(row: DueDateRow): Exclude<PlatformFilter, "all"> {
   return "jubelio";
 }
 
+function SourceCard({
+  title,
+  titleClass,
+  hint,
+  linked,
+  connectHref,
+  sellerHref,
+  lastFile,
+  syncing,
+  busy,
+  onSync,
+  onUpload,
+}: {
+  title: string;
+  titleClass: string;
+  hint?: string;
+  linked?: boolean | null;
+  connectHref?: string;
+  sellerHref: string;
+  lastFile?: string | null;
+  syncing: boolean;
+  busy: boolean;
+  onSync: () => void;
+  onUpload: () => void;
+}) {
+  const needsConnect = linked === false && connectHref;
+  return (
+    <div className="flex flex-col gap-1.5 rounded-lg border border-brand-200 px-3 py-2.5">
+      <span className={cn("text-xs font-semibold", titleClass)}>{title}</span>
+      {hint ? <p className="text-[11px] text-brand-400">{hint}</p> : null}
+      {linked != null && (
+        <p className={cn("text-[11px]", linked ? "text-green-700" : "text-amber-700")}>
+          {linked ? "Toko sudah terhubung" : "Toko belum terhubung"}
+        </p>
+      )}
+      {needsConnect ? (
+        <a
+          href={connectHref}
+          className={cn(
+            "inline-flex items-center gap-1.5 text-[11px] font-medium hover:underline",
+            titleClass
+          )}
+        >
+          <Link2 className="w-3.5 h-3.5" />
+          Hubungkan toko
+        </a>
+      ) : (
+        <button
+          type="button"
+          onClick={onSync}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 text-[11px] font-medium text-brand-700 hover:underline disabled:opacity-50 text-left"
+        >
+          <Cloud className="w-3.5 h-3.5" />
+          {syncing ? "Mengambil API..." : "Ambil data API"}
+        </button>
+      )}
+      <a
+        href={sellerHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1.5 text-[11px] font-medium text-brand-500 hover:underline"
+      >
+        <ExternalLink className="w-3.5 h-3.5" />
+        Seller Centre
+      </a>
+      <button
+        type="button"
+        onClick={onUpload}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 text-[11px] font-medium text-brand-700 hover:underline disabled:opacity-50 text-left"
+      >
+        <Upload className="w-3.5 h-3.5" />
+        {busy && !syncing ? "Mengunggah & mencocokkan..." : "Unggah Excel/CSV"}
+      </button>
+      <span className="text-[11px] text-brand-400">{lastFile || "Belum ada data"}</span>
+    </div>
+  );
+}
+
 function FilterPill({
   active,
   onClick,
@@ -218,6 +311,11 @@ function useGoogleClock() {
 export default function DueDateOverviewView({
   orders,
   onUploadExcel,
+  onSyncApi,
+  syncing,
+  shopeeLinked,
+  tiktokLinked,
+  connectMsg,
   onClear,
   lastShopeeFile,
   lastTiktokFile,
@@ -239,7 +337,13 @@ export default function DueDateOverviewView({
   const overview = useMemo(() => buildDueDateOverview(orders), [orders]);
   const liveNow = useGoogleClock();
   const maxCourier = Math.max(1, ...overview.couriers.map((c) => c.orders));
-  const busy = uploading;
+  const busy = uploading || !!syncing;
+
+  useEffect(() => {
+    if (!connectMsg) return;
+    setShowUpload(true);
+    setUploadMsg(connectMsg);
+  }, [connectMsg]);
 
   const matchesType = (row: DueDateRow) => {
     if (typeFilter === "instant") return row.instant;
@@ -326,6 +430,19 @@ export default function DueDateOverviewView({
     }
   };
 
+  const handleSync = async (source: ApiSyncSource) => {
+    setShowUpload(true);
+    setUploadMsg("");
+    const result = await onSyncApi(source);
+    const label =
+      source === "jubelio" ? "Jubelio" : source === "shopee" ? "Shopee" : "TikTok";
+    if (result.error) {
+      setUploadMsg(result.error);
+      return;
+    }
+    setUploadMsg(`${result.count} pesanan ${label} dari API.`);
+  };
+
   const mustSendNow = overview.overdue + overview.dueSoon;
   const wajibCount = mustSendNow > 0 ? mustSendNow : overview.critical;
   const shopeeShare = overview.totalOrders
@@ -379,85 +496,48 @@ export default function DueDateOverviewView({
               <div>
                 <h2 className="text-sm font-semibold text-brand-800">Masukkan data 3 platform</h2>
                 <p className="text-xs text-brand-400 mt-0.5">
-                  Daily worker unggah Excel/CSV dari Shopee, TikTok, dan Jubelio.
-                  Antrian kirim dihitung dari Shopee & TikTok saja. Jubelio dipakai sebagai cermin
-                  omnichannel: cek yang miss atau belum realtime, bukan menambah jumlah pesanan.
+                  Ambil antrian siap kirim dari API, atau unggah Excel/CSV. Unggahan Excel
+                  otomatis dicocokkan ke API. Antrian kirim dihitung dari Shopee & TikTok saja.
+                  Jubelio dipakai sebagai cermin omnichannel: cek yang miss atau belum realtime,
+                  bukan menambah jumlah pesanan.
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <div className="flex flex-col gap-1.5 rounded-lg border border-brand-200 px-3 py-2.5">
-                  <span className="text-xs font-semibold text-shopee-500">Shopee</span>
-                  <a
-                    href="https://accounts.shopee.co.id/seller/login?next=https%3A%2F%2Fseller.shopee.co.id%2F"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-[11px] font-medium text-shopee-500 hover:underline"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    Ambil data
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => openUpload("shopee")}
-                    disabled={busy}
-                    className="inline-flex items-center gap-1.5 text-[11px] font-medium text-brand-700 hover:underline disabled:opacity-50 text-left"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    {uploading ? "Mengunggah & mencocokkan..." : "Unggah Excel/CSV"}
-                  </button>
-                  <span className="text-[11px] text-brand-400">
-                    {lastShopeeFile || "Belum ada file"}
-                  </span>
-                </div>
-                <div className="flex flex-col gap-1.5 rounded-lg border border-brand-200 px-3 py-2.5">
-                  <span className="text-xs font-semibold text-brand-800">TikTok / Tokopedia</span>
-                  <a
-                    href="https://seller-id.tokopedia.com/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-[11px] font-medium text-brand-700 hover:underline"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    Ambil data
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => openUpload("tiktok")}
-                    disabled={busy}
-                    className="inline-flex items-center gap-1.5 text-[11px] font-medium text-brand-700 hover:underline disabled:opacity-50 text-left"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    {uploading ? "Mengunggah & mencocokkan..." : "Unggah Excel/CSV"}
-                  </button>
-                  <span className="text-[11px] text-brand-400">
-                    {lastTiktokFile || "Belum ada file"}
-                  </span>
-                </div>
-                <div className="flex flex-col gap-1.5 rounded-lg border border-brand-200 px-3 py-2.5">
-                  <span className="text-xs font-semibold text-brand-800">Jubelio (cermin)</span>
-                  <p className="text-[11px] text-brand-400">Tidak menambah antrian kirim</p>
-                  <a
-                    href="https://v2.jubelio.com/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-[11px] font-medium text-brand-700 hover:underline"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    Ambil data
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => openUpload("jubelio")}
-                    disabled={busy}
-                    className="inline-flex items-center gap-1.5 text-[11px] font-medium text-brand-700 hover:underline disabled:opacity-50 text-left"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    {uploading ? "Mengunggah & mencocokkan..." : "Unggah Excel/CSV"}
-                  </button>
-                  <span className="text-[11px] text-brand-400">
-                    {lastJubelioFile || "Belum ada file"}
-                  </span>
-                </div>
+                <SourceCard
+                  title="Shopee"
+                  titleClass="text-shopee-500"
+                  linked={shopeeLinked}
+                  connectHref="/api/shopee/authorize?next=/overview-duedate"
+                  sellerHref="https://accounts.shopee.co.id/seller/login?next=https%3A%2F%2Fseller.shopee.co.id%2F"
+                  lastFile={lastShopeeFile}
+                  syncing={syncing === "shopee"}
+                  busy={busy}
+                  onSync={() => handleSync("shopee")}
+                  onUpload={() => openUpload("shopee")}
+                />
+                <SourceCard
+                  title="TikTok / Tokopedia"
+                  titleClass="text-brand-800"
+                  linked={tiktokLinked}
+                  connectHref="/api/tiktok/authorize?next=/overview-duedate"
+                  sellerHref="https://seller-id.tokopedia.com/"
+                  lastFile={lastTiktokFile}
+                  syncing={syncing === "tiktok"}
+                  busy={busy}
+                  onSync={() => handleSync("tiktok")}
+                  onUpload={() => openUpload("tiktok")}
+                />
+                <SourceCard
+                  title="Jubelio (cermin)"
+                  titleClass="text-brand-800"
+                  hint="Tidak menambah antrian kirim"
+                  sellerHref="https://v2.jubelio.com/"
+                  lastFile={lastJubelioFile}
+                  syncing={syncing === "jubelio"}
+                  busy={busy}
+                  onSync={() => handleSync("jubelio")}
+                  onUpload={() => openUpload("jubelio")}
+                />
               </div>
               <input
                 ref={fileRef}

@@ -25,7 +25,22 @@ import {
   type DataSnapshot,
 } from "@/lib/client-data";
 import { toIndonesianError } from "@/lib/errors";
+import { type ApiSyncSource } from "@/components/ApiSyncBar";
 import { Order, Platform, UploadedFile } from "@/types/order";
+
+const SYNC_URL: Record<ApiSyncSource, string> = {
+  shopee: "/api/shopee/sync",
+  tiktok: "/api/tiktok/sync",
+  jubelio: "/api/jubelio/sync",
+};
+
+const SYNC_FILE: Record<ApiSyncSource, { name: string; platform: Platform }> = {
+  shopee: { name: "Shopee Open API", platform: "shopee" },
+  tiktok: { name: "TikTok Shop API", platform: "tiktok" },
+  jubelio: { name: "Jubelio API", platform: "jubelio" },
+};
+
+const MAX_API_PAGES = 20;
 
 export default function OverviewDueDatePage() {
   const { user, profile, isLoading: authLoading, signOut } = useAuth();
@@ -33,13 +48,61 @@ export default function OverviewDueDatePage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [syncing, setSyncing] = useState<ApiSyncSource | null>(null);
+  const [shopeeLinked, setShopeeLinked] = useState<boolean | null>(null);
+  const [tiktokLinked, setTiktokLinked] = useState<boolean | null>(null);
+  const [connectMsg, setConnectMsg] = useState("");
   const ordersRef = useRef<Order[]>([]);
   const dataGen = useRef(0);
+  const syncLock = useRef(false);
   ordersRef.current = orders;
 
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login");
   }, [authLoading, user, router]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("shopee") === "connected") {
+      setConnectMsg("Toko Shopee terhubung. Ambil data API untuk mengisi antrian.");
+      setShopeeLinked(true);
+    } else if (params.get("shopee") === "error") {
+      setConnectMsg(
+        toIndonesianError(params.get("message"), "Gagal menghubungkan Shopee")
+      );
+    }
+    if (params.get("tiktok") === "connected") {
+      setConnectMsg("Toko TikTok terhubung. Ambil data API untuk mengisi antrian.");
+      setTiktokLinked(true);
+    } else if (params.get("tiktok") === "error") {
+      setConnectMsg(
+        toIndonesianError(params.get("message"), "Gagal menghubungkan TikTok")
+      );
+    }
+    if (params.has("shopee") || params.has("tiktok")) {
+      params.delete("shopee");
+      params.delete("tiktok");
+      params.delete("message");
+      const next = params.toString();
+      window.history.replaceState({}, "", next ? `?${next}` : window.location.pathname);
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      fetch("/api/shopee/token").then((res) => res.json()).catch(() => null),
+      fetch("/api/tiktok/token").then((res) => res.json()).catch(() => null),
+    ]).then(([shopee, tiktok]) => {
+      if (cancelled) return;
+      if (shopee) setShopeeLinked(Boolean(shopee.hasRefreshToken));
+      if (tiktok) setTiktokLinked(Boolean(tiktok.hasRefreshToken));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const loadData = useCallback(async (mode: "init" | "refresh" = "refresh") => {
     const gen = ++dataGen.current;
@@ -207,6 +270,89 @@ export default function OverviewDueDatePage() {
     };
   }, []);
 
+  const handleSyncApi = useCallback(async (source: ApiSyncSource) => {
+    if (syncLock.current) return { count: 0, error: "Sedang mengambil data." };
+    syncLock.current = true;
+    setSyncing(source);
+    const label =
+      source === "tiktok" ? "TikTok" : source === "shopee" ? "Shopee" : "Jubelio";
+    try {
+      const collected: Order[] = [];
+      let cursor: unknown;
+      let insertedSoFar = 0;
+      let startPage = 1;
+      for (let page = 0; page < MAX_API_PAGES; page += 1) {
+        const res = await fetch(SYNC_URL[source], {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ persist: false, insertedSoFar, cursor, startPage }),
+        });
+        const text = await res.text();
+        let data: {
+          error?: string;
+          done?: boolean;
+          count?: number;
+          nextPage?: number | null;
+          cursor?: unknown;
+          orders?: Order[];
+        };
+        try {
+          data = JSON.parse(text);
+        } catch {
+          return {
+            count: 0,
+            error:
+              res.status === 504 || res.status === 500
+                ? "Pengambilan data terlalu lama. Coba lagi."
+                : `Gagal mengambil data ${label}. Coba lagi.`,
+          };
+        }
+        if (!res.ok) {
+          return {
+            count: 0,
+            error: toIndonesianError(data.error, `Gagal mengambil data ${label}`),
+          };
+        }
+        const batch = Array.isArray(data.orders) ? data.orders : [];
+        collected.push(...batch.map(hydrateOrder));
+        insertedSoFar = data.count || collected.length;
+        if (data.done) break;
+        if (!data.nextPage && !data.cursor) break;
+        startPage = data.nextPage || startPage;
+        cursor = data.cursor;
+      }
+
+      const platforms: Platform[] =
+        source === "tiktok" ? ["tiktok", "tokopedia"] : [source];
+      const next = await replaceOverviewPlatforms(platforms, collected);
+      dataGen.current += 1;
+      setOrders(next.map(hydrateOrder));
+
+      const fileMeta = SYNC_FILE[source];
+      const uploadedFile: UploadedFile = {
+        name: fileMeta.name,
+        platform: fileMeta.platform,
+        uploadedAt: new Date(),
+        orderCount: collected.length,
+      };
+      await saveOverviewFile(uploadedFile);
+      setUploadedFiles((prev) => [
+        ...prev.filter((item) => item.name !== uploadedFile.name),
+        uploadedFile,
+      ]);
+      return { count: collected.length };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : null;
+      return {
+        count: 0,
+        error: toIndonesianError(message, "Terjadi kesalahan jaringan"),
+      };
+    } finally {
+      syncLock.current = false;
+      setSyncing(null);
+    }
+  }, []);
+
   const handleClear = useCallback(async () => {
     dataGen.current += 1;
     await clearOverviewStore();
@@ -239,6 +385,11 @@ export default function OverviewDueDatePage() {
     <DueDateOverviewView
       orders={orders}
       onUploadExcel={handleUploadExcel}
+      onSyncApi={handleSyncApi}
+      syncing={syncing}
+      shopeeLinked={shopeeLinked}
+      tiktokLinked={tiktokLinked}
+      connectMsg={connectMsg}
       onClear={handleClear}
       lastShopeeFile={fileHint(lastShopee)}
       lastTiktokFile={fileHint(lastTiktok)}
