@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   Check,
@@ -11,7 +11,6 @@ import {
   Link2,
   LogOut,
   Search,
-  Upload,
   LayoutDashboard,
   Bell,
   X,
@@ -25,18 +24,10 @@ import {
   type DueDateRow,
   type ShippingBreakdown,
 } from "@/lib/due-date";
-import { Order, Platform } from "@/types/order";
+import { Order } from "@/types/order";
 import { OrderDetailPreview } from "@/components/OrderDetailPreview";
 import { type ApiSyncSource } from "@/components/ApiSyncBar";
 import { PlatformLogo } from "@/components/PlatformLogo";
-
-export type OverviewUploadResult = {
-  count: number;
-  matched?: number;
-  platform: Platform;
-  reconciled: boolean;
-  apiError?: string;
-};
 
 export type OverviewSyncResult = {
   count: number;
@@ -45,7 +36,6 @@ export type OverviewSyncResult = {
 
 interface DueDateOverviewViewProps {
   orders: Order[];
-  onUploadExcel: (file: File, platform: Platform) => Promise<OverviewUploadResult>;
   onSyncApi: (source: ApiSyncSource) => Promise<OverviewSyncResult>;
   syncing: ApiSyncSource | null;
   shopeeLinked: boolean | null;
@@ -181,7 +171,6 @@ function SourceCard({
   syncing,
   busy,
   onSync,
-  onUpload,
 }: {
   title: string;
   titleClass: string;
@@ -195,7 +184,6 @@ function SourceCard({
   syncing: boolean;
   busy: boolean;
   onSync: () => void;
-  onUpload: () => void;
 }) {
   const needsConnect = showLinkStatus && linked === false && connectHref;
   return (
@@ -244,15 +232,6 @@ function SourceCard({
         <ExternalLink className="w-3.5 h-3.5" />
         Seller Centre
       </a>
-      <button
-        type="button"
-        onClick={onUpload}
-        disabled={busy}
-        className="inline-flex items-center gap-1.5 text-[11px] font-medium text-brand-700 hover:underline disabled:opacity-50 text-left"
-      >
-        <Upload className="w-3.5 h-3.5" />
-        {busy && !syncing ? "Mengunggah & mencocokkan..." : "Unggah Excel/CSV"}
-      </button>
       <span className="text-[11px] text-brand-400">{lastFile || "Belum ada data"}</span>
     </div>
   );
@@ -321,7 +300,6 @@ function useGoogleClock() {
 
 export default function DueDateOverviewView({
   orders,
-  onUploadExcel,
   onSyncApi,
   syncing,
   shopeeLinked,
@@ -334,26 +312,23 @@ export default function DueDateOverviewView({
   onSignOut,
   workerName,
 }: DueDateOverviewViewProps) {
-  const [showUpload, setShowUpload] = useState(orders.length === 0);
-  const [uploading, setUploading] = useState(false);
-  const [uploadMsg, setUploadMsg] = useState("");
+  const [showSources, setShowSources] = useState(orders.length === 0);
+  const [syncMsg, setSyncMsg] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("instant");
   const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
   const [previewRow, setPreviewRow] = useState<DueDateRow | null>(null);
   const [copiedList, setCopiedList] = useState<string | null>(null);
   const [orderQuery, setOrderQuery] = useState("");
-  const fileRef = useRef<HTMLInputElement>(null);
-  const uploadTarget = useRef<Platform>("shopee");
 
   const overview = useMemo(() => buildDueDateOverview(orders), [orders]);
   const liveNow = useGoogleClock();
   const maxCourier = Math.max(1, ...overview.couriers.map((c) => c.orders));
-  const busy = uploading || !!syncing;
+  const busy = !!syncing;
 
   useEffect(() => {
     if (!connectMsg) return;
-    setShowUpload(true);
-    setUploadMsg(connectMsg);
+    setShowSources(true);
+    setSyncMsg(connectMsg);
   }, [connectMsg]);
 
   const matchesType = (row: DueDateRow) => {
@@ -402,56 +377,17 @@ export default function DueDateOverviewView({
       return rowPlatform(row) === id;
     }).length;
 
-  const openUpload = (platform: Platform) => {
-    uploadTarget.current = platform;
-    fileRef.current?.click();
-  };
-
-  const handleFiles = async (files: FileList | null) => {
-    if (!files?.length) return;
-    setUploading(true);
-    setUploadMsg("");
-    try {
-      let total = 0;
-      const notes: string[] = [];
-      for (const file of Array.from(files)) {
-        const result = await onUploadExcel(file, uploadTarget.current);
-        total += result.count;
-        const label =
-          result.platform === "jubelio"
-            ? "Jubelio"
-            : result.platform === "shopee"
-              ? "Shopee"
-              : "TikTok";
-        if (result.reconciled && typeof result.matched === "number") {
-          notes.push(`${result.matched}/${result.count} dicocokkan ${label}`);
-        }
-        if (result.apiError) notes.push(result.apiError);
-      }
-      setUploadMsg(
-        notes.length > 0
-          ? `${total} pesanan dari Excel. ${notes.join(" · ")}`
-          : `${total} pesanan masuk dari Excel.`
-      );
-    } catch {
-      setUploadMsg("Gagal membaca file. Coba lagi.");
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  };
-
   const handleSync = async (source: ApiSyncSource) => {
-    setShowUpload(true);
-    setUploadMsg("");
+    setShowSources(true);
+    setSyncMsg("");
     const result = await onSyncApi(source);
     const label =
       source === "jubelio" ? "Jubelio" : source === "shopee" ? "Shopee" : "TikTok";
     if (result.error) {
-      setUploadMsg(result.error);
+      setSyncMsg(result.error);
       return;
     }
-    setUploadMsg(`${result.count} pesanan ${label} untuk kirim hari ini.`);
+    setSyncMsg(`${result.count} pesanan ${label} untuk kirim hari ini.`);
   };
 
   const mustSendNow = overview.overdue + overview.dueSoon;
@@ -483,11 +419,11 @@ export default function DueDateOverviewView({
               Dashboard
             </Link>
             <button
-              onClick={() => setShowUpload((v) => !v)}
+              onClick={() => setShowSources((v) => !v)}
               className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700"
             >
-              <Upload className="w-3.5 h-3.5" />
-              Unggah data
+              <Cloud className="w-3.5 h-3.5" />
+              Ambil data
             </button>
             <button
               onClick={onSignOut}
@@ -502,15 +438,16 @@ export default function DueDateOverviewView({
 
       <main className="flex-1 overflow-y-auto overflow-x-hidden">
         <div className="max-w-6xl mx-auto px-3 sm:px-6 py-3 sm:py-5 space-y-3 sm:space-y-5">
-          {showUpload && (
+          {showSources && (
             <section className="bg-white rounded-xl shadow-sm border border-brand-200 p-3 sm:p-4 space-y-3">
               <div>
                 <h2 className="text-sm font-semibold text-brand-800">Masukkan data 3 platform</h2>
                 <p className="text-xs text-brand-400 mt-0.5">
-                  Ambil data API hanya untuk pesanan yang perlu dikirim hari ini
-                  (tenggat hari ini atau sudah terlambat). Excel/CSV tetap bisa diunggah
-                  dan dicocokkan ke API. Antrian kirim dari Shopee & TikTok saja; Jubelio
-                  cermin omnichannel, bukan menambah jumlah pesanan.
+                  Antrian kirim hari ini (tenggat hari ini atau terlambat) disinkronkan otomatis
+                  saat halaman ini terbuka, dan di server setiap beberapa menit. Status pesanan
+                  ikut terbarui realtime. Tombol Ambil data API untuk tarik ulang sekarang.
+                  Antrian kirim dari Shopee & TikTok saja; Jubelio cermin omnichannel,
+                  bukan menambah jumlah pesanan.
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -526,7 +463,6 @@ export default function DueDateOverviewView({
                   syncing={syncing === "shopee"}
                   busy={busy}
                   onSync={() => handleSync("shopee")}
-                  onUpload={() => openUpload("shopee")}
                 />
                 <SourceCard
                   title="TikTok / Tokopedia"
@@ -540,7 +476,6 @@ export default function DueDateOverviewView({
                   syncing={syncing === "tiktok"}
                   busy={busy}
                   onSync={() => handleSync("tiktok")}
-                  onUpload={() => openUpload("tiktok")}
                 />
                 <SourceCard
                   title="Jubelio (cermin)"
@@ -552,24 +487,16 @@ export default function DueDateOverviewView({
                   syncing={syncing === "jubelio"}
                   busy={busy}
                   onSync={() => handleSync("jubelio")}
-                  onUpload={() => openUpload("jubelio")}
                 />
               </div>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-                onChange={(e) => handleFiles(e.target.files)}
-              />
-              {uploadMsg ? <p className="text-xs text-brand-500">{uploadMsg}</p> : null}
+              {syncMsg ? <p className="text-xs text-brand-500">{syncMsg}</p> : null}
               <button
                 type="button"
                 disabled={busy || orders.length === 0}
                 onClick={async () => {
                   if (!window.confirm("Hapus data halaman ini saja? Data dashboard utama tidak berubah.")) return;
                   await onClear();
-                  setUploadMsg("Data halaman ini sudah dikosongkan.");
+                  setSyncMsg("Data halaman ini sudah dikosongkan.");
                 }}
                 className="text-[11px] text-red-600 hover:underline disabled:opacity-40"
               >
@@ -804,7 +731,7 @@ export default function DueDateOverviewView({
             </div>
             {overview.buckets.length === 0 ? (
               <p className="px-4 py-8 text-sm text-brand-400 text-center">
-                Belum ada pesanan untuk hari ini. Unggah data dulu.
+                Belum ada pesanan untuk hari ini. Ambil data API dulu.
               </p>
             ) : (
               <div className="divide-y divide-brand-100">

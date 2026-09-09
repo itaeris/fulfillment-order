@@ -3,6 +3,10 @@
     {
       "path": "/api/refresh-status",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/overview/sync-today",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

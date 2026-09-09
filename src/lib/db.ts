@@ -416,6 +416,16 @@ export async function getAllOverviewOrders() {
   return allRows.map(rowToOrder);
 }
 
+export async function countOverviewOrdersByPlatforms(platforms: string[]) {
+  if (platforms.length === 0) return 0;
+  const { count, error } = await supabase
+    .from("overview_orders")
+    .select("*", { count: "exact", head: true })
+    .in("platform", platforms);
+  if (error) throw error;
+  return count ?? 0;
+}
+
 export async function insertOverviewOrders(orders: OrderInput[]) {
   if (orders.length === 0) return;
   const rows = orders.map(overviewOrderToRow);

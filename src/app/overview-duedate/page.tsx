@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import DueDateOverviewView from "@/components/DueDateOverview";
 import { OverviewSkeleton } from "@/components/Skeleton";
 import { useAuth } from "@/contexts/AuthContext";
-import { parseExcelFile, detectPlatform } from "@/lib/excel-parser";
 import {
   applyLiveStatusPatches,
   uniqueLookupNumbers,
@@ -28,6 +27,7 @@ import { toIndonesianError } from "@/lib/errors";
 import { isShipTodayQueueOrder } from "@/lib/due-date";
 import { type ApiSyncSource } from "@/components/ApiSyncBar";
 import { fetchMarketplaceTokenStatus, isShopLinkedPayload } from "@/lib/shop-link-status";
+import { supabase } from "@/lib/supabase";
 import { Order, Platform, UploadedFile } from "@/types/order";
 
 const SYNC_URL: Record<ApiSyncSource, string> = {
@@ -43,6 +43,7 @@ const SYNC_FILE: Record<ApiSyncSource, { name: string; platform: Platform }> = {
 };
 
 const MAX_API_PAGES = 20;
+const AUTO_SYNC_MS = 3 * 60 * 1000;
 
 export default function OverviewDueDatePage() {
   const { user, profile, isLoading: authLoading, signOut } = useAuth();
@@ -57,7 +58,16 @@ export default function OverviewDueDatePage() {
   const ordersRef = useRef<Order[]>([]);
   const dataGen = useRef(0);
   const syncLock = useRef(false);
+  const autoSyncLock = useRef(false);
+  const shopeeLinkedRef = useRef<boolean | null>(null);
+  const tiktokLinkedRef = useRef<boolean | null>(null);
+  const handleSyncApiRef = useRef<(
+    source: ApiSyncSource,
+    options?: { preserveIfEmpty?: boolean }
+  ) => Promise<{ count: number; error?: string }>>();
   ordersRef.current = orders;
+  shopeeLinkedRef.current = shopeeLinked;
+  tiktokLinkedRef.current = tiktokLinked;
 
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login");
@@ -205,88 +215,17 @@ export default function OverviewDueDatePage() {
     };
   }, [authLoading, user, applyLive]);
 
-  const handleUploadExcel = useCallback(async (file: File, platform: Platform) => {
-    const buffer = await file.arrayBuffer();
-    const detected = detectPlatform(file.name);
-    const guessed = detected !== "shopee" ? detected : platform;
-    const parsedOrders = parseExcelFile(buffer, guessed).map(hydrateOrder);
-    const actualPlatform = parsedOrders[0]?.platform || guessed;
-
-    let finalOrders = parsedOrders;
-    let matched: number | undefined;
-    let apiError: string | undefined;
-    let reconciled = false;
-
-    if (
-      parsedOrders.length > 0 &&
-      (actualPlatform === "tiktok" ||
-        actualPlatform === "tokopedia" ||
-        actualPlatform === "shopee" ||
-        actualPlatform === "jubelio")
-    ) {
-      try {
-        const res = await fetch("/api/overview/reconcile", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            platform: actualPlatform,
-            orders: parsedOrders.map((order) => ({
-              ...order,
-              orderDate: order.orderDate?.toISOString(),
-              paidTime: order.paidTime?.toISOString(),
-              shippedTime: order.shippedTime?.toISOString(),
-              mustShipBefore: order.mustShipBefore?.toISOString(),
-              pickupTime: order.pickupTime?.toISOString(),
-            })),
-          }),
-        });
-        const data = (await res.json()) as {
-          orders?: Order[];
-          matched?: number;
-          error?: string;
-        };
-        if (Array.isArray(data.orders)) {
-          finalOrders = data.orders.map(hydrateOrder);
-          matched = data.matched;
-          reconciled = true;
-        }
-        if (data.error) apiError = toIndonesianError(data.error, "Gagal mencocokkan data realtime. Pakai data Excel dulu.");
-      } catch {
-        apiError = "Gagal mencocokkan data realtime. Pakai data Excel dulu.";
-      }
-    }
-
-    const replacePlatforms: Platform[] =
-      actualPlatform === "tiktok" || actualPlatform === "tokopedia"
-        ? ["tiktok", "tokopedia"]
-        : [actualPlatform];
-    const next = await replaceOverviewPlatforms(replacePlatforms, finalOrders);
-    dataGen.current += 1;
-    setOrders(next.map(hydrateOrder));
-
-    const uploadedFile: UploadedFile = {
-      name: file.name,
-      platform: actualPlatform,
-      uploadedAt: new Date(),
-      orderCount: finalOrders.length,
-    };
-    await saveOverviewFile(uploadedFile);
-    setUploadedFiles((prev) => [...prev.filter((item) => item.name !== file.name), uploadedFile]);
-    return {
-      count: finalOrders.length,
-      matched,
-      platform: actualPlatform,
-      reconciled,
-      apiError,
-    };
-  }, []);
-
-  const handleSyncApi = useCallback(async (source: ApiSyncSource) => {
+  const handleSyncApi = useCallback(async (
+    source: ApiSyncSource,
+    options?: { preserveIfEmpty?: boolean }
+  ) => {
     if (syncLock.current) return { count: 0, error: "Sedang mengambil data." };
     syncLock.current = true;
     setSyncing(source);
     const label =
       source === "tiktok" ? "TikTok" : source === "shopee" ? "Shopee" : "Jubelio";
+    const platforms: Platform[] =
+      source === "tiktok" ? ["tiktok", "tokopedia"] : [source];
     try {
       const collected: Order[] = [];
       let cursor: unknown;
@@ -333,8 +272,13 @@ export default function OverviewDueDatePage() {
         cursor = data.cursor;
       }
 
-      const platforms: Platform[] =
-        source === "tiktok" ? ["tiktok", "tokopedia"] : [source];
+      const existingCount = ordersRef.current.filter((order) =>
+        platforms.includes(order.platform)
+      ).length;
+      if (options?.preserveIfEmpty && collected.length === 0 && existingCount > 0) {
+        return { count: existingCount };
+      }
+
       const next = await replaceOverviewPlatforms(platforms, collected);
       dataGen.current += 1;
       setOrders(next.map(hydrateOrder));
@@ -363,6 +307,87 @@ export default function OverviewDueDatePage() {
       setSyncing(null);
     }
   }, []);
+  handleSyncApiRef.current = handleSyncApi;
+
+  useEffect(() => {
+    if (authLoading || !user || isLoading) return;
+    let cancelled = false;
+    let lastRun = 0;
+
+    const run = async () => {
+      const sync = handleSyncApiRef.current;
+      if (!sync || cancelled || document.hidden || autoSyncLock.current) return;
+      autoSyncLock.current = true;
+      lastRun = Date.now();
+      try {
+        for (let i = 0; i < 20 && (shopeeLinkedRef.current == null || tiktokLinkedRef.current == null); i += 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, 250));
+          if (cancelled) return;
+        }
+        if (shopeeLinkedRef.current !== false) {
+          await sync("shopee", { preserveIfEmpty: true });
+          if (cancelled) return;
+        }
+        if (tiktokLinkedRef.current !== false) {
+          await sync("tiktok", { preserveIfEmpty: true });
+          if (cancelled) return;
+        }
+        await sync("jubelio", { preserveIfEmpty: true });
+      } finally {
+        autoSyncLock.current = false;
+      }
+    };
+
+    const kick = () => {
+      void run();
+    };
+    const start = window.setTimeout(kick, 800);
+    const timer = window.setInterval(kick, AUTO_SYNC_MS);
+    const onVisible = () => {
+      if (!document.hidden && Date.now() - lastRun > 60_000) kick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(start);
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [authLoading, user, isLoading]);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    let debounce: number | undefined;
+    const reload = () => {
+      if (syncLock.current) return;
+      window.clearTimeout(debounce);
+      debounce = window.setTimeout(() => {
+        if (!syncLock.current) void loadData("refresh");
+      }, 800);
+    };
+    const channel = supabase
+      .channel("overview-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "overview_orders" },
+        reload
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "overview_files" },
+        reload
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "live_order_status" },
+        reload
+      )
+      .subscribe();
+    return () => {
+      window.clearTimeout(debounce);
+      void supabase.removeChannel(channel);
+    };
+  }, [authLoading, user, loadData]);
 
   const handleClear = useCallback(async () => {
     dataGen.current += 1;
@@ -380,7 +405,7 @@ export default function OverviewDueDatePage() {
     const fromApi = /API$/i.test(file.name);
     return fromApi
       ? `${file.orderCount} pesanan dari API`
-      : `${file.orderCount} pesanan dari Excel`;
+      : `${file.orderCount} pesanan`;
   };
   const lastShopee = latestFile(["shopee"]);
   const lastTiktok = latestFile(["tiktok", "tokopedia"]);
@@ -395,7 +420,6 @@ export default function OverviewDueDatePage() {
   return (
     <DueDateOverviewView
       orders={orders}
-      onUploadExcel={handleUploadExcel}
       onSyncApi={handleSyncApi}
       syncing={syncing}
       shopeeLinked={shopeeLinked}

@@ -245,3 +245,24 @@ DO $$ BEGIN
     CREATE POLICY "Allow all access to overview_files" ON overview_files FOR ALL USING (true) WITH CHECK (true);
   END IF;
 END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'overview_orders'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE overview_orders;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'overview_files'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE overview_files;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'live_order_status'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE live_order_status;
+  END IF;
+END $$;
