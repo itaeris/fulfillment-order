@@ -10,6 +10,7 @@ import {
 } from "@/lib/db";
 import { refreshOpenJubelioStatuses } from "@/lib/jubelio-status";
 import { Order } from "@/types/order";
+import { filterShipTodayQueue } from "@/lib/due-date";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -59,8 +60,10 @@ export async function POST(request: Request) {
       insertedSoFar?: number;
       cursor?: JubelioSyncCursor;
       persist?: boolean;
+      scope?: string;
     };
     const persist = body.persist !== false;
+    const todayOnly = body.scope === "today";
     const startPage = Number(body.startPage) || 1;
     const isFirst = !body.cursor;
 
@@ -71,15 +74,16 @@ export async function POST(request: Request) {
         cursor: body.cursor,
         allowSalesFallback: true,
       });
-      const count = (Number(body.insertedSoFar) || 0) + batch.orders.length;
+      const mapped = todayOnly ? filterShipTodayQueue(batch.orders) : batch.orders;
+      const count = (Number(body.insertedSoFar) || 0) + mapped.length;
       return NextResponse.json({
         success: true,
         done: batch.done,
         cached: false,
         persist: false,
         count,
-        added: batch.orders.length,
-        orders: batch.orders.map(orderToInput),
+        added: mapped.length,
+        orders: mapped.map(orderToInput),
         nextPage: batch.nextPage,
         cursor: batch.cursor,
         total: batch.cursor.apiTotal || count,

@@ -287,9 +287,7 @@ function isMarketplaceRelevantToday(row: DueDateRow, today: string): boolean {
   return mk === today || row.overdue;
 }
 
-/** Pesanan toko (bukan Jubelio) yang masih terbuka dan tenggatnya pada `dateKey` (YYYY-MM-DD, Asia/Jakarta). */
-export function isMarketplaceShipOnDate(order: Order, dateKey: string, now = new Date()): boolean {
-  if (order.platform === "jubelio") return false;
+function isDueOnQueueDate(order: Order, dateKey: string, now: Date): boolean {
   if (!isOpen(order)) return false;
   const due = toDate(order.mustShipBefore);
   const mk = dayKey(due);
@@ -300,6 +298,21 @@ export function isMarketplaceShipOnDate(order: Order, dateKey: string, now = new
     return mk <= today;
   }
   return mk === dateKey;
+}
+
+/** Pesanan terbuka yang tenggatnya hari ini atau sudah lewat (antrian Kirim hari ini). */
+export function isShipTodayQueueOrder(order: Order, now = new Date()): boolean {
+  return isDueOnQueueDate(order, todayKey(now), now);
+}
+
+export function filterShipTodayQueue<T extends Order>(orders: T[], now = new Date()): T[] {
+  return orders.filter((order) => isShipTodayQueueOrder(order, now));
+}
+
+/** Pesanan toko (bukan Jubelio) yang masih terbuka dan tenggatnya pada `dateKey` (YYYY-MM-DD, Asia/Jakarta). */
+export function isMarketplaceShipOnDate(order: Order, dateKey: string, now = new Date()): boolean {
+  if (order.platform === "jubelio") return false;
+  return isDueOnQueueDate(order, dateKey, now);
 }
 
 export function isMarketplaceShipToday(order: Order, now = new Date()): boolean {

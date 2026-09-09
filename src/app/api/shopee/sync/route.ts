@@ -16,6 +16,7 @@ import {
   insertUploadedFile,
 } from "@/lib/db";
 import { Order } from "@/types/order";
+import { filterShipTodayQueue } from "@/lib/due-date";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -65,9 +66,11 @@ export async function POST(request: Request) {
       insertedSoFar?: number;
       cursor?: ShopeeSyncCursor;
       persist?: boolean;
+      scope?: string;
     };
     const persist = body.persist !== false;
-    const phase = body.cursor?.phase || "rts";
+    const todayOnly = body.scope === "today";
+    const phase = todayOnly ? "rts" : body.cursor?.phase || "rts";
     const config = await getShopeeConfig();
 
     const fetchBatch = async () => {
@@ -78,7 +81,8 @@ export async function POST(request: Request) {
 
     if (!persist) {
       const batch = await fetchBatch();
-      const orders = batch.listed.length > 0 ? await mapShopeeListedOrders(config, batch.listed) : [];
+      const mapped = batch.listed.length > 0 ? await mapShopeeListedOrders(config, batch.listed) : [];
+      const orders = todayOnly ? filterShipTodayQueue(mapped) : mapped;
       const count = (Number(body.insertedSoFar) || 0) + orders.length;
       return NextResponse.json({
         success: true,

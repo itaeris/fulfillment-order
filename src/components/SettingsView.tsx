@@ -17,7 +17,6 @@ import {
   AlertTriangle,
   Database,
   RefreshCw,
-  Cloud,
   CloudOff,
   Link2,
 } from "lucide-react";
@@ -27,6 +26,7 @@ import { toIndonesianError } from "@/lib/errors";
 import { fetchMarketplaceTokenStatus } from "@/lib/shop-link-status";
 import { TableSkeleton } from "@/components/Skeleton";
 import { type ApiSyncState } from "@/components/ApiSyncBar";
+import { PlatformLogo } from "@/components/PlatformLogo";
 
 function Spinner({ className = "w-4 h-4" }: { className?: string }) {
   return (
@@ -424,9 +424,8 @@ function DataSection({
       <div className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-brand-200 p-3 sm:p-6">
         <div className="flex items-start justify-between gap-3 sm:gap-4 flex-wrap">
           <div className="min-w-0 w-full sm:w-auto">
-            <h3 className="text-sm sm:text-lg font-semibold text-brand-800 flex items-center gap-1.5 sm:gap-2">
-              <Cloud className="w-4 h-4 sm:w-5 sm:h-5 text-shopee-500" />
-              Shopee
+            <h3 className="flex items-center">
+              <PlatformLogo platform="shopee" />
             </h3>
             <p className="text-xs sm:text-sm text-brand-400 mt-0.5 sm:mt-1 max-w-lg leading-snug">
               Ambil pesanan <strong>siap dikirim</strong>, <strong>diproses</strong>, dan <strong>selesai</strong> (30 hari) dari Shopee Open API.
@@ -515,9 +514,8 @@ function DataSection({
       <div className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-brand-200 p-3 sm:p-6">
         <div className="flex items-start justify-between gap-3 sm:gap-4 flex-wrap">
           <div className="min-w-0 w-full sm:w-auto">
-            <h3 className="text-sm sm:text-lg font-semibold text-brand-800 flex items-center gap-1.5 sm:gap-2">
-              <Cloud className="w-4 h-4 sm:w-5 sm:h-5 text-brand-600" />
-              TikTok &amp; Tokopedia
+            <h3 className="flex items-center">
+              <PlatformLogo platform="tiktok" />
             </h3>
             <p className="text-xs sm:text-sm text-brand-400 mt-0.5 sm:mt-1 max-w-lg leading-snug">
               Ambil pesanan <strong>siap dikirim</strong> dan <strong>selesai</strong> (30 hari terakhir) dari TikTok Shop.
@@ -607,9 +605,8 @@ function DataSection({
       <div className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-brand-200 p-3 sm:p-6">
         <div className="flex items-start justify-between gap-3 sm:gap-4 flex-wrap">
           <div className="min-w-0 w-full sm:w-auto">
-            <h3 className="text-sm sm:text-lg font-semibold text-brand-800 flex items-center gap-1.5 sm:gap-2">
-              <Cloud className="w-4 h-4 sm:w-5 sm:h-5 text-brand-600" />
-              Jubelio
+            <h3 className="flex items-center">
+              <PlatformLogo platform="jubelio" />
             </h3>
             <p className="text-xs sm:text-sm text-brand-400 mt-0.5 sm:mt-1 max-w-lg leading-snug">
               Ambil pesanan <strong>Siap Kirim</strong> dari Jubelio sebagai cermin omnichannel.

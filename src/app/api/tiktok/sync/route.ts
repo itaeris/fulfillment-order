@@ -15,6 +15,7 @@ import {
   insertUploadedFile,
 } from "@/lib/db";
 import { Order } from "@/types/order";
+import { filterShipTodayQueue } from "@/lib/due-date";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -64,14 +65,17 @@ export async function POST(request: Request) {
       insertedSoFar?: number;
       cursor?: TikTokSyncCursor;
       persist?: boolean;
+      scope?: string;
     };
     const persist = body.persist !== false;
-    const phase = body.cursor?.phase === "completed" ? "completed" : "rts";
+    const todayOnly = body.scope === "today";
+    const phase = todayOnly || body.cursor?.phase !== "completed" ? "rts" : "completed";
 
     if (!persist) {
       const config = await getTikTokConfig();
       const batch = await fetchTikTokReadyToShipBatch(config, body.cursor);
-      const orders = batch.listed.length > 0 ? await mapTikTokListedOrders(config, batch.listed) : [];
+      const mapped = batch.listed.length > 0 ? await mapTikTokListedOrders(config, batch.listed) : [];
+      const orders = todayOnly ? filterShipTodayQueue(mapped) : mapped;
       const count = (Number(body.insertedSoFar) || 0) + orders.length;
       return NextResponse.json({
         success: true,

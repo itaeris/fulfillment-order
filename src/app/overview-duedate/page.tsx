@@ -25,6 +25,7 @@ import {
   type DataSnapshot,
 } from "@/lib/client-data";
 import { toIndonesianError } from "@/lib/errors";
+import { isShipTodayQueueOrder } from "@/lib/due-date";
 import { type ApiSyncSource } from "@/components/ApiSyncBar";
 import { fetchMarketplaceTokenStatus, isShopLinkedPayload } from "@/lib/shop-link-status";
 import { Order, Platform, UploadedFile } from "@/types/order";
@@ -295,7 +296,7 @@ export default function OverviewDueDatePage() {
         const res = await fetch(SYNC_URL[source], {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ persist: false, insertedSoFar, cursor, startPage }),
+          body: JSON.stringify({ persist: false, scope: "today", insertedSoFar, cursor, startPage }),
         });
         const text = await res.text();
         let data: {
@@ -324,8 +325,8 @@ export default function OverviewDueDatePage() {
           };
         }
         const batch = Array.isArray(data.orders) ? data.orders : [];
-        collected.push(...batch.map(hydrateOrder));
-        insertedSoFar = data.count || collected.length;
+        collected.push(...batch.map(hydrateOrder).filter((order) => isShipTodayQueueOrder(order)));
+        insertedSoFar = data.count || insertedSoFar + batch.length;
         if (data.done) break;
         if (!data.nextPage && !data.cursor) break;
         startPage = data.nextPage || startPage;

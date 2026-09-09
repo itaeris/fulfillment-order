@@ -28,6 +28,7 @@ import {
 import { Order, Platform } from "@/types/order";
 import { OrderDetailPreview } from "@/components/OrderDetailPreview";
 import { type ApiSyncSource } from "@/components/ApiSyncBar";
+import { PlatformLogo } from "@/components/PlatformLogo";
 
 export type OverviewUploadResult = {
   count: number;
@@ -170,6 +171,7 @@ function rowPlatform(row: DueDateRow): Exclude<PlatformFilter, "all"> {
 function SourceCard({
   title,
   titleClass,
+  logo,
   hint,
   linked,
   showLinkStatus = false,
@@ -183,6 +185,7 @@ function SourceCard({
 }: {
   title: string;
   titleClass: string;
+  logo?: "shopee" | "tiktok" | "jubelio";
   hint?: string;
   linked?: boolean | null;
   showLinkStatus?: boolean;
@@ -197,7 +200,9 @@ function SourceCard({
   const needsConnect = showLinkStatus && linked === false && connectHref;
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border border-brand-200 px-3 py-2.5">
-      <span className={cn("text-xs font-semibold", titleClass)}>{title}</span>
+      <span className={cn("inline-flex items-center text-xs font-semibold", titleClass)}>
+        {logo ? <PlatformLogo platform={logo} className="h-5 sm:h-6 max-w-[6.5rem]" /> : title}
+      </span>
       {hint ? <p className="text-[11px] text-brand-400">{hint}</p> : null}
       {showLinkStatus ? (
         linked == null ? (
@@ -446,7 +451,7 @@ export default function DueDateOverviewView({
       setUploadMsg(result.error);
       return;
     }
-    setUploadMsg(`${result.count} pesanan ${label} dari API.`);
+    setUploadMsg(`${result.count} pesanan ${label} untuk kirim hari ini.`);
   };
 
   const mustSendNow = overview.overdue + overview.dueSoon;
@@ -502,15 +507,16 @@ export default function DueDateOverviewView({
               <div>
                 <h2 className="text-sm font-semibold text-brand-800">Masukkan data 3 platform</h2>
                 <p className="text-xs text-brand-400 mt-0.5">
-                  Ambil antrian siap kirim dari API, atau unggah Excel/CSV. Unggahan Excel
-                  otomatis dicocokkan ke API. Antrian kirim dihitung dari Shopee & TikTok saja.
-                  Jubelio dipakai sebagai cermin omnichannel: cek yang miss atau belum realtime,
-                  bukan menambah jumlah pesanan.
+                  Ambil data API hanya untuk pesanan yang perlu dikirim hari ini
+                  (tenggat hari ini atau sudah terlambat). Excel/CSV tetap bisa diunggah
+                  dan dicocokkan ke API. Antrian kirim dari Shopee & TikTok saja; Jubelio
+                  cermin omnichannel, bukan menambah jumlah pesanan.
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <SourceCard
                   title="Shopee"
+                  logo="shopee"
                   titleClass="text-shopee-500"
                   showLinkStatus
                   linked={shopeeLinked}
@@ -524,6 +530,7 @@ export default function DueDateOverviewView({
                 />
                 <SourceCard
                   title="TikTok / Tokopedia"
+                  logo="tiktok"
                   titleClass="text-brand-800"
                   showLinkStatus
                   linked={tiktokLinked}
@@ -537,6 +544,7 @@ export default function DueDateOverviewView({
                 />
                 <SourceCard
                   title="Jubelio (cermin)"
+                  logo="jubelio"
                   titleClass="text-brand-800"
                   hint="Tidak menambah antrian kirim"
                   sellerHref="https://v2.jubelio.com/"
