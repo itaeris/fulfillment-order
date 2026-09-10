@@ -218,7 +218,8 @@ async function requestJson(
   path: string,
   query: Record<string, string>,
   accessToken: string,
-  bearer: boolean
+  bearer: boolean,
+  timeoutMs = 8_000
 ): Promise<{ ok: boolean; status: number; json: unknown }> {
   const url = new URL(`${getJubelioBaseUrl()}${path}`);
   for (const [key, value] of Object.entries(query)) {
@@ -232,6 +233,7 @@ async function requestJson(
       "content-type": "application/json",
     },
     cache: "no-store",
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const json = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, json };
@@ -678,50 +680,48 @@ export async function fetchJubelioOrderByKey(key: string): Promise<Order | undef
       const raw = asRawOrder(json);
       if (raw) return mapRawOrder(raw);
     } catch {
-      // Coba path / pencarian berikutnya.
+      // Coba pencarian q= satu kali, jangan spam /sales/orders/.
     }
   }
 
-  const wanted = new Set(expandMatchKeys(trimmed));
-  const searches: Record<string, string>[] = [
-    { q: trimmed, page: "1", pageSize: "20" },
-    { order_source_no: trimmed, page: "1", pageSize: "20" },
-    { source_no: trimmed, page: "1", pageSize: "20" },
-    { salesorder_no: trimmed, page: "1", pageSize: "20" },
-    { ref_no: trimmed, page: "1", pageSize: "20" },
-  ];
-
-  for (const query of searches) {
-    try {
-      const json = await jubelioGet("/sales/orders/", query);
-      const match = flattenOrderRows(extractList(json)).find((row) => {
-        const keys = collectRawIdentityValues(row)
-          .concat(String(row.salesorder_id ?? ""))
-          .flatMap((value) => expandMatchKeys(value));
-        return keys.some((item) => wanted.has(item));
-      });
-      if (match) return mapRawOrder(match);
-    } catch {
-      // Coba query berikutnya.
-    }
+  try {
+    const json = await jubelioGet("/sales/orders/", {
+      q: trimmed,
+      page: "1",
+      pageSize: "20",
+    });
+    const wanted = new Set(expandMatchKeys(trimmed));
+    const match = flattenOrderRows(extractList(json)).find((row) => {
+      const keys = collectRawIdentityValues(row)
+        .concat(String(row.salesorder_id ?? ""))
+        .flatMap((value) => expandMatchKeys(value));
+      return keys.some((item) => wanted.has(item));
+    });
+    if (match) return mapRawOrder(match);
+  } catch {
+    return undefined;
   }
 
   return undefined;
 }
 
 export async function fetchJubelioOrdersByKeys(keys: string[]): Promise<Order[]> {
-  const unique = Array.from(new Set(keys.map((key) => String(key).trim()).filter(Boolean))).slice(0, 80);
+  const unique = Array.from(new Set(keys.map((key) => String(key).trim()).filter(Boolean))).slice(0, 20);
   const orders: Order[] = [];
   const seen = new Set<string>();
-  const CONCURRENCY = 5;
+  const CONCURRENCY = 2;
   let index = 0;
   const workers = Array.from({ length: Math.min(CONCURRENCY, unique.length) }, async () => {
     while (index < unique.length) {
       const key = unique[index++];
-      const order = await fetchJubelioOrderByKey(key);
-      if (!order || seen.has(order.id)) continue;
-      seen.add(order.id);
-      orders.push(order);
+      try {
+        const order = await fetchJubelioOrderByKey(key);
+        if (!order || seen.has(order.id)) continue;
+        seen.add(order.id);
+        orders.push(order);
+      } catch {
+        // Rate limit / timeout: lanjut key berikutnya.
+      }
     }
   });
   await Promise.all(workers);

@@ -12,7 +12,7 @@ import {
 const JUBELIO_PLATFORMS = ["jubelio"];
 const OPEN_STATUSES = ["pending", "processing", "shipped"];
 const MAX_REFRESH = 150;
-const MAX_LOOKUP = 25;
+const MAX_LOOKUP = 8;
 
 function toPatches(orders: Order[]) {
   const byNumber = new Map<string, Order>();

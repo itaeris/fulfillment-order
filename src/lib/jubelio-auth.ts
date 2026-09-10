@@ -163,6 +163,7 @@ export async function loginJubelio(): Promise<JubelioStoredToken> {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email, password }),
       cache: "no-store",
+      signal: AbortSignal.timeout(8_000),
     });
     const json = (await res.json()) as {
       token?: string;

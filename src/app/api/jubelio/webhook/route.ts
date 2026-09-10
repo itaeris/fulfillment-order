@@ -1,23 +1,18 @@
 import { NextResponse } from "next/server";
-import { applyJubelioStatusHint, applyLiveJubelioStatuses } from "@/lib/jubelio-status";
+import { applyJubelioStatusHint } from "@/lib/jubelio-status";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 10;
 
 const KEY_FIELDS = [
   "salesorder_id",
   "salesorder_no",
   "salesorderId",
   "salesorderNo",
-  "order_id",
-  "orderId",
-  "order_number",
-  "orderNumber",
+  "order_source_no",
+  "source_no",
   "ref_no",
   "refNo",
-  "invoice_no",
-  "invoiceNo",
-  "id",
 ];
 
 function authorized(request: Request, rawBody: string): boolean {
@@ -49,7 +44,6 @@ function collectKeys(value: unknown, keys: string[]) {
       collectKeys(JSON.parse(trimmed), keys);
       return;
     } catch {
-      if (trimmed.length >= 3) keys.push(trimmed);
       return;
     }
   }
@@ -104,6 +98,7 @@ async function forwardWebhook(rawBody: string, contentType: string | null) {
         },
         body: rawBody,
         cache: "no-store",
+        signal: AbortSignal.timeout(2_000),
       })
     )
   );
@@ -115,32 +110,27 @@ export async function POST(request: Request) {
     return new NextResponse(null, { status: 401 });
   }
 
-  const forwarded = forwardWebhook(rawBody, request.headers.get("content-type"));
-
   let payload: unknown = {};
   try {
     payload = rawBody ? JSON.parse(rawBody) : {};
   } catch {
-    await forwarded.catch(() => undefined);
     return new NextResponse(null, { status: 200 });
   }
 
   const keys: string[] = [];
   collectKeys(payload, keys);
-  const unique = Array.from(new Set(keys)).slice(0, 20);
+  const unique = Array.from(new Set(keys)).slice(0, 5);
+  const status = findStatus(payload);
 
   try {
-    if (unique.length > 0) {
-      const updated = await applyLiveJubelioStatuses(unique);
-      if (updated === 0) {
-        await applyJubelioStatusHint(unique, findStatus(payload));
-      }
+    if (unique.length > 0 && status) {
+      await applyJubelioStatusHint(unique, status);
     }
   } catch (error) {
     console.error("Jubelio webhook status update failed:", error);
   }
 
-  await forwarded.catch((error) => {
+  void forwardWebhook(rawBody, request.headers.get("content-type")).catch((error) => {
     console.error("Jubelio webhook forward failed:", error);
   });
 
