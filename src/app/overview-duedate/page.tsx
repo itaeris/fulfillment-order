@@ -295,6 +295,17 @@ export default function OverviewDueDatePage() {
         ...prev.filter((item) => item.name !== uploadedFile.name),
         uploadedFile,
       ]);
+      if (!options?.preserveIfEmpty) {
+        try {
+          const matchRes = await fetch("/api/overview/match-jubelio", { method: "POST" });
+          const matchData = (await matchRes.json().catch(() => ({}))) as { found?: number };
+          if ((matchData.found || 0) > 0) {
+            await loadData("refresh");
+          }
+        } catch {
+          // Cermin tetap memakai data yang baru ditarik.
+        }
+      }
       return { count: collected.length };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : null;
@@ -306,7 +317,7 @@ export default function OverviewDueDatePage() {
       syncLock.current = false;
       setSyncing(null);
     }
-  }, []);
+  }, [loadData]);
   handleSyncApiRef.current = handleSyncApi;
 
   useEffect(() => {
@@ -333,6 +344,16 @@ export default function OverviewDueDatePage() {
           if (cancelled) return;
         }
         await sync("jubelio", { preserveIfEmpty: true });
+        if (cancelled) return;
+        try {
+          const matchRes = await fetch("/api/overview/match-jubelio", { method: "POST" });
+          const matchData = (await matchRes.json().catch(() => ({}))) as { found?: number };
+          if (!cancelled && (matchData.found || 0) > 0) {
+            await loadData("refresh");
+          }
+        } catch {
+          // Antrian channel tetap dipakai meski lookup Jubelio gagal.
+        }
       } finally {
         autoSyncLock.current = false;
       }
@@ -353,7 +374,7 @@ export default function OverviewDueDatePage() {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [authLoading, user, isLoading]);
+  }, [authLoading, user, isLoading, loadData]);
 
   useEffect(() => {
     if (authLoading || !user) return;

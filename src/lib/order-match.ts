@@ -11,11 +11,21 @@ const PREFIX_RULES: { prefix: string; restMustStartWithDigit?: boolean; minRest:
   { prefix: "TOKOPEDIA", minRest: 8 },
   { prefix: "TOKPED", minRest: 8 },
   { prefix: "TIKTOK", minRest: 8 },
+  { prefix: "LAZADA", minRest: 8 },
   { prefix: "TTS", minRest: 8, restMustStartWithDigit: true },
   { prefix: "SP", minRest: 8, restMustStartWithDigit: true },
   { prefix: "TT", minRest: 8, restMustStartWithDigit: true },
   { prefix: "TP", minRest: 8, restMustStartWithDigit: true },
+  { prefix: "LZ", minRest: 8, restMustStartWithDigit: true },
+  { prefix: "SHP", minRest: 8, restMustStartWithDigit: true },
 ];
+
+export function splitIdentityValues(value?: string | null): string[] {
+  return String(value || "")
+    .split(/[,;|]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
 
 export function expandMatchKeys(value?: string | null): string[] {
   const base = normalizeMatchKey(value);
@@ -28,6 +38,8 @@ export function expandMatchKeys(value?: string | null): string[] {
     if (rule.restMustStartWithDigit && !/^\d/.test(rest)) continue;
     keys.add(rest);
   }
+  const generic = base.match(/^([A-Z]{1,10})(\d{10,})$/);
+  if (generic) keys.add(generic[2]);
   return Array.from(keys);
 }
 
@@ -35,10 +47,9 @@ export function orderNumberKeys(order: {
   orderNumber?: string;
   refNo?: string;
 }): string[] {
-  return uniqueKeys([
-    ...expandMatchKeys(order.orderNumber),
-    ...expandMatchKeys(order.refNo),
-  ]);
+  return uniqueKeys(
+    [order.orderNumber, ...splitIdentityValues(order.refNo)].flatMap((value) => expandMatchKeys(value))
+  );
 }
 
 export function trackingKeys(order: { trackingNumber?: string }): string[] {

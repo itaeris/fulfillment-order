@@ -1,10 +1,12 @@
 import {
   countOverviewOrdersByPlatforms,
+  getAllOverviewOrders,
   insertOverviewFile,
+  insertOverviewOrders,
   replaceOverviewOrdersByPlatforms,
 } from "@/lib/db";
-import { filterShipTodayQueue } from "@/lib/due-date";
-import { fetchJubelioReadyToShipBatch } from "@/lib/jubelio-api";
+import { filterShipTodayQueue, unmatchedMarketplaceOrders } from "@/lib/due-date";
+import { fetchJubelioOrdersByKeys, fetchJubelioReadyToShipBatch } from "@/lib/jubelio-api";
 import {
   fetchShopeeReadyToShipBatch,
   getShopeeConfig,
@@ -104,6 +106,30 @@ export type OverviewTodaySyncResult = {
   error?: string;
 };
 
+export async function backfillJubelioMirrors(limit = 50): Promise<{
+  missing: number;
+  lookedUp: number;
+  found: number;
+}> {
+  const all = await getAllOverviewOrders();
+  const unmatched = unmatchedMarketplaceOrders(all);
+  const keys = Array.from(
+    new Set(
+      unmatched
+        .map((order) => String(order.orderNumber || "").trim())
+        .filter(Boolean)
+    )
+  ).slice(0, limit);
+  if (keys.length === 0) {
+    return { missing: unmatched.length, lookedUp: 0, found: 0 };
+  }
+  const found = await fetchJubelioOrdersByKeys(keys);
+  if (found.length > 0) {
+    await insertOverviewOrders(found.map(toInput));
+  }
+  return { missing: unmatched.length, lookedUp: keys.length, found: found.length };
+}
+
 export async function persistOverviewToday(
   source: OverviewSyncSource,
   orders: Order[]
@@ -147,6 +173,7 @@ export async function syncOverviewTodayAll(budgetMs = 50_000): Promise<{
   shopee: OverviewTodaySyncResult;
   tiktok: OverviewTodaySyncResult;
   jubelio: OverviewTodaySyncResult;
+  mirror?: { missing: number; lookedUp: number; found: number };
 }> {
   const started = Date.now();
   const sources: OverviewSyncSource[] = ["shopee", "tiktok", "jubelio"];
@@ -162,9 +189,15 @@ export async function syncOverviewTodayAll(budgetMs = 50_000): Promise<{
     }
     out[source] = await syncOverviewTodaySource(source);
   }
+  const remaining = budgetMs - (Date.now() - started);
+  const mirror =
+    remaining > 8_000
+      ? await backfillJubelioMirrors(remaining > 20_000 ? 50 : 20)
+      : undefined;
   return {
     shopee: out.shopee,
     tiktok: out.tiktok,
     jubelio: out.jubelio,
+    mirror,
   };
 }

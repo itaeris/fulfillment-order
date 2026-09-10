@@ -148,7 +148,7 @@ function isOpen(order: Order): boolean {
 }
 
 function isMatchableJubelio(order: Order): boolean {
-  return order.platform === "jubelio" && order.status !== "cancelled" && order.status !== "returned";
+  return order.platform === "jubelio";
 }
 
 function indexByKeys(orders: Order[], keysOf: (order: Order) => string[]) {
@@ -386,6 +386,18 @@ function matchOrders(jubelioOrders: Order[], platformOrders: Order[]) {
   }
 
   return { pairs, matchedJubelio, matchedPlatform };
+}
+
+/** Pesanan channel yang belum ketemu pasangannya di data Jubelio lokal. */
+export function unmatchedMarketplaceOrders(orders: Order[]): Order[] {
+  const matchableJubelio = orders.filter(isMatchableJubelio);
+  const platformOrders = orders.filter(
+    (o) =>
+      (o.platform === "shopee" || o.platform === "tiktok" || o.platform === "tokopedia") &&
+      isOpen(o)
+  );
+  const { matchedPlatform } = matchOrders(matchableJubelio, platformOrders);
+  return platformOrders.filter((order) => !matchedPlatform.has(order.id));
 }
 
 function buildRow(args: {

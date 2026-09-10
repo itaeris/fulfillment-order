@@ -572,7 +572,8 @@ export default function DueDateOverviewView({
                   <h2 className="text-sm font-semibold text-brand-800">Cermin Jubelio</h2>
                   <p className="text-[11px] text-brand-400 mt-0.5">
                     Jubelio hanya mirroring omnichannel. Tidak menambah jumlah pesanan Shopee/TikTok.
-                    Pakai daftar ini untuk cek yang miss atau belum realtime.
+                    Pakai daftar ini untuk cek yang benar-benar belum ketemu di Jubelio.
+                    App mencocokkan by ID order channel ke API Jubelio, bukan hanya antrian Siap Kirim.
                     {" "}
                     {formatNumber(overview.jubelio)} dari {formatNumber(overview.totalOrders)} pesanan Shopee / TikTok / Tokopedia sudah tercermin.
                   </p>
@@ -598,7 +599,7 @@ export default function DueDateOverviewView({
                       <div>
                         <h3 className="text-xs font-semibold text-amber-900">Ada di Shopee / TikTok / Tokopedia, belum di Jubelio</h3>
                         <p className="text-[11px] text-amber-800 mt-0.5">
-                          {formatNumber(overview.missingJubelioRows.length)} nomor — miss atau delay realtime
+                          {formatNumber(overview.missingJubelioRows.length)} nomor — sudah dicari by ID di Jubelio
                         </p>
                       </div>
                       {overview.missingJubelioRows.length > 0 ? (

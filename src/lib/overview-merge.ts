@@ -1,6 +1,6 @@
 import { Order, OrderStatus } from "@/types/order";
 import { preferClear } from "@/lib/utils";
-import { expandMatchKeys, normalizeMatchKey } from "@/lib/order-match";
+import { expandMatchKeys, normalizeMatchKey, splitIdentityValues } from "@/lib/order-match";
 
 function toDate(value?: Date | string | null): Date | undefined {
   if (!value) return undefined;
@@ -32,7 +32,7 @@ export function uniqueLookupNumbers(orders: Order[]): string[] {
   const seen = new Set<string>();
   const numbers: string[] = [];
   for (const order of orders) {
-    for (const value of [order.orderNumber, order.refNo, order.trackingNumber]) {
+    for (const value of [order.orderNumber, ...splitIdentityValues(order.refNo), order.trackingNumber]) {
       const trimmed = String(value || "").trim();
       if (!trimmed || seen.has(trimmed)) continue;
       seen.add(trimmed);

@@ -322,6 +322,42 @@ async function resolveLocation(): Promise<{ id?: string; name?: string }> {
   return {};
 }
 
+function rawString(raw: JubelioRawOrder, key: string): string {
+  const value = (raw as Record<string, unknown>)[key];
+  if (typeof value === "number" && Number.isFinite(value)) return String(value).trim();
+  if (typeof value === "string") return value.trim();
+  return "";
+}
+
+function collectRawIdentityValues(raw: JubelioRawOrder): string[] {
+  const keys = [
+    "order_source_no",
+    "source_no",
+    "source_order_no",
+    "channel_order_no",
+    "channel_order_id",
+    "marketplace_order_no",
+    "marketplace_order_id",
+    "external_id",
+    "external_no",
+    "ref_no",
+    "invoice_no",
+    "salesorder_no",
+    "tracking_no",
+    "tracking_number",
+  ];
+  const values: string[] = [];
+  const seen = new Set<string>();
+  for (const key of keys) {
+    const value = rawString(raw, key);
+    const normalized = value.replace(/[\s\-_.#]+/g, "").toUpperCase();
+    if (!value || seen.has(normalized)) continue;
+    seen.add(normalized);
+    values.push(value);
+  }
+  return values;
+}
+
 function mapRawOrder(raw: JubelioRawOrder): Order {
   const orderNumber = String(raw.salesorder_no || raw.salesorder_id || rawOrderKey(raw)).trim();
   const items = raw.items ?? raw.salesorder_details ?? [];
@@ -335,6 +371,9 @@ function mapRawOrder(raw: JubelioRawOrder): Order {
   let price = parseAmount(first?.price ?? first?.unit_price);
   if (!price && totalAmount && quantity) price = totalAmount / quantity;
   const statusSource = raw.channel_status || raw.status || raw.sub_status || "";
+  const identityValues = collectRawIdentityValues(raw).filter(
+    (value) => value.replace(/[\s\-_.#]+/g, "").toUpperCase() !== orderNumber.replace(/[\s\-_.#]+/g, "").toUpperCase()
+  );
 
   return sanitizeOrderMetrics({
     id: `jubelio-${raw.salesorder_id ?? orderNumber}`,
@@ -356,7 +395,7 @@ function mapRawOrder(raw: JubelioRawOrder): Order {
     courier: raw.shipper,
     channelName: raw.channel_name || raw.source_name,
     storeName: raw.store_name,
-    refNo: raw.order_source_no || raw.source_no || raw.ref_no || raw.invoice_no,
+    refNo: identityValues.join(",") || undefined,
     notes: [raw.picklist_no, raw.invoice_no, raw.location_name].filter(Boolean).join(" · ") || undefined,
     phone: raw.phone,
     shippingAddress: raw.shipping_address,
@@ -643,40 +682,48 @@ export async function fetchJubelioOrderByKey(key: string): Promise<Order | undef
     }
   }
 
-  try {
-    const json = await jubelioGet("/sales/orders/", {
-      q: trimmed,
-      salesorder_no: trimmed,
-      page: "1",
-      pageSize: "20",
-    });
-    const wanted = new Set(expandMatchKeys(trimmed));
-    const match = flattenOrderRows(extractList(json)).find((row) => {
-      const keys = [
-        row.salesorder_no,
-        String(row.salesorder_id ?? ""),
-        row.ref_no,
-        row.order_source_no,
-        row.source_no,
-        row.tracking_no,
-        row.tracking_number,
-      ].flatMap((value) => expandMatchKeys(String(value || "")));
-      return keys.some((key) => wanted.has(key));
-    });
-    if (match) return mapRawOrder(match);
-  } catch {
-    return undefined;
+  const wanted = new Set(expandMatchKeys(trimmed));
+  const searches: Record<string, string>[] = [
+    { q: trimmed, page: "1", pageSize: "20" },
+    { order_source_no: trimmed, page: "1", pageSize: "20" },
+    { source_no: trimmed, page: "1", pageSize: "20" },
+    { salesorder_no: trimmed, page: "1", pageSize: "20" },
+    { ref_no: trimmed, page: "1", pageSize: "20" },
+  ];
+
+  for (const query of searches) {
+    try {
+      const json = await jubelioGet("/sales/orders/", query);
+      const match = flattenOrderRows(extractList(json)).find((row) => {
+        const keys = collectRawIdentityValues(row)
+          .concat(String(row.salesorder_id ?? ""))
+          .flatMap((value) => expandMatchKeys(value));
+        return keys.some((item) => wanted.has(item));
+      });
+      if (match) return mapRawOrder(match);
+    } catch {
+      // Coba query berikutnya.
+    }
   }
 
   return undefined;
 }
 
 export async function fetchJubelioOrdersByKeys(keys: string[]): Promise<Order[]> {
-  const unique = Array.from(new Set(keys.map((key) => String(key).trim()).filter(Boolean)));
+  const unique = Array.from(new Set(keys.map((key) => String(key).trim()).filter(Boolean))).slice(0, 80);
   const orders: Order[] = [];
-  for (const key of unique) {
-    const order = await fetchJubelioOrderByKey(key);
-    if (order) orders.push(order);
-  }
+  const seen = new Set<string>();
+  const CONCURRENCY = 5;
+  let index = 0;
+  const workers = Array.from({ length: Math.min(CONCURRENCY, unique.length) }, async () => {
+    while (index < unique.length) {
+      const key = unique[index++];
+      const order = await fetchJubelioOrderByKey(key);
+      if (!order || seen.has(order.id)) continue;
+      seen.add(order.id);
+      orders.push(order);
+    }
+  });
+  await Promise.all(workers);
   return orders;
 }

@@ -160,7 +160,7 @@ export default function CerminJubelioFullView({
                 </h2>
                 <p className="text-[11px] text-amber-800 mt-0.5">
                   {formatNumber(missingRows.length)}
-                  {query.trim() ? ` dari ${formatNumber(overview.missingJubelioRows.length)}` : ""} nomor — miss atau delay realtime
+                  {query.trim() ? ` dari ${formatNumber(overview.missingJubelioRows.length)}` : ""} nomor — sudah dicari by ID di Jubelio
                 </p>
               </div>
               <CopyButton
