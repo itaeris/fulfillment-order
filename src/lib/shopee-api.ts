@@ -130,6 +130,10 @@ function mapShopeeStatus(raw?: string): OrderStatus {
   return "processing";
 }
 
+export function mapShopeeStatusLabel(raw?: string): OrderStatus {
+  return mapShopeeStatus(raw);
+}
+
 async function shopeeRequest<T>(
   config: ShopeeConfig,
   apiPath: string,

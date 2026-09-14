@@ -428,7 +428,12 @@ export async function countOverviewOrdersByPlatforms(platforms: string[]) {
 
 export async function insertOverviewOrders(orders: OrderInput[]) {
   if (orders.length === 0) return;
-  const rows = orders.map(overviewOrderToRow);
+  const unique = new Map<string, ReturnType<typeof overviewOrderToRow>>();
+  for (const order of orders) {
+    const row = overviewOrderToRow(order);
+    unique.set(row.id, row);
+  }
+  const rows = Array.from(unique.values());
   const BATCH = 500;
   for (let i = 0; i < rows.length; i += BATCH) {
     const batch = rows.slice(i, i + BATCH);

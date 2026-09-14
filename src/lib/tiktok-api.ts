@@ -228,6 +228,10 @@ function mapTikTokStatus(status?: string): OrderStatus {
   }
 }
 
+export function mapTikTokStatusLabel(status?: string): OrderStatus {
+  return mapTikTokStatus(status);
+}
+
 function toDate(unixSeconds?: number): Date | undefined {
   if (!unixSeconds) return undefined;
   return new Date(unixSeconds * 1000);

@@ -1,9 +1,9 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
-import { applyLiveTikTokStatuses } from "@/lib/tiktok-status";
+import { applyTikTokStatusHint } from "@/lib/tiktok-status";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 10;
 
 function verifySignature(rawBody: string, authorization: string | null): boolean {
   const appKey = process.env.TIKTOK_APP_KEY || "";
@@ -49,6 +49,17 @@ function collectOrderIds(value: unknown, ids: string[]) {
   if ("orders" in obj) collectOrderIds(obj.orders, ids);
 }
 
+function findStatus(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const obj = value as Record<string, unknown>;
+  const nested = obj.data && typeof obj.data === "object" ? (obj.data as Record<string, unknown>) : obj;
+  for (const field of ["order_status", "status"]) {
+    const raw = nested[field] ?? obj[field];
+    if (typeof raw === "string" && raw.trim()) return raw.trim();
+  }
+  return undefined;
+}
+
 export async function GET() {
   return new NextResponse(null, { status: 200 });
 }
@@ -69,10 +80,11 @@ export async function POST(request: Request) {
 
   const ids: string[] = [];
   collectOrderIds(payload, ids);
-  const unique = Array.from(new Set(ids));
-  if (unique.length > 0) {
+  const unique = Array.from(new Set(ids)).slice(0, 5);
+  const status = findStatus(payload);
+  if (unique.length > 0 && status) {
     try {
-      await applyLiveTikTokStatuses(unique);
+      await applyTikTokStatusHint(unique, status);
     } catch (error) {
       console.error("TikTok webhook status update failed:", error);
     }

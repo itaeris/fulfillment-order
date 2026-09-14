@@ -2,6 +2,7 @@ import { Order } from "@/types/order";
 import {
   fetchTikTokOrdersByNumbers,
   getTikTokConfig,
+  mapTikTokStatusLabel,
 } from "@/lib/tiktok-api";
 import {
   getOpenOrderNumbersByPlatforms,
@@ -11,6 +12,17 @@ import {
 export const TIKTOK_PLATFORMS = ["tiktok", "tokopedia"];
 const OPEN_STATUSES = ["pending", "processing", "shipped"];
 const DEFAULT_LIMIT = 80;
+
+export async function applyTikTokStatusHint(orderNumbers: string[], statusRaw?: string): Promise<number> {
+  if (!statusRaw || orderNumbers.length === 0) return 0;
+  const status = mapTikTokStatusLabel(statusRaw);
+  const unique = Array.from(new Set(orderNumbers.map((n) => String(n).trim()).filter(Boolean)));
+  await updateOrdersFulfillment(
+    TIKTOK_PLATFORMS,
+    unique.map((orderNumber) => ({ orderNumber, status }))
+  );
+  return unique.length;
+}
 
 export async function applyLiveTikTokStatuses(orderNumbers: string[]): Promise<number> {
   const unique = Array.from(

@@ -28,18 +28,30 @@ export function splitIdentityValues(value?: string | null): string[] {
 }
 
 export function expandMatchKeys(value?: string | null): string[] {
-  const base = normalizeMatchKey(value);
+  const raw = String(value || "").trim();
+  const base = normalizeMatchKey(raw);
   if (base.length < 5) return [];
   const keys = new Set<string>([base]);
+
+  const dashed = raw.toUpperCase().match(/^(TT|TP|SP|TTS|SHOPEE|TOKOPEDIA|TOKPED|LZ|SHP)[-](.+?)(?:[-](\d{3,6}))?$/);
+  if (dashed?.[2]) {
+    for (const extra of expandMatchKeys(dashed[2])) keys.add(extra);
+  }
+
   for (const rule of PREFIX_RULES) {
     if (!base.startsWith(rule.prefix)) continue;
     const rest = base.slice(rule.prefix.length);
     if (rest.length < rule.minRest) continue;
     if (rule.restMustStartWithDigit && !/^\d/.test(rest)) continue;
     keys.add(rest);
+    if (/^\d+$/.test(rest) && rest.length > 18) keys.add(rest.slice(0, 18));
+    if (/^\d+$/.test(rest) && rest.length > 19) keys.add(rest.slice(0, 19));
   }
   const generic = base.match(/^([A-Z]{1,10})(\d{10,})$/);
-  if (generic) keys.add(generic[2]);
+  if (generic) {
+    keys.add(generic[2]);
+    if (generic[2].length > 18) keys.add(generic[2].slice(0, 18));
+  }
   return Array.from(keys);
 }
 

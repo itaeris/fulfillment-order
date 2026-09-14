@@ -1,9 +1,9 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
-import { applyLiveShopeeStatuses } from "@/lib/shopee-status";
+import { applyShopeeStatusHint } from "@/lib/shopee-status";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 10;
 
 function pushUrlCandidates(request: Request): string[] {
   const url = new URL(request.url);
@@ -51,6 +51,17 @@ function collectOrderSns(value: unknown, ids: string[]) {
   if ("orders" in obj) collectOrderSns(obj.orders, ids);
 }
 
+function findStatus(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const obj = value as Record<string, unknown>;
+  const nested = obj.data && typeof obj.data === "object" ? (obj.data as Record<string, unknown>) : obj;
+  for (const field of ["order_status", "status"]) {
+    const raw = nested[field] ?? obj[field];
+    if (typeof raw === "string" && raw.trim()) return raw.trim();
+  }
+  return undefined;
+}
+
 export async function GET() {
   return new NextResponse(null, { status: 200 });
 }
@@ -71,10 +82,11 @@ export async function POST(request: Request) {
 
   const ids: string[] = [];
   collectOrderSns(payload, ids);
-  const unique = Array.from(new Set(ids));
-  if (unique.length > 0) {
+  const unique = Array.from(new Set(ids)).slice(0, 5);
+  const status = findStatus(payload);
+  if (unique.length > 0 && status) {
     try {
-      await applyLiveShopeeStatuses(unique.slice(0, 20));
+      await applyShopeeStatusHint(unique, status);
     } catch (error) {
       console.error("Shopee webhook status update failed:", error);
     }

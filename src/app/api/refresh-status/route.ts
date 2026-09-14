@@ -7,7 +7,7 @@ import { toIndonesianError } from "@/lib/errors";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const BUDGET_MS = 40_000;
+const BUDGET_MS = 22_000;
 
 export async function GET() {
   const started = Date.now();

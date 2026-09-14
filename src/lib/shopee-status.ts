@@ -1,10 +1,21 @@
 import { Order } from "@/types/order";
-import { fetchShopeeOrdersByNumbers, getShopeeConfig } from "@/lib/shopee-api";
+import { fetchShopeeOrdersByNumbers, getShopeeConfig, mapShopeeStatusLabel } from "@/lib/shopee-api";
 import { getOpenOrderNumbersByPlatforms, updateOrdersFulfillment } from "@/lib/db";
 
 export const SHOPEE_PLATFORMS = ["shopee"];
 const OPEN_STATUSES = ["pending", "processing", "shipped"];
 const DEFAULT_LIMIT = 80;
+
+export async function applyShopeeStatusHint(orderNumbers: string[], statusRaw?: string): Promise<number> {
+  if (!statusRaw || orderNumbers.length === 0) return 0;
+  const status = mapShopeeStatusLabel(statusRaw);
+  const unique = Array.from(new Set(orderNumbers.map((n) => String(n).trim()).filter(Boolean)));
+  await updateOrdersFulfillment(
+    SHOPEE_PLATFORMS,
+    unique.map((orderNumber) => ({ orderNumber, platform: "shopee" as const, status }))
+  );
+  return unique.length;
+}
 
 export async function applyLiveShopeeStatuses(orderNumbers: string[]): Promise<number> {
   const unique = Array.from(
