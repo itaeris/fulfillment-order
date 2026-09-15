@@ -6,16 +6,22 @@ import {
   AlertTriangle,
   CalendarClock,
   Check,
+  FileDown,
   LayoutDashboard,
   LogOut,
+  Package,
   ScanLine,
   XCircle,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { cn, formatNumber } from "@/lib/utils";
 import {
   buildDueDateOverview,
+  dayKey,
   formatAnalyzedAt,
+  formatDayKeyLabel,
   formatDueLabel,
+  isAheadPackOrder,
   jubelioMenuBadge,
   jubelioMenuHint,
   jubelioMenuLabel,
@@ -25,6 +31,7 @@ import { Order } from "@/types/order";
 import { OrderDetailPreview } from "@/components/OrderDetailPreview";
 import { PlatformLogo } from "@/components/PlatformLogo";
 import {
+  aheadScansOf,
   buildOrderScanIndex,
   buildOverdueScanIndex,
   cancelledScanOrderIds,
@@ -40,6 +47,7 @@ import {
   rowIsValidated,
   scannedOrderIds,
   scanResultOf,
+  todayValidatedIds,
   type OverdueScan,
   type OverdueScanMatch,
   type OverdueScanStatus,
@@ -50,6 +58,7 @@ type FilterId = "pending" | "valid" | "overdue" | "cancelled" | "all";
 
 interface OverdueScanViewProps {
   orders: Order[];
+  aheadOrders?: Order[];
   scans: OverdueScan[];
   onScansChange: (scans: OverdueScan[]) => void;
   onOrdersChange: (orders: Order[]) => void;
@@ -85,7 +94,10 @@ function playBeep(status: OverdueScanStatus) {
       osc.stop(ctx.currentTime + start + duration);
     };
     if (status === "valid") beep(880, 0, 0.12);
-    else if (status === "duplicate") beep(520, 0, 0.16);
+    else if (status === "ahead") {
+      beep(700, 0, 0.1);
+      beep(880, 0.12, 0.12);
+    } else if (status === "duplicate") beep(520, 0, 0.16);
     else if (status === "cancelled") {
       beep(360, 0, 0.1);
       beep(280, 0.12, 0.14);
@@ -177,9 +189,15 @@ function StatCard({
   return <div className={className}>{body}</div>;
 }
 
-function statusCopy(status: OverdueScanStatus) {
+function statusCopy(status: OverdueScanStatus, dueLabel?: string) {
   if (status === "valid") {
-    return { title: "Valid — ada di antrian kirim hari ini", className: "bg-green-50 border-green-200 text-green-800" };
+    return { title: "Valid — kirim hari ini", className: "bg-green-50 border-green-200 text-green-800" };
+  }
+  if (status === "ahead") {
+    return {
+      title: dueLabel ? `Valid — packing cicil · kirim ${dueLabel}` : "Valid — packing cicil, bukan kirim hari ini",
+      className: "bg-sky-50 border-sky-200 text-sky-900",
+    };
   }
   if (status === "duplicate") {
     return { title: "Sudah discan sebelumnya", className: "bg-amber-50 border-amber-200 text-amber-900" };
@@ -187,7 +205,7 @@ function statusCopy(status: OverdueScanStatus) {
   if (status === "cancelled") {
     return { title: "Dibatalkan — skip pengiriman", className: "bg-slate-100 border-slate-300 text-slate-800" };
   }
-  return { title: "Tidak ada di antrian kirim hari ini", className: "bg-red-50 border-red-200 text-red-800" };
+  return { title: "Tidak ketemu di kirim hari ini maupun packing cicil", className: "bg-red-50 border-red-200 text-red-800" };
 }
 
 function formatScanTime(value: Date) {
@@ -198,8 +216,71 @@ function formatScanTime(value: Date) {
   });
 }
 
+function downloadValidExcel(
+  rows: DueDateRow[],
+  scans: OverdueScan[],
+  dateKey: string
+) {
+  const byOrderId = new Map<string, OverdueScan>();
+  for (const scan of scans) {
+    if (scanResultOf(scan) !== "valid" || !scan.orderId) continue;
+    if (!byOrderId.has(scan.orderId)) byOrderId.set(scan.orderId, scan);
+  }
+  const header = [
+    "Status",
+    "Pesanan",
+    "Qty",
+    "Channel",
+    "Kurir",
+    "Resi",
+    "Tenggat",
+    "Jubelio",
+    "No. Jubelio",
+    "SKU",
+    "Produk",
+    "Scan oleh",
+    "Waktu scan",
+  ];
+  const data = rows.map((row) => {
+    const order = row.marketplaceOrder || row.jubelioOrder;
+    const scan =
+      (row.marketplaceOrder?.id && byOrderId.get(row.marketplaceOrder.id)) ||
+      (row.jubelioOrder?.id && byOrderId.get(row.jubelioOrder.id)) ||
+      byOrderId.get(row.key);
+    return [
+      "Valid",
+      row.orderNumber,
+      row.quantity,
+      row.marketplace || "",
+      row.courier || "",
+      order?.trackingNumber || "",
+      formatDueLabel(row.effectiveDue),
+      jubelioMenuLabel(row),
+      row.jubelioOrder?.orderNumber || "",
+      order?.sku || "",
+      order?.productName || "",
+      scan?.scannedBy || "",
+      scan?.scannedAt ? formatScanTime(scan.scannedAt) : "",
+    ];
+  });
+  const sheet = XLSX.utils.aoa_to_sheet([header, ...data]);
+  sheet["!cols"] = header.map((name, index) => ({
+    wch: Math.min(
+      42,
+      Math.max(
+        name.length + 2,
+        ...data.map((row) => String(row[index] ?? "").length + 2)
+      )
+    ),
+  }));
+  const book = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book, sheet, "Kirim hari ini");
+  XLSX.writeFile(book, `valid-kirim-hari-ini-${dateKey}.xlsx`);
+}
+
 export default function OverdueScanView({
   orders,
+  aheadOrders = [],
   scans,
   onScansChange,
   onOrdersChange,
@@ -219,11 +300,13 @@ export default function OverdueScanView({
     title: string;
     orders: Order[];
     row?: DueDateRow;
+    kind?: "ahead" | "cancelled";
   } | null>(null);
   const [flash, setFlash] = useState<{
     status: OverdueScanStatus;
     code: string;
     orderNumber?: string;
+    dueLabel?: string;
   } | null>(null);
   const [error, setError] = useState("");
   const previewOpen = Boolean(preview);
@@ -237,12 +320,15 @@ export default function OverdueScanView({
   const overview = useMemo(() => buildDueDateOverview(orders), [orders]);
   const scanIndex = useMemo(() => buildOverdueScanIndex(overview.rows), [overview.rows]);
   const orderIndex = useMemo(() => buildOrderScanIndex(orders), [orders]);
-  const validatedIds = useMemo(() => scannedOrderIds(scans), [scans]);
+  const aheadIndex = useMemo(() => buildOrderScanIndex(aheadOrders), [aheadOrders]);
+  const lookupOrders = useMemo(() => [...orders, ...aheadOrders], [orders, aheadOrders]);
+  const validatedIds = useMemo(() => todayValidatedIds(scans), [scans]);
   const cancelledIds = useMemo(() => cancelledScanOrderIds(scans), [scans]);
   const cancelledScans = useMemo(
     () => scans.filter((scan) => scanResultOf(scan) === "cancelled"),
     [scans]
   );
+  const aheadScans = useMemo(() => aheadScansOf(scans), [scans]);
   const unmatched = useMemo(
     () => scans.filter((scan) => scanResultOf(scan) === "not_in_queue").slice(0, 20),
     [scans]
@@ -260,6 +346,10 @@ export default function OverdueScanView({
   );
 
   const validCount = rowsWithStatus.filter((item) => item.validated).length;
+  const validRows = useMemo(
+    () => rowsWithStatus.filter((item) => item.validated).map((item) => item.row),
+    [rowsWithStatus]
+  );
   const pendingCount = rowsWithStatus.length - validCount;
   const overduePending = rowsWithStatus.filter((item) => item.row.overdue && !item.validated).length;
   const shippingCount = rowsWithStatus.length;
@@ -301,7 +391,9 @@ export default function OverdueScanView({
     window.requestAnimationFrame(() => focusScanInput());
 
     const row = matchOverdueScanFromIndex(next, scanIndex);
-    const order = matchOrderFromIndex(next, orderIndex);
+    const todayOrder = matchOrderFromIndex(next, orderIndex);
+    const aheadOrder = matchOrderFromIndex(next, aheadIndex);
+    const order = todayOrder || aheadOrder;
     const cancelled = Boolean(
       (row && rowIsCancelled(row)) || (order && isCancelledStatus(order.status))
     );
@@ -310,11 +402,15 @@ export default function OverdueScanView({
       : order
         ? overdueScanMatchFromOrder(order)
         : null;
+    const dueKey = aheadOrder ? dayKey(aheadOrder.mustShipBefore) : null;
+    const dueLabel = dueKey ? formatDayKeyLabel(dueKey) : undefined;
 
     let status: OverdueScanStatus = "not_in_queue";
     if (cancelled && match) status = "cancelled";
     else if (row && match) {
-      status = rowIsValidated(row, scannedOrderIds(scansRef.current)) ? "duplicate" : "valid";
+      status = rowIsValidated(row, todayValidatedIds(scansRef.current)) ? "duplicate" : "valid";
+    }     else if (aheadOrder && match && isAheadPackOrder(aheadOrder)) {
+      status = scannedOrderIds(scansRef.current).has(match.orderId) ? "duplicate" : "ahead";
     } else if (match && cancelledScanOrderIds(scansRef.current).has(match.orderId)) {
       status = "duplicate";
     }
@@ -334,6 +430,7 @@ export default function OverdueScanView({
       status,
       code: next,
       orderNumber: match?.orderNumber,
+      dueLabel: status === "ahead" ? dueLabel : undefined,
     });
     playBeep(status);
 
@@ -345,9 +442,15 @@ export default function OverdueScanView({
       orderId: match?.orderId,
       orderNumber: match?.orderNumber,
       platform: match?.platform,
-      matched: status === "valid" || status === "cancelled",
+      matched: status === "valid" || status === "cancelled" || status === "ahead",
       result:
-        status === "cancelled" ? "cancelled" : status === "valid" ? "valid" : "not_in_queue",
+        status === "cancelled"
+          ? "cancelled"
+          : status === "valid"
+            ? "valid"
+            : status === "ahead"
+              ? "ahead"
+              : "not_in_queue",
       scannedAt: new Date(),
       scannedBy: workerName,
       scanDate: indonesiaDateKey(),
@@ -371,7 +474,7 @@ export default function OverdueScanView({
 
     if (status === "cancelled") {
       const kickIds = new Set(
-        [row?.marketplaceOrder?.id, row?.jubelioOrder?.id, order?.id, match?.orderId].filter(Boolean) as string[]
+        [row?.marketplaceOrder?.id, row?.jubelioOrder?.id, todayOrder?.id, match?.orderId].filter(Boolean) as string[]
       );
       const kicked = orders
         .filter((item) => kickIds.has(item.id))
@@ -416,6 +519,7 @@ export default function OverdueScanView({
             status: data.status,
             code: next,
             orderNumber: match?.orderNumber || saved.orderNumber,
+            dueLabel: data.status === "ahead" ? dueLabel : undefined,
           });
           playBeep(data.status);
         }
@@ -439,13 +543,15 @@ export default function OverdueScanView({
   };
 
   const openScanPreview = (scan: OverdueScan) => {
-    const related = ordersForScan(scan, orders);
+    const related = ordersForScan(scan, lookupOrders);
     const ids = new Set(related.map((item) => item.id));
     const row = overview.rows.find((item) => rowHasId(item, ids));
+    const result = scanResultOf(scan);
     setPreview({
       title: scan.orderNumber || scan.scannedCode,
       orders: related,
       row,
+      kind: result === "ahead" ? "ahead" : result === "cancelled" ? "cancelled" : undefined,
     });
   };
 
@@ -456,7 +562,7 @@ export default function OverdueScanView({
           <div className="min-w-0">
             <h1 className="text-base sm:text-xl font-semibold text-brand-800">Validasi scan</h1>
             <p className="text-[11px] sm:text-xs text-brand-400 mt-0.5">
-              Cek barcode antrian kirim hari ini · {formatAnalyzedAt(new Date())}
+              Cek barcode kirim hari ini atau packing cicil · {formatAnalyzedAt(new Date())}
               {workerName ? ` · ${workerName}` : ""}
             </p>
           </div>
@@ -535,14 +641,16 @@ export default function OverdueScanView({
                   if (row) openRowPreview(row);
                 }
               }}
-              className={cn("w-full rounded-xl border px-3 py-2.5 text-sm text-left", statusCopy(flash.status).className)}
+              className={cn("w-full rounded-xl border px-3 py-2.5 text-sm text-left", statusCopy(flash.status, flash.dueLabel).className)}
             >
-              <p className="font-semibold">{statusCopy(flash.status).title}</p>
+              <p className="font-semibold">{statusCopy(flash.status, flash.dueLabel).title}</p>
               <p className="text-xs mt-0.5 font-mono break-all">
                 {flash.orderNumber || flash.code}
               </p>
               {flash.status === "cancelled" ? (
                 <p className="text-[11px] mt-1">Klik untuk lihat detail · tidak masuk pengiriman</p>
+              ) : flash.status === "ahead" ? (
+                <p className="text-[11px] mt-1">Sudah valid packing, dipisah dari kirim hari ini</p>
               ) : null}
             </button>
           ) : null}
@@ -552,7 +660,7 @@ export default function OverdueScanView({
 
       <main className="flex-1 overflow-y-auto overflow-x-hidden">
         <div className="max-w-6xl mx-auto px-3 sm:px-6 py-3 sm:py-5 space-y-3 sm:space-y-5">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2 sm:gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2 sm:gap-3">
             <StatCard
               label="Order hari ini"
               value={formatNumber(placedToday?.total ?? 0)}
@@ -577,7 +685,15 @@ export default function OverdueScanView({
               label="Sudah valid"
               value={formatNumber(validCount)}
               valueClass="text-green-700"
+              hint="Kirim hari ini"
               onClick={() => setFilter("valid")}
+            />
+            <StatCard
+              label="Packing cicil"
+              value={formatNumber(aheadScans.length)}
+              valueClass={aheadScans.length > 0 ? "text-sky-800" : undefined}
+              hint="Valid, bukan kirim hari ini"
+              onClick={() => document.getElementById("packing-cicil")?.scrollIntoView({ behavior: "smooth" })}
             />
             <StatCard
               label="Belum dicek"
@@ -600,12 +716,12 @@ export default function OverdueScanView({
             />
           </div>
 
-          {overview.todayProcessCount === 0 && cancelledScans.length === 0 ? (
+          {overview.todayProcessCount === 0 && cancelledScans.length === 0 && aheadScans.length === 0 ? (
             <section className="bg-white rounded-xl shadow-sm border border-brand-200 px-4 py-8 text-center">
               <AlertTriangle className="w-6 h-6 text-amber-600 mx-auto mb-2" />
               <p className="text-sm font-medium text-brand-800">Antrian kirim hari ini masih kosong</p>
               <p className="text-xs text-brand-400 mt-1">
-                Ambil data dulu di Kirim hari ini, lalu kembali ke halaman ini untuk scan.
+                Ambil data dulu di Kirim hari ini. Packing cicil tetap bisa discan setelah antrian hari ini selesai.
               </p>
               <Link
                 href="/overview-duedate"
@@ -620,9 +736,9 @@ export default function OverdueScanView({
           <section className="bg-white rounded-xl shadow-sm border border-brand-200 overflow-hidden">
             <div className="px-3 sm:px-4 py-2.5 border-b border-brand-100 flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
               <div>
-                <h2 className="text-sm font-semibold text-brand-800">Tabel validasi</h2>
+                <h2 className="text-sm font-semibold text-brand-800">Kirim hari ini</h2>
                 <p className="text-[11px] text-brand-400">
-                  Scan resi atau nomor pesanan. Status tersimpan untuk hari ini (WIB).
+                  Antrian yang berangkat hari ini. Packing cicil tidak masuk tabel ini.
                 </p>
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -632,6 +748,16 @@ export default function OverdueScanView({
                 <FilterPill active={filter === "valid"} onClick={() => setFilter("valid")}>
                   Valid {formatNumber(validCount)}
                 </FilterPill>
+                <button
+                  type="button"
+                  disabled={validCount === 0}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => downloadValidExcel(validRows, scans, indonesiaDateKey())}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium text-green-800 border border-green-200 bg-green-50 hover:bg-green-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <FileDown className="w-3.5 h-3.5" />
+                  Export Excel
+                </button>
                 <FilterPill active={filter === "overdue"} onClick={() => setFilter("overdue")}>
                   Terlambat {formatNumber(overview.overdue)}
                 </FilterPill>
@@ -734,6 +860,92 @@ export default function OverdueScanView({
             </div>
           </section>
 
+          <section
+            id="packing-cicil"
+            className="bg-white rounded-xl shadow-sm border border-sky-200 overflow-hidden"
+          >
+            <div className="px-3 sm:px-4 py-2.5 border-b border-sky-100">
+              <h2 className="text-sm font-semibold text-sky-900 inline-flex items-center gap-1.5">
+                <Package className="w-4 h-4" />
+                Packing cicil — bukan kirim hari ini
+              </h2>
+              <p className="text-[11px] text-sky-700/80 mt-0.5">
+                Sudah discan dan valid, tapi tenggatnya besok atau lebih. Tidak campur dengan antrian berangkat hari ini.
+              </p>
+            </div>
+            {aheadScans.length === 0 ? (
+              <p className="px-4 py-6 text-center text-xs text-brand-400">
+                Belum ada packing cicil hari ini. Setelah kirim hari ini selesai, scan order berikutnya di sini.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] text-xs">
+                  <thead className="bg-sky-50 text-sky-800/70">
+                    <tr>
+                      <th className="text-left font-medium px-3 py-2">Status</th>
+                      <th className="text-left font-medium px-2 py-2">Pesanan</th>
+                      <th className="text-right font-medium px-2 py-2">Qty</th>
+                      <th className="text-left font-medium px-2 py-2">Channel</th>
+                      <th className="text-left font-medium px-2 py-2">Kurir / resi</th>
+                      <th className="text-left font-medium px-2 py-2">Kirim</th>
+                      <th className="text-left font-medium px-3 py-2">Scan</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-sky-100">
+                    {aheadScans.map((scan) => {
+                      const related = ordersForScan(scan, lookupOrders);
+                      const order = related[0];
+                      const logo = platformLogo(
+                        order?.platform === "shopee"
+                          ? "Shopee"
+                          : order?.platform === "tiktok" || order?.platform === "tokopedia"
+                            ? "TikTok"
+                            : undefined
+                      );
+                      const due = order?.mustShipBefore;
+                      return (
+                        <tr
+                          key={scan.id}
+                          className="cursor-pointer hover:bg-sky-50/70 bg-sky-50/40"
+                          onClick={() => openScanPreview(scan)}
+                        >
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1 text-sky-800 font-medium">
+                              <Check className="w-3.5 h-3.5" />
+                              Cicil
+                            </span>
+                          </td>
+                          <td className="px-2 py-2 font-mono font-medium text-brand-800 break-all">
+                            {scan.orderNumber || scan.scannedCode}
+                          </td>
+                          <td className="px-2 py-2 text-right">{order?.quantity ?? "—"}</td>
+                          <td className="px-2 py-2">
+                            {logo ? (
+                              <PlatformLogo platform={logo} className="h-4 max-w-[5rem]" />
+                            ) : (
+                              scan.platform || "—"
+                            )}
+                          </td>
+                          <td className="px-2 py-2">
+                            <p>{order?.courier || "—"}</p>
+                            <p className="font-mono text-[10px] text-brand-400 break-all">
+                              {order?.trackingNumber || "—"}
+                            </p>
+                          </td>
+                          <td className="px-2 py-2 whitespace-nowrap">{formatDueLabel(due)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-brand-400">
+                            {formatScanTime(scan.scannedAt)}
+                            {scan.scannedBy ? ` · ${scan.scannedBy}` : ""}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
           {filter === "cancelled" || cancelledScans.length > 0 ? (
             <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="px-3 sm:px-4 py-2.5 border-b border-slate-200">
@@ -781,8 +993,8 @@ export default function OverdueScanView({
           {unmatched.length > 0 ? (
             <section className="bg-white rounded-xl shadow-sm border border-red-100 overflow-hidden">
               <div className="px-3 sm:px-4 py-2.5 border-b border-red-100">
-                <h2 className="text-sm font-semibold text-red-800">Scan tidak di antrian</h2>
-                <p className="text-[11px] text-red-500">Kode yang discan tapi tidak ketemu di kirim hari ini.</p>
+                <h2 className="text-sm font-semibold text-red-800">Scan tidak ketemu</h2>
+                <p className="text-[11px] text-red-500">Kode yang tidak ada di kirim hari ini maupun packing cicil.</p>
               </div>
               <div className="divide-y divide-red-50">
                 {unmatched.map((scan) => (
@@ -814,9 +1026,11 @@ export default function OverdueScanView({
                 { label: "Keterangan Jubelio", value: jubelioMenuHint(preview.row) },
                 { label: "Catatan", value: preview.row.reason },
               ]
-            : preview
-              ? [{ label: "Status", value: "Dibatalkan — skip pengiriman" }]
-              : undefined
+            : preview?.kind === "ahead"
+              ? [{ label: "Status", value: "Packing cicil — bukan kirim hari ini" }]
+              : preview
+                ? [{ label: "Status", value: "Dibatalkan — skip pengiriman" }]
+                : undefined
         }
         sections={
           preview?.row

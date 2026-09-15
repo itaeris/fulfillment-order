@@ -427,6 +427,14 @@ export function isMarketplaceShipToday(order: Order, now = new Date()): boolean 
   return isMarketplaceShipOnDate(order, todayKey(now), now);
 }
 
+/** Order toko terbuka yang tenggatnya setelah hari ini — boleh packing cicil, bukan kirim hari ini. */
+export function isAheadPackOrder(order: Order, now = new Date()): boolean {
+  if (order.platform === "jubelio") return false;
+  if (!isOpen(order)) return false;
+  const due = dayKey(order.mustShipBefore);
+  return Boolean(due && due > todayKey(now));
+}
+
 export function formatDayKeyLabel(dateKey: string): string {
   const [year, month, day] = dateKey.split("-").map(Number);
   if (!year || !month || !day) return dateKey;

@@ -32,6 +32,7 @@ export default function ScannerBarcodePage() {
   const { user, profile, isLoading: authLoading, signOut } = useAuth();
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [aheadOrders, setAheadOrders] = useState<Order[]>([]);
   const [scans, setScans] = useState<OverdueScan[]>([]);
   const [placedToday, setPlacedToday] = useState<{ total: number; shopee: number; tiktok: number }>();
   const [isLoading, setIsLoading] = useState(true);
@@ -104,6 +105,17 @@ export default function ScannerBarcodePage() {
     }
   }, []);
 
+  const loadAhead = useCallback(async () => {
+    try {
+      const res = await fetch("/api/orders/ahead", { cache: "no-store" });
+      const data = (await res.json().catch(() => ({}))) as { orders?: Order[]; error?: string };
+      if (!res.ok) return;
+      setAheadOrders((data.orders || []).map(hydrateOrder));
+    } catch (error) {
+      console.error("Error loading ahead orders:", error);
+    }
+  }, []);
+
   const applyLive = useCallback(async (current: Order[]) => {
     const numbers = uniqueLookupNumbers(current);
     if (numbers.length === 0) return current;
@@ -137,8 +149,9 @@ export default function ScannerBarcodePage() {
       await loadOrders("full");
       await loadScans();
       await loadPlacedToday();
+      await loadAhead();
     })();
-  }, [authLoading, user, loadOrders, loadScans, loadPlacedToday]);
+  }, [authLoading, user, loadOrders, loadScans, loadPlacedToday, loadAhead]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -155,6 +168,7 @@ export default function ScannerBarcodePage() {
       void loadOrders("refresh");
       void loadScans();
       void loadPlacedToday();
+      void loadAhead();
     };
     const timer = window.setInterval(tick, 30_000);
     const onFocus = () => tick();
@@ -163,7 +177,7 @@ export default function ScannerBarcodePage() {
       window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
     };
-  }, [authLoading, user, loadOrders, loadScans, loadPlacedToday]);
+  }, [authLoading, user, loadOrders, loadScans, loadPlacedToday, loadAhead]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -231,6 +245,7 @@ export default function ScannerBarcodePage() {
   return (
     <OverdueScanView
       orders={orders}
+      aheadOrders={aheadOrders}
       scans={scans}
       onScansChange={setScans}
       onOrdersChange={(next) => {
@@ -244,6 +259,7 @@ export default function ScannerBarcodePage() {
         void loadOrders("refresh");
         void loadScans();
         void loadPlacedToday();
+        void loadAhead();
       }}
       onSignOut={signOut}
       workerName={profile?.name}

@@ -39,7 +39,15 @@ export async function POST(request: NextRequest) {
     const scanDate = indonesiaDateKey();
     const orderId = String(body.orderId || "").trim() || undefined;
     const result: Exclude<OverdueScanStatus, "duplicate"> =
-      body.result === "cancelled" ? "cancelled" : orderId ? "valid" : "not_in_queue";
+      body.result === "cancelled"
+        ? "cancelled"
+        : body.result === "ahead" && orderId
+          ? "ahead"
+          : body.result === "valid" && orderId
+            ? "valid"
+            : orderId && body.result !== "not_in_queue"
+              ? "valid"
+              : "not_in_queue";
     const match = orderId
       ? {
           orderId,

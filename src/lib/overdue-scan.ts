@@ -2,7 +2,7 @@ import { expandMatchKeys, identityKeys, normalizeMatchKey } from "@/lib/order-ma
 import type { DueDateRow } from "@/lib/due-date";
 import type { Order } from "@/types/order";
 
-export type OverdueScanStatus = "valid" | "duplicate" | "not_in_queue" | "cancelled";
+export type OverdueScanStatus = "valid" | "ahead" | "duplicate" | "not_in_queue" | "cancelled";
 
 export type OverdueScan = {
   id: string;
@@ -73,7 +73,10 @@ export function hydrateOverdueScan(raw: any): OverdueScan {
   const matched = Boolean(raw.matched);
   const resultRaw = String(raw.result || "").toLowerCase();
   const result: OverdueScan["result"] =
-    resultRaw === "cancelled" || resultRaw === "not_in_queue" || resultRaw === "valid"
+    resultRaw === "cancelled" ||
+    resultRaw === "not_in_queue" ||
+    resultRaw === "valid" ||
+    resultRaw === "ahead"
       ? resultRaw
       : matched
         ? "valid"
@@ -134,10 +137,27 @@ export function overdueScanMatchFromOrder(order: Order): OverdueScanMatch {
 }
 
 export function scanResultOf(scan: OverdueScan): Exclude<OverdueScanStatus, "duplicate"> {
-  if (scan.result === "cancelled" || scan.result === "valid" || scan.result === "not_in_queue") {
+  if (
+    scan.result === "cancelled" ||
+    scan.result === "valid" ||
+    scan.result === "ahead" ||
+    scan.result === "not_in_queue"
+  ) {
     return scan.result;
   }
   return scan.matched ? "valid" : "not_in_queue";
+}
+
+export function todayValidatedIds(scans: OverdueScan[]): Set<string> {
+  return new Set(
+    scans
+      .filter((scan) => scan.matched && scan.orderId && scanResultOf(scan) === "valid")
+      .map((scan) => scan.orderId as string)
+  );
+}
+
+export function aheadScansOf(scans: OverdueScan[]): OverdueScan[] {
+  return scans.filter((scan) => scanResultOf(scan) === "ahead");
 }
 
 export function scannedOrderIds(scans: OverdueScan[]): Set<string> {

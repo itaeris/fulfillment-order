@@ -299,6 +299,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_overdue_scans_unique_match
   ON overdue_scans (scan_date, order_id)
   WHERE matched = true AND order_id IS NOT NULL;
 
+-- result: valid | ahead | cancelled | not_in_queue
 ALTER TABLE overdue_scans ADD COLUMN IF NOT EXISTS result TEXT;
 
 ALTER TABLE overdue_scans ENABLE ROW LEVEL SECURITY;

@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { indonesiaOrderCutoffRange } from "./timezone";
+import { addCalendarDays, INDONESIA_OFFSET, indonesiaDateKey, indonesiaOrderCutoffRange } from "./timezone";
 
 const PAGE_SIZE = 1000;
 
@@ -124,6 +124,27 @@ export type MarketplacePlacedToday = {
   tiktok: number;
   cancelled: number;
 };
+
+export async function getOpenMarketplaceAheadOrders(now = new Date()) {
+  const from = `${addCalendarDays(indonesiaDateKey(now), 1)}T00:00:00${INDONESIA_OFFSET}`;
+  const rows: any[] = [];
+  for (let fromIdx = 0; ; fromIdx += PAGE_SIZE) {
+    const page = await supabase
+      .from("orders")
+      .select("*")
+      .in("platform", ["shopee", "tiktok", "tokopedia"])
+      .not("status", "in", "(cancelled,returned,shipped,delivered)")
+      .gte("must_ship_before", from)
+      .order("must_ship_before", { ascending: true })
+      .order("id", { ascending: true })
+      .range(fromIdx, fromIdx + PAGE_SIZE - 1);
+    if (page.error) throw page.error;
+    const chunk = page.data ?? [];
+    rows.push(...chunk);
+    if (chunk.length < PAGE_SIZE) break;
+  }
+  return rows.map(rowToOrder);
+}
 
 export async function countMarketplacePlacedToday(
   now = new Date()
