@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import Script from "next/script";
 
 declare global {
@@ -37,7 +37,12 @@ export const Turnstile = forwardRef<
   const hostRef = useRef<HTMLDivElement>(null);
   const widgetId = useRef<string | null>(null);
   const onTokenRef = useRef(onToken);
+  const [hydrated, setHydrated] = useState(false);
   onTokenRef.current = onToken;
+
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   const mount = useCallback(() => {
     if (!siteKey || !hostRef.current || !window.turnstile || widgetId.current) return;
@@ -61,6 +66,7 @@ export const Turnstile = forwardRef<
   }));
 
   useEffect(() => {
+    if (!hydrated) return;
     mount();
     return () => {
       if (widgetId.current && window.turnstile) {
@@ -68,9 +74,10 @@ export const Turnstile = forwardRef<
         widgetId.current = null;
       }
     };
-  }, [mount]);
+  }, [hydrated, mount]);
 
   if (!siteKey) return null;
+  if (!hydrated) return <div className="min-h-[65px]" />;
 
   return (
     <>
@@ -79,7 +86,7 @@ export const Turnstile = forwardRef<
         strategy="afterInteractive"
         onLoad={mount}
       />
-      <div ref={hostRef} className="min-h-[65px]" />
+      <div ref={hostRef} className="min-h-[65px] w-full overflow-hidden" />
     </>
   );
 });

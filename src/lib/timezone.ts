@@ -13,19 +13,19 @@ export function addCalendarDays(dateKey: string, days: number): string {
   return new Date(utc).toLocaleDateString("en-CA", { timeZone: "UTC" });
 }
 
-function jakartaHour(now: Date): number {
+export function indonesiaHour(now = new Date()): number {
   const hour = new Intl.DateTimeFormat("en-GB", {
     timeZone: INDONESIA_TZ,
     hour: "2-digit",
     hourCycle: "h23",
   }).format(now);
-  return Number(hour);
+  return Number.parseInt(hour, 10);
 }
 
 /** Jendela order gudang: 15.00 kemarin → 15.00 sekarang (WIB). Ganti siklus tiap jam 15.00. */
 export function indonesiaOrderCutoffRange(now = new Date()): { from: Date; to: Date; key: string } {
   const dateKey = indonesiaDateKey(now);
-  const startKey = jakartaHour(now) >= ORDER_CUTOFF_HOUR ? dateKey : addCalendarDays(dateKey, -1);
+  const startKey = indonesiaHour(now) >= ORDER_CUTOFF_HOUR ? dateKey : addCalendarDays(dateKey, -1);
   const endKey = addCalendarDays(startKey, 1);
   return {
     key: startKey,

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Turnstile, verifyTurnstileClient, type TurnstileHandle } from "@/components/Turnstile";
+import { indonesiaHour } from "@/lib/timezone";
 
 const FEATURES = [
   { label: "Dashboard", icon: LayoutDashboard },
@@ -26,7 +27,7 @@ const FEATURES = [
 ] as const;
 
 function timeGreeting() {
-  const hour = new Date().getHours();
+  const hour = indonesiaHour();
   if (hour < 12) return "GOOD MORNING";
   if (hour < 17) return "GOOD AFTERNOON";
   return "GOOD EVENING";
@@ -340,25 +341,21 @@ export default function LoginPage() {
   if (user) return null;
 
   return (
-    <div className="min-h-dvh">
-      <div className="hidden lg:grid lg:grid-cols-2 min-h-dvh">
-        <section style={{ background: HERO_BG }}>
+    <div className="min-h-dvh flex flex-col lg:grid lg:grid-cols-2">
+      <section className="lg:min-h-dvh" style={{ background: HERO_BG }}>
+        <div className="lg:hidden">
+          <BrandPanel compact />
+        </div>
+        <div className="hidden lg:block h-full">
           <BrandPanel />
-        </section>
-        <section className="bg-cream-100 flex items-center justify-center p-8 xl:p-12">
-          <div className="w-full max-w-md bg-white rounded-[28px] shadow-[0_20px_50px_rgba(61,35,25,0.08)] p-8 xl:p-10">
-            <LoginCard {...cardProps} />
-          </div>
-        </section>
-      </div>
-
-      <div className="lg:hidden min-h-dvh overflow-y-auto flex flex-col" style={{ background: HERO_BG }}>
-        <BrandPanel compact />
-        <section className="flex-1 bg-white rounded-t-[28px] px-5 pt-3 pb-8">
-          <div className="w-10 h-1 rounded-full bg-brand-200 mx-auto mb-5" />
+        </div>
+      </section>
+      <section className="flex-1 bg-white lg:bg-cream-100 flex lg:items-center lg:justify-center px-5 pt-3 pb-8 lg:p-8 xl:p-12 rounded-t-[28px] lg:rounded-none">
+        <div className="w-full max-w-md lg:bg-white lg:rounded-[28px] lg:shadow-[0_20px_50px_rgba(61,35,25,0.08)] lg:p-8 xl:p-10">
+          <div className="lg:hidden w-10 h-1 rounded-full bg-brand-200 mx-auto mb-5" />
           <LoginCard {...cardProps} />
-        </section>
-      </div>
+        </div>
+      </section>
     </div>
   );
 }
