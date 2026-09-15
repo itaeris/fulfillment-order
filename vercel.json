@@ -7,6 +7,10 @@
     {
       "path": "/api/overview/sync-today",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/dashboard/sync",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

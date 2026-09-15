@@ -28,7 +28,8 @@ import {
   type DataSnapshot,
 } from "@/lib/client-data";
 import { toIndonesianError } from "@/lib/errors";
-import { isShipTodayQueueOrder } from "@/lib/due-date";
+import { isShipTodayQueueOrder, mergeTodayQueueWithPickedUp } from "@/lib/due-date";
+import { indonesiaDateKey, indonesiaOrderCutoffKey } from "@/lib/timezone";
 import { fetchMarketplaceTokenStatus, isShopLinkedPayload } from "@/lib/shop-link-status";
 import { supabase } from "@/lib/supabase";
 import { Order, Platform, UploadedFile } from "@/types/order";
@@ -68,6 +69,7 @@ export default function OverviewDueDatePage() {
   const { user, profile, isLoading: authLoading, signOut } = useAuth();
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [placedToday, setPlacedToday] = useState<{ total: number; shopee: number; tiktok: number }>();
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [syncing, setSyncing] = useState<ApiSyncSource | null>(null);
@@ -90,6 +92,8 @@ export default function OverviewDueDatePage() {
   ordersRef.current = orders;
   shopeeLinkedRef.current = shopeeLinked;
   tiktokLinkedRef.current = tiktokLinked;
+  const dayKeyRef = useRef(indonesiaDateKey());
+  const cutoffKeyRef = useRef(indonesiaOrderCutoffKey());
 
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login");
@@ -172,6 +176,17 @@ export default function OverviewDueDatePage() {
         data = await loadOverviewData(true);
       }
       apply(data);
+      if (mode === "init") {
+        try {
+          const retain = await fetch("/api/overview/retain-today", { method: "POST" });
+          if (retain.ok) {
+            const retained = await loadOverviewData(true);
+            if (gen === dataGen.current) apply(retained);
+          }
+        } catch {
+          // Antrian hari ini tetap memakai data yang sudah ada.
+        }
+      }
     } catch (error) {
       console.error("Error loading overview data:", error);
     } finally {
@@ -183,6 +198,53 @@ export default function OverviewDueDatePage() {
     if (authLoading || !user) return;
     loadData("init");
   }, [authLoading, user, loadData]);
+
+  const loadPlacedToday = useCallback(async () => {
+    try {
+      const res = await fetch("/api/orders/placed-today", { cache: "no-store" });
+      const data = (await res.json().catch(() => ({}))) as {
+        total?: number;
+        shopee?: number;
+        tiktok?: number;
+      };
+      if (!res.ok) return;
+      setPlacedToday({
+        total: data.total || 0,
+        shopee: data.shopee || 0,
+        tiktok: data.tiktok || 0,
+      });
+    } catch {
+      // Kartu Order hari ini tetap 0 jika dashboard belum terisi.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    void loadPlacedToday();
+  }, [authLoading, user, loadPlacedToday]);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    const tick = () => {
+      const cutoff = indonesiaOrderCutoffKey();
+      if (cutoffKeyRef.current !== cutoff) {
+        cutoffKeyRef.current = cutoff;
+        void loadPlacedToday();
+      }
+      const today = indonesiaDateKey();
+      if (dayKeyRef.current === today) return;
+      dayKeyRef.current = today;
+      void loadData("refresh");
+      void loadPlacedToday();
+    };
+    const timer = window.setInterval(tick, 30_000);
+    const onFocus = () => tick();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [authLoading, user, loadData, loadPlacedToday]);
 
   const applyLive = useCallback(async (current: Order[]) => {
     const liveOrders = current.filter(
@@ -322,7 +384,8 @@ export default function OverviewDueDatePage() {
           label: `Menyimpan antrian ${label}...`,
         });
       }
-      const next = await replaceOverviewPlatforms(platforms, collected);
+      const merged = mergeTodayQueueWithPickedUp(collected, ordersRef.current, platforms);
+      const next = await replaceOverviewPlatforms(platforms, merged);
       dataGen.current += 1;
       setOrders(next.map(hydrateOrder));
 
@@ -331,7 +394,7 @@ export default function OverviewDueDatePage() {
         name: fileMeta.name,
         platform: fileMeta.platform,
         uploadedAt: new Date(),
-        orderCount: collected.length,
+        orderCount: merged.length,
       };
       await saveOverviewFile(uploadedFile);
       setUploadedFiles((prev) => [
@@ -521,6 +584,7 @@ export default function OverviewDueDatePage() {
       lastJubelioFile={fileHint(lastJubelio)}
       onSignOut={signOut}
       workerName={profile?.name}
+      placedToday={placedToday}
     />
   );
 }

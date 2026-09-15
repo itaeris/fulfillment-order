@@ -429,15 +429,13 @@ function DataSection({
             </h3>
             <p className="text-xs sm:text-sm text-brand-400 mt-0.5 sm:mt-1 max-w-lg leading-snug">
               Ambil pesanan <strong>siap dikirim</strong>, <strong>diproses</strong>, dan <strong>selesai</strong> (30 hari) dari Shopee Open API.
-              <span className="hidden sm:inline">
-                {" "}Yang sudah ada dipakai lagi — hanya pesanan baru yang ditambah.
-              </span>
+              Dashboard sudah sinkron otomatis — tombol ini hanya kalau mau tarik ulang sekarang.
             </p>
           </div>
           <div className="flex flex-col items-stretch sm:items-end gap-1 w-full sm:w-auto shrink-0">
             <button
               onClick={() => apiSync.onSync("shopee")}
-              disabled={!!apiSync.syncing}
+              disabled={!!apiSync.syncing || !!apiSync.autoSyncing}
               className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-shopee-500 text-white rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium hover:bg-shopee-600 disabled:opacity-50 transition-all w-full sm:w-auto"
             >
               {syncingShopee ? <Spinner className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
@@ -519,15 +517,13 @@ function DataSection({
             </h3>
             <p className="text-xs sm:text-sm text-brand-400 mt-0.5 sm:mt-1 max-w-lg leading-snug">
               Ambil pesanan <strong>siap dikirim</strong> dan <strong>selesai</strong> (30 hari terakhir) dari TikTok Shop.
-              <span className="hidden sm:inline">
-                {" "}Yang sudah ada dipakai lagi — hanya pesanan baru yang ditambah.
-              </span>
+              Dashboard sudah sinkron otomatis — tombol ini hanya kalau mau tarik ulang sekarang.
             </p>
           </div>
           <div className="flex flex-col items-stretch sm:items-end gap-1 w-full sm:w-auto shrink-0">
             <button
               onClick={() => apiSync.onSync("tiktok")}
-              disabled={!!apiSync.syncing}
+              disabled={!!apiSync.syncing || !!apiSync.autoSyncing}
               className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-brand-600 text-white rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-all w-full sm:w-auto"
             >
               {syncingTiktok ? <Spinner className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
@@ -611,15 +607,13 @@ function DataSection({
             <p className="text-xs sm:text-sm text-brand-400 mt-0.5 sm:mt-1 max-w-lg leading-snug">
               Ambil pesanan <strong>Siap Kirim</strong> dari Jubelio sebagai cermin omnichannel.
               Data ini tidak menambah total penjualan Shopee/TikTok.
-              <span className="hidden sm:inline">
-                {" "}Yang sudah ada dipakai lagi — sync berikutnya lebih cepat, tidak tarik ulang semua.
-              </span>
+              Dashboard sudah sinkron otomatis — tombol ini hanya kalau mau tarik ulang sekarang.
             </p>
           </div>
           <div className="flex flex-col items-stretch sm:items-end gap-1 w-full sm:w-auto shrink-0">
             <button
               onClick={() => apiSync.onSync("jubelio")}
-              disabled={!!apiSync.syncing}
+              disabled={!!apiSync.syncing || !!apiSync.autoSyncing}
               className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-brand-800 text-white rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium hover:bg-brand-900 disabled:opacity-50 transition-all w-full sm:w-auto"
             >
               {syncingJubelio ? <Spinner className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}

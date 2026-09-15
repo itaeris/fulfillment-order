@@ -1,6 +1,7 @@
 /** WIB — UTC+7. Jangan pakai UTC-7. */
 export const INDONESIA_TZ = "Asia/Jakarta";
 export const INDONESIA_OFFSET = "+07:00";
+export const ORDER_CUTOFF_HOUR = 15;
 
 export function indonesiaDateKey(now = new Date()): string {
   return now.toLocaleDateString("en-CA", { timeZone: INDONESIA_TZ });
@@ -10,6 +11,31 @@ export function addCalendarDays(dateKey: string, days: number): string {
   const [year, month, day] = dateKey.split("-").map(Number);
   const utc = Date.UTC(year, month - 1, day + days, 12);
   return new Date(utc).toLocaleDateString("en-CA", { timeZone: "UTC" });
+}
+
+function jakartaHour(now: Date): number {
+  const hour = new Intl.DateTimeFormat("en-GB", {
+    timeZone: INDONESIA_TZ,
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).format(now);
+  return Number(hour);
+}
+
+/** Jendela order gudang: 15.00 kemarin → 15.00 sekarang (WIB). Ganti siklus tiap jam 15.00. */
+export function indonesiaOrderCutoffRange(now = new Date()): { from: Date; to: Date; key: string } {
+  const dateKey = indonesiaDateKey(now);
+  const startKey = jakartaHour(now) >= ORDER_CUTOFF_HOUR ? dateKey : addCalendarDays(dateKey, -1);
+  const endKey = addCalendarDays(startKey, 1);
+  return {
+    key: startKey,
+    from: new Date(`${startKey}T${String(ORDER_CUTOFF_HOUR).padStart(2, "0")}:00:00${INDONESIA_OFFSET}`),
+    to: new Date(`${endKey}T${String(ORDER_CUTOFF_HOUR).padStart(2, "0")}:00:00${INDONESIA_OFFSET}`),
+  };
+}
+
+export function indonesiaOrderCutoffKey(now = new Date()): string {
+  return indonesiaOrderCutoffRange(now).key;
 }
 
 export function indonesiaDateRange(daysBack: number, now = new Date()): { from: string; to: string } {

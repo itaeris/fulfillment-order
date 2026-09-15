@@ -19,12 +19,22 @@ import { Order, UploadedFile, OrderSummary, DailyStats } from "@/types/order";
 import { calculateSummary, calculateDailyStats } from "@/lib/utils";
 import { toIndonesianError } from "@/lib/errors";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/lib/supabase";
+import { fetchMarketplaceTokenStatus, isShopLinkedPayload } from "@/lib/shop-link-status";
 import {
-  clearDashboardCache,
   getCachedDashboard,
   loadDashboardData,
   type DataSnapshot,
 } from "@/lib/client-data";
+
+const AUTO_SYNC_MS = 5 * 60 * 1000;
+const SYNC_URL: Record<ApiSyncSource, string> = {
+  shopee: "/api/shopee/sync",
+  tiktok: "/api/tiktok/sync",
+  jubelio: "/api/jubelio/sync",
+};
+
+type RealtimeState = "connecting" | "live" | "error";
 
 export default function Dashboard() {
   const { user, profile, isLoading: authLoading } = useAuth();
@@ -51,10 +61,19 @@ export default function Dashboard() {
   const [syncError, setSyncError] = useState("");
   const [syncErrorSource, setSyncErrorSource] = useState<ApiSyncSource | null>(null);
   const [syncProgress, setSyncProgress] = useState(0);
+  const [autoSyncing, setAutoSyncing] = useState(false);
+  const [realtimeState, setRealtimeState] = useState<RealtimeState>("connecting");
   const restoredTab = useRef(false);
   const hasLoaded = useRef(false);
   const syncLock = useRef(false);
+  const autoSyncLock = useRef(false);
   const dataGen = useRef(0);
+  const handleSyncRef = useRef<(
+    source: ApiSyncSource,
+    options?: { silent?: boolean }
+  ) => Promise<void>>();
+  const shopeeLinkedRef = useRef<boolean | null>(null);
+  const tiktokLinkedRef = useRef<boolean | null>(null);
 
   const setActiveTab = useCallback((tab: TabId) => {
     setActiveTabState(tab);
@@ -127,7 +146,7 @@ export default function Dashboard() {
   const summary: OrderSummary = calculateSummary(orders);
   const dailyStats: DailyStats[] = calculateDailyStats(orders);
 
-  const loadData = useCallback(async (mode: "init" | "refresh" = "refresh") => {
+  const loadData = useCallback(async (mode: "init" | "refresh" | "quiet" = "refresh") => {
     const gen = ++dataGen.current;
     const apply = (data: DataSnapshot) => {
       if (gen !== dataGen.current) return;
@@ -150,7 +169,7 @@ export default function Dashboard() {
           return;
         }
         setIsLoading(true);
-      } else if (hasLoaded.current) {
+      } else if (hasLoaded.current && mode === "refresh") {
         setIsRefreshing(true);
       }
 
@@ -161,7 +180,7 @@ export default function Dashboard() {
     } finally {
       hasLoaded.current = true;
       setIsLoading(false);
-      setIsRefreshing(false);
+      if (mode !== "quiet") setIsRefreshing(false);
     }
   }, [setActiveTab]);
 
@@ -171,92 +190,185 @@ export default function Dashboard() {
   }, [authLoading, user, loadData]);
 
   const handleSync = useCallback(
-    async (source: ApiSyncSource) => {
+    async (source: ApiSyncSource, options?: { silent?: boolean }) => {
+      const silent = Boolean(options?.silent);
       if (syncLock.current) return;
       syncLock.current = true;
-      setSyncing(source);
-      setSyncError("");
-      setSyncErrorSource(null);
-      setSyncProgress(0);
+      if (!silent) {
+        setSyncing(source);
+        setSyncError("");
+        setSyncErrorSource(null);
+        setSyncProgress(0);
+      }
       try {
-        if (source === "jubelio" || source === "tiktok" || source === "shopee") {
-          const label =
-            source === "tiktok" ? "TikTok" : source === "shopee" ? "Shopee" : "Jubelio";
-          const syncUrl =
-            source === "tiktok"
-              ? "/api/tiktok/sync"
-              : source === "shopee"
-                ? "/api/shopee/sync"
-                : "/api/jubelio/sync";
-          let startPage = 1;
-          let insertedSoFar = 0;
-          let cursor: unknown;
-          while (true) {
-            const res = await fetch(syncUrl, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ startPage, insertedSoFar, cursor }),
-            });
-            const text = await res.text();
-            let data: {
-              error?: string;
-              done?: boolean;
-              count?: number;
-              nextPage?: number | null;
-              cursor?: unknown;
-            };
-            try {
-              data = JSON.parse(text);
-            } catch {
+        const label =
+          source === "tiktok" ? "TikTok" : source === "shopee" ? "Shopee" : "Jubelio";
+        let startPage = 1;
+        let insertedSoFar = 0;
+        let cursor: unknown;
+        while (true) {
+          const res = await fetch(SYNC_URL[source], {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ startPage, insertedSoFar, cursor }),
+          });
+          const text = await res.text();
+          let data: {
+            error?: string;
+            done?: boolean;
+            count?: number;
+            nextPage?: number | null;
+            cursor?: unknown;
+          };
+          try {
+            data = JSON.parse(text);
+          } catch {
+            if (!silent) {
               setSyncErrorSource(source);
               setSyncError(
                 res.status === 504 || res.status === 500
                   ? "Pengambilan data terlalu lama. Coba lagi."
                   : `Gagal mengambil data ${label}. Coba lagi.`
               );
-              return;
             }
-            if (!res.ok) {
+            return;
+          }
+          if (!res.ok) {
+            if (!silent) {
               setSyncErrorSource(source);
-              setSyncError(
-                toIndonesianError(data.error, `Gagal mengambil data ${label}`)
-              );
-              return;
+              setSyncError(toIndonesianError(data.error, `Gagal mengambil data ${label}`));
             }
-            insertedSoFar = data.count || insertedSoFar;
-            setSyncProgress(insertedSoFar);
-            if (data.done) break;
-            if (!data.nextPage && !data.cursor) break;
-            startPage = data.nextPage || startPage;
-            cursor = data.cursor;
+            return;
           }
-          if (source === "tiktok") {
-            void fetch("/api/tiktok/refresh-status", { method: "POST" });
-          }
-          if (source === "shopee") {
-            void fetch("/api/shopee/refresh-status", { method: "POST" });
-          }
-          await loadData();
-          return;
+          insertedSoFar = data.count || insertedSoFar;
+          if (!silent) setSyncProgress(insertedSoFar);
+          if (data.done) break;
+          if (!data.nextPage && !data.cursor) break;
+          startPage = data.nextPage || startPage;
+          cursor = data.cursor;
         }
-      } catch (err: any) {
-        setSyncErrorSource(source);
-        setSyncError(
-          toIndonesianError(err.message, "Terjadi kesalahan jaringan")
-        );
+        if (source === "tiktok") {
+          void fetch("/api/tiktok/refresh-status", { method: "POST" });
+        }
+        if (source === "shopee") {
+          void fetch("/api/shopee/refresh-status", { method: "POST" });
+        }
+        await loadData(silent ? "quiet" : "refresh");
+      } catch (err: unknown) {
+        if (!silent) {
+          const message = err instanceof Error ? err.message : null;
+          setSyncErrorSource(source);
+          setSyncError(toIndonesianError(message, "Terjadi kesalahan jaringan"));
+        }
       } finally {
         syncLock.current = false;
-        setSyncing(null);
+        if (!silent) setSyncing(null);
       }
     },
     [loadData]
   );
+  handleSyncRef.current = handleSync;
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    let cancelled = false;
+    const loadLinks = async () => {
+      const { shopee, tiktok } = await fetchMarketplaceTokenStatus();
+      if (cancelled) return;
+      shopeeLinkedRef.current = isShopLinkedPayload(shopee);
+      tiktokLinkedRef.current = isShopLinkedPayload(tiktok);
+    };
+    void loadLinks();
+    const onFocus = () => {
+      void loadLinks();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [authLoading, user]);
+
+  useEffect(() => {
+    if (authLoading || !user || isLoading) return;
+    let cancelled = false;
+    let lastRun = 0;
+
+    const run = async () => {
+      const sync = handleSyncRef.current;
+      if (!sync || cancelled || document.hidden || autoSyncLock.current) return;
+      autoSyncLock.current = true;
+      setAutoSyncing(true);
+      lastRun = Date.now();
+      try {
+        for (let i = 0; i < 20 && (shopeeLinkedRef.current == null || tiktokLinkedRef.current == null); i += 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, 250));
+          if (cancelled) return;
+        }
+        if (shopeeLinkedRef.current !== false) {
+          await sync("shopee", { silent: true });
+          if (cancelled) return;
+        }
+        if (tiktokLinkedRef.current !== false) {
+          await sync("tiktok", { silent: true });
+          if (cancelled) return;
+        }
+        await sync("jubelio", { silent: true });
+      } finally {
+        autoSyncLock.current = false;
+        setAutoSyncing(false);
+      }
+    };
+
+    const kick = () => {
+      void run();
+    };
+    const start = window.setTimeout(kick, 1200);
+    const timer = window.setInterval(kick, AUTO_SYNC_MS);
+    const onVisible = () => {
+      if (!document.hidden && Date.now() - lastRun > 60_000) kick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(start);
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [authLoading, user, isLoading]);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    let debounce: number | undefined;
+    const reload = () => {
+      if (syncLock.current) return;
+      window.clearTimeout(debounce);
+      debounce = window.setTimeout(() => {
+        if (!syncLock.current) void loadData("quiet");
+      }, 800);
+    };
+    const channel = supabase
+      .channel("dashboard-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "uploaded_files" }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "live_order_status" }, reload)
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") setRealtimeState("live");
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") setRealtimeState("error");
+        else if (status === "CLOSED") setRealtimeState("connecting");
+      });
+    return () => {
+      window.clearTimeout(debounce);
+      void supabase.removeChannel(channel);
+    };
+  }, [authLoading, user, loadData]);
 
   const apiSync = {
     syncing,
     syncError,
     syncErrorSource,
     syncProgress,
+    autoSyncing,
     onSync: handleSync,
     ...getApiSyncLabels(uploadedFiles),
   };
@@ -306,6 +418,35 @@ export default function Dashboard() {
               <div className="min-w-0">
                 <h2 className="text-base sm:text-lg font-bold text-brand-800 truncate">{pageTitle}</h2>
                 <p className="text-xs text-brand-400 mt-0.5 hidden sm:block">{pageSubtitle}</p>
+                <p className="flex items-center gap-1.5 text-[11px] mt-0.5">
+                  <span
+                    className={
+                      realtimeState === "live"
+                        ? "w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shrink-0"
+                        : realtimeState === "error"
+                          ? "w-1.5 h-1.5 rounded-full bg-red-500 shrink-0"
+                          : "w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                    }
+                  />
+                  <span
+                    className={
+                      realtimeState === "live"
+                        ? "text-green-700"
+                        : realtimeState === "error"
+                          ? "text-red-600"
+                          : "text-amber-700"
+                    }
+                  >
+                    {realtimeState === "live"
+                      ? "Realtime aktif"
+                      : realtimeState === "error"
+                        ? "Realtime terputus"
+                        : "Menghubungkan realtime..."}
+                  </span>
+                  <span className="text-brand-400">
+                    {autoSyncing ? "· sinkron otomatis..." : "· data otomatis tiap 5 menit"}
+                  </span>
+                </p>
               </div>
             </div>
 
@@ -364,7 +505,7 @@ export default function Dashboard() {
                 transition={{ duration: 0.1 }}
                 className="space-y-3 sm:space-y-6"
               >
-                {orders.length === 0 && !syncing ? (
+                {orders.length === 0 && !syncing && !autoSyncing ? (
                   <EmptyDataState onImport={() => setActiveTab("settings")} />
                 ) : isRefreshing || !!syncing ? (
                   <CardsSkeleton />
@@ -418,7 +559,7 @@ function EmptyDataState({ onImport }: { onImport: () => void }) {
         Belum Ada Data
       </h3>
       <p className="text-brand-400 mb-3 sm:mb-4 text-xs sm:text-base">
-        Ambil data Shopee, TikTok, atau Jubelio di Settings.
+        Ambil data Shopee, TikTok, atau Jubelio di Settings, atau tunggu sinkron otomatis.
       </p>
       <button
         onClick={onImport}

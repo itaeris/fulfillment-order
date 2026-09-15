@@ -143,7 +143,7 @@ CREATE TABLE IF NOT EXISTS shopee_tokens (
   merchant_id BIGINT,
   main_account_id BIGINT,
   access_token_expire_at TIMESTAMPTZ,
-  refresh_token_expire_at TIMESTAMPTZ,
+  refresh_token_expire_at TIMESTAMPTZ,  
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -265,6 +265,18 @@ DO $$ BEGIN
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE live_order_status;
   END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'orders'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE orders;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'uploaded_files'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE uploaded_files;
+  END IF;
 END $$;
 
 -- ── Validasi scan kirim hari ini (/scanner-barcode) ──
@@ -286,6 +298,8 @@ CREATE INDEX IF NOT EXISTS idx_overdue_scans_order ON overdue_scans(scan_date, o
 CREATE UNIQUE INDEX IF NOT EXISTS idx_overdue_scans_unique_match
   ON overdue_scans (scan_date, order_id)
   WHERE matched = true AND order_id IS NOT NULL;
+
+ALTER TABLE overdue_scans ADD COLUMN IF NOT EXISTS result TEXT;
 
 ALTER TABLE overdue_scans ENABLE ROW LEVEL SECURITY;
 

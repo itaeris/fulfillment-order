@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { buildDueDateOverview } from "@/lib/due-date";
-import { getAllOverviewOrders, getOverdueScans, findMatchedOverdueScan, insertOverdueScan } from "@/lib/db";
 import {
-  matchOverdueScan,
-  overdueScanMatchFromRow,
-  type OverdueScanStatus,
-} from "@/lib/overdue-scan";
+  findMatchedOverdueScan,
+  getOverdueScans,
+  insertOverdueScan,
+  updateOverdueScanResult,
+} from "@/lib/db";
+import type { OverdueScanStatus } from "@/lib/overdue-scan";
 import { indonesiaDateKey } from "@/lib/timezone";
 
 export async function GET(request: NextRequest) {
@@ -22,51 +22,71 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as { code?: string; scannedBy?: string };
+    const body = (await request.json()) as {
+      code?: string;
+      scannedBy?: string;
+      id?: string;
+      orderId?: string;
+      orderNumber?: string;
+      platform?: string;
+      result?: OverdueScanStatus;
+    };
     const code = String(body.code || "").trim();
     if (!code) {
       return NextResponse.json({ error: "Kode scan kosong" }, { status: 400 });
     }
 
     const scanDate = indonesiaDateKey();
-    const orders = await getAllOverviewOrders();
-    const overview = buildDueDateOverview(orders);
-    const row = matchOverdueScan(code, overview.rows);
+    const orderId = String(body.orderId || "").trim() || undefined;
+    const result: Exclude<OverdueScanStatus, "duplicate"> =
+      body.result === "cancelled" ? "cancelled" : orderId ? "valid" : "not_in_queue";
+    const match = orderId
+      ? {
+          orderId,
+          orderNumber: String(body.orderNumber || "").trim() || code,
+          platform: String(body.platform || "").trim(),
+        }
+      : null;
 
-    if (row) {
-      const match = overdueScanMatchFromRow(row);
-      const existing = await findMatchedOverdueScan(scanDate, match.orderId);
-      if (existing) {
-        return NextResponse.json({
-          status: "duplicate" as OverdueScanStatus,
-          scan: existing,
-          match,
-        });
-      }
-
+    if (match) {
       try {
         const scan = await insertOverdueScan({
-          id: randomUUID(),
+          id: String(body.id || "").trim() || randomUUID(),
           scannedCode: code,
           orderId: match.orderId,
           orderNumber: match.orderNumber,
           platform: match.platform,
           matched: true,
+          result,
           scannedBy: body.scannedBy,
           scanDate,
         });
         return NextResponse.json({
-          status: "valid" as OverdueScanStatus,
+          status: result,
           scan,
           match,
         });
       } catch (error: any) {
         if (error?.code === "23505") {
-          const again = await findMatchedOverdueScan(scanDate, match.orderId);
-          if (again) {
+          const existing = await findMatchedOverdueScan(scanDate, match.orderId);
+          if (existing) {
+            if (result === "cancelled") {
+              const updated = await updateOverdueScanResult(
+                existing.id,
+                "cancelled",
+                code,
+                body.scannedBy
+              );
+              return NextResponse.json({
+                status: "cancelled" as OverdueScanStatus,
+                scan: updated,
+                match,
+              });
+            }
+            const existingResult = String(existing.result || "valid");
             return NextResponse.json({
-              status: "duplicate" as OverdueScanStatus,
-              scan: again,
+              status: (existingResult === "cancelled" ? "cancelled" : "duplicate") as OverdueScanStatus,
+              scan: existing,
               match,
             });
           }
@@ -76,9 +96,10 @@ export async function POST(request: NextRequest) {
     }
 
     const scan = await insertOverdueScan({
-      id: randomUUID(),
+      id: String(body.id || "").trim() || randomUUID(),
       scannedCode: code,
       matched: false,
+      result: "not_in_queue",
       scannedBy: body.scannedBy,
       scanDate,
     });

@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { indonesiaOrderCutoffRange } from "./timezone";
 
 const PAGE_SIZE = 1000;
 
@@ -68,6 +69,133 @@ async function fetchPagedRows(
 export async function getAllOrders() {
   const allRows = await fetchPagedRows("orders", "*", { orderColumn: "order_date" });
   return allRows.map(rowToOrder);
+}
+
+export async function getMarketplaceOrdersMovedOn(dateKey: string) {
+  const start = `${dateKey}T00:00:00+07:00`;
+  const end = `${dateKey}T23:59:59+07:00`;
+  const platforms = ["shopee", "tiktok", "tokopedia"];
+  const movedFilter = `pickup_time.gte.${start},shipped_time.gte.${start},must_ship_before.gte.${start}`;
+  const ordersRes = await supabase
+    .from("orders")
+    .select("*")
+    .in("platform", platforms)
+    .in("status", ["shipped", "delivered"])
+    .or(movedFilter);
+  if (ordersRes.error) throw ordersRes.error;
+
+  const liveRes = await supabase
+    .from("live_order_status")
+    .select("*")
+    .in("platform", platforms)
+    .in("status", ["shipped", "delivered"])
+    .or(movedFilter);
+  if (liveRes.error) throw liveRes.error;
+
+  const fromOrders = (ordersRes.data ?? []).map(rowToOrder);
+  const fromLive = (liveRes.data ?? []).map((row) =>
+    rowToOrder({
+      id: `live-${row.platform}-${row.order_number}`,
+      order_number: row.order_number,
+      platform: row.platform,
+      customer_name: "",
+      product_name: "",
+      quantity: 1,
+      price: 0,
+      total_amount: 0,
+      status: row.status,
+      order_date: row.updated_at || start,
+      shipped_time: row.shipped_time,
+      must_ship_before: row.must_ship_before || end,
+      pickup_time: row.pickup_time,
+      tracking_number: row.tracking_number,
+      courier: row.courier,
+      shipping_option: row.shipping_option,
+      ref_no: row.ref_no,
+    })
+  );
+  return { fromOrders, fromLive };
+}
+
+export type MarketplacePlacedToday = {
+  dateKey: string;
+  total: number;
+  shopee: number;
+  tiktok: number;
+  cancelled: number;
+};
+
+export async function countMarketplacePlacedToday(
+  now = new Date()
+): Promise<MarketplacePlacedToday> {
+  const { from, to, key } = indonesiaOrderCutoffRange(now);
+  const fromIso = from.toISOString();
+  const toIso = to.toISOString();
+  const platforms = ["shopee", "tiktok", "tokopedia"];
+  const select = "order_number, platform, status, order_date, paid_time";
+
+  const byOrderDate = await supabase
+    .from("orders")
+    .select(select)
+    .in("platform", platforms)
+    .gte("order_date", fromIso)
+    .lt("order_date", toIso);
+  if (byOrderDate.error) throw byOrderDate.error;
+
+  const byPaidTime = await supabase
+    .from("orders")
+    .select(select)
+    .in("platform", platforms)
+    .gte("paid_time", fromIso)
+    .lt("paid_time", toIso);
+  if (byPaidTime.error) throw byPaidTime.error;
+
+  const seen = new Set<string>();
+  let shopee = 0;
+  let tiktok = 0;
+  let cancelled = 0;
+  const fromMs = from.getTime();
+  const toMs = to.getTime();
+
+  const inWindow = (value?: string) => {
+    if (!value) return false;
+    const ms = new Date(value).getTime();
+    return Number.isFinite(ms) && ms >= fromMs && ms < toMs;
+  };
+
+  const consider = (row: {
+    order_number?: string;
+    platform?: string;
+    status?: string;
+    order_date?: string;
+    paid_time?: string;
+  }) => {
+    if (!inWindow(row.order_date) && !inWindow(row.paid_time)) return;
+    const number = String(row.order_number || "").trim().toUpperCase();
+    if (!number) return;
+    const platform = String(row.platform || "");
+    const seenKey = `${platform}|${number}`;
+    if (seen.has(seenKey)) return;
+    seen.add(seenKey);
+    const status = String(row.status || "").toLowerCase();
+    if (status === "cancelled" || status === "returned") {
+      cancelled += 1;
+      return;
+    }
+    if (platform === "shopee") shopee += 1;
+    else tiktok += 1;
+  };
+
+  for (const row of byOrderDate.data ?? []) consider(row);
+  for (const row of byPaidTime.data ?? []) consider(row);
+
+  return {
+    dateKey: key,
+    total: shopee + tiktok,
+    shopee,
+    tiktok,
+    cancelled,
+  };
 }
 
 export async function countOrdersByPlatform(platform: string) {
@@ -448,6 +576,15 @@ export async function deleteOverviewOrdersByPlatforms(platforms: string[]) {
   if (error) throw error;
 }
 
+export async function deleteOverviewOrdersByIds(ids: string[]) {
+  if (ids.length === 0) return;
+  const CHUNK = 200;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const { error } = await supabase.from("overview_orders").delete().in("id", ids.slice(i, i + CHUNK));
+    if (error) throw error;
+  }
+}
+
 export async function deleteAllOverviewOrders() {
   const { error } = await supabase.from("overview_orders").delete().neq("id", "");
   if (error) throw error;
@@ -673,6 +810,7 @@ export type OverdueScanRow = {
   orderNumber?: string;
   platform?: string;
   matched: boolean;
+  result?: string;
   scannedAt: Date;
   scannedBy?: string;
   scanDate: string;
@@ -686,6 +824,7 @@ function rowToOverdueScan(r: any): OverdueScanRow {
     orderNumber: r.order_number || undefined,
     platform: r.platform || undefined,
     matched: Boolean(r.matched),
+    result: r.result || undefined,
     scannedAt: r.scanned_at ? new Date(r.scanned_at) : new Date(),
     scannedBy: r.scanned_by || undefined,
     scanDate: String(r.scan_date || "").slice(0, 10),
@@ -724,21 +863,45 @@ export async function insertOverdueScan(input: {
   orderNumber?: string;
   platform?: string;
   matched: boolean;
+  result?: string;
   scannedBy?: string;
   scanDate: string;
 }): Promise<OverdueScanRow> {
+  const payload: Record<string, unknown> = {
+    id: input.id,
+    scanned_code: input.scannedCode,
+    order_id: input.orderId || null,
+    order_number: input.orderNumber || null,
+    platform: input.platform || null,
+    matched: input.matched,
+    result: input.result || (input.matched ? "valid" : "not_in_queue"),
+    scanned_by: input.scannedBy || null,
+    scan_date: input.scanDate,
+  };
+  const first = await supabase.from("overdue_scans").insert(payload).select().single();
+  if (!first.error) return rowToOverdueScan(first.data);
+  if (String(first.error.message || "").includes("result")) {
+    delete payload.result;
+    const retry = await supabase.from("overdue_scans").insert(payload).select().single();
+    if (retry.error) throw retry.error;
+    return rowToOverdueScan(retry.data);
+  }
+  throw first.error;
+}
+
+export async function updateOverdueScanResult(
+  id: string,
+  result: string,
+  scannedCode?: string,
+  scannedBy?: string
+): Promise<OverdueScanRow> {
+  const fields: Record<string, unknown> = { result };
+  if (scannedCode) fields.scanned_code = scannedCode;
+  if (scannedBy !== undefined) fields.scanned_by = scannedBy || null;
   const { data, error } = await supabase
     .from("overdue_scans")
-    .insert({
-      id: input.id,
-      scanned_code: input.scannedCode,
-      order_id: input.orderId || null,
-      order_number: input.orderNumber || null,
-      platform: input.platform || null,
-      matched: input.matched,
-      scanned_by: input.scannedBy || null,
-      scan_date: input.scanDate,
-    })
+    .update(fields)
+    .eq("id", id)
     .select()
     .single();
   if (error) throw error;

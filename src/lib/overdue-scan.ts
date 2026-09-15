@@ -1,7 +1,8 @@
 import { expandMatchKeys, identityKeys, normalizeMatchKey } from "@/lib/order-match";
 import type { DueDateRow } from "@/lib/due-date";
+import type { Order } from "@/types/order";
 
-export type OverdueScanStatus = "valid" | "duplicate" | "not_in_queue";
+export type OverdueScanStatus = "valid" | "duplicate" | "not_in_queue" | "cancelled";
 
 export type OverdueScan = {
   id: string;
@@ -10,6 +11,7 @@ export type OverdueScan = {
   orderNumber?: string;
   platform?: string;
   matched: boolean;
+  result?: Exclude<OverdueScanStatus, "duplicate">;
   scannedAt: Date;
   scannedBy?: string;
   scanDate: string;
@@ -66,14 +68,112 @@ export function overdueScanMatchFromRow(row: DueDateRow): OverdueScanMatch {
   };
 }
 
+export function hydrateOverdueScan(raw: any): OverdueScan {
+  const scannedAt = raw.scannedAt ?? raw.scanned_at;
+  const matched = Boolean(raw.matched);
+  const resultRaw = String(raw.result || "").toLowerCase();
+  const result: OverdueScan["result"] =
+    resultRaw === "cancelled" || resultRaw === "not_in_queue" || resultRaw === "valid"
+      ? resultRaw
+      : matched
+        ? "valid"
+        : "not_in_queue";
+  return {
+    id: String(raw.id || ""),
+    scannedCode: String(raw.scannedCode ?? raw.scanned_code ?? ""),
+    orderId: (raw.orderId ?? raw.order_id) ? String(raw.orderId ?? raw.order_id) : undefined,
+    orderNumber: (raw.orderNumber ?? raw.order_number) ? String(raw.orderNumber ?? raw.order_number) : undefined,
+    platform: raw.platform ? String(raw.platform) : undefined,
+    matched,
+    result,
+    scannedAt: scannedAt ? new Date(scannedAt as string | Date) : new Date(),
+    scannedBy: (raw.scannedBy ?? raw.scanned_by) ? String(raw.scannedBy ?? raw.scanned_by) : undefined,
+    scanDate: String(raw.scanDate ?? raw.scan_date ?? "").slice(0, 10),
+  };
+}
+
+export function isCancelledStatus(status?: string | null) {
+  const value = String(status || "").toLowerCase();
+  return value === "cancelled" || value === "canceled" || value === "returned";
+}
+
+export function rowIsCancelled(row: DueDateRow) {
+  return isCancelledStatus(row.marketplaceOrder?.status) || isCancelledStatus(row.jubelioOrder?.status);
+}
+
+export function buildOrderScanIndex(orders: Order[]): Map<string, Order> {
+  const index = new Map<string, Order>();
+  for (const order of orders) {
+    for (const key of identityKeys(order)) {
+      if (!index.has(key)) index.set(key, order);
+    }
+  }
+  return index;
+}
+
+export function matchOrderFromIndex(code: string, index: Map<string, Order>): Order | undefined {
+  const trimmed = String(code || "").trim();
+  if (!trimmed) return undefined;
+  for (const key of expandMatchKeys(trimmed)) {
+    const order = index.get(key);
+    if (order) return order;
+  }
+  const normalized = normalizeMatchKey(trimmed);
+  if (normalized.length >= 5) return index.get(normalized);
+  return undefined;
+}
+
+export function overdueScanMatchFromOrder(order: Order): OverdueScanMatch {
+  return {
+    orderId: order.id,
+    orderNumber: order.orderNumber,
+    platform: order.platform || "",
+    trackingNumber: order.trackingNumber,
+    rowKey: order.id,
+  };
+}
+
+export function scanResultOf(scan: OverdueScan): Exclude<OverdueScanStatus, "duplicate"> {
+  if (scan.result === "cancelled" || scan.result === "valid" || scan.result === "not_in_queue") {
+    return scan.result;
+  }
+  return scan.matched ? "valid" : "not_in_queue";
+}
+
 export function scannedOrderIds(scans: OverdueScan[]): Set<string> {
   return new Set(
-    scans.filter((scan) => scan.matched && scan.orderId).map((scan) => scan.orderId as string)
+    scans
+      .filter((scan) => scan.matched && scan.orderId && scanResultOf(scan) !== "cancelled")
+      .map((scan) => scan.orderId as string)
   );
 }
 
+export function cancelledScanOrderIds(scans: OverdueScan[]): Set<string> {
+  return new Set(
+    scans
+      .filter((scan) => scan.orderId && scanResultOf(scan) === "cancelled")
+      .map((scan) => scan.orderId as string)
+  );
+}
+
+export function rowHasId(row: DueDateRow, ids: Set<string>) {
+  if (row.marketplaceOrder?.id && ids.has(row.marketplaceOrder.id)) return true;
+  if (row.jubelioOrder?.id && ids.has(row.jubelioOrder.id)) return true;
+  return ids.has(row.key);
+}
+
+export function ordersForScan(scan: OverdueScan, orders: Order[]): Order[] {
+  const keys = new Set([
+    ...expandMatchKeys(scan.orderNumber),
+    ...expandMatchKeys(scan.scannedCode),
+    ...expandMatchKeys(scan.orderId),
+  ]);
+  return orders.filter((order) => {
+    if (scan.orderId && order.id === scan.orderId) return true;
+    return identityKeys(order).some((key) => keys.has(key));
+  });
+}
+
 export function rowIsValidated(row: DueDateRow, validatedIds: Set<string>): boolean {
-  if (row.marketplaceOrder?.id && validatedIds.has(row.marketplaceOrder.id)) return true;
-  if (row.jubelioOrder?.id && validatedIds.has(row.jubelioOrder.id)) return true;
-  return validatedIds.has(row.key);
+  return rowHasId(row, validatedIds);
 }

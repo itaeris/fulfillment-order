@@ -62,6 +62,11 @@ interface DueDateOverviewViewProps {
   lastJubelioFile?: string | null;
   onSignOut: () => void;
   workerName?: string;
+  placedToday?: {
+    total: number;
+    shopee: number;
+    tiktok: number;
+  };
 }
 
 function ShippingLines({ shipping }: { shipping: ShippingBreakdown }) {
@@ -352,6 +357,7 @@ export default function DueDateOverviewView({
   lastJubelioFile,
   onSignOut,
   workerName,
+  placedToday,
 }: DueDateOverviewViewProps) {
   const [showSources, setShowSources] = useState(orders.length === 0);
   const [syncMsg, setSyncMsg] = useState("");
@@ -596,8 +602,9 @@ export default function DueDateOverviewView({
                 <Bell className="w-4 h-4 text-brand-600 shrink-0 mt-0.5" />
                 <p className="text-xs sm:text-sm text-brand-700">
                   <span className="font-semibold">Pengingat:</span>{" "}
-                  {formatNumber(overview.totalOrders)} pesanan Shopee/TikTok perlu dikirim hari ini
-                  ({formatNumber(overview.totalItems)} item). Jubelio tidak dijumlahkan. Preorder yang jatuh tempo hari ini ikut dihitung.
+                  {formatNumber(overview.todayProcessCount)} pesanan Shopee/TikTok antrian hari ini
+                  ({formatNumber(overview.todayProcessItems)} item). Jubelio tidak dijumlahkan.
+                  Pickup kurir dan instant yang sudah "sedang dikirim" tidak mengurangi total ini.
                 </p>
               </div>
               {overview.overdue > 0 || overview.dueSoon > 0 || overview.critical > 0 ? (
@@ -617,11 +624,25 @@ export default function DueDateOverviewView({
             </div>
           )}
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2 sm:gap-3">
             <StatCard
-              label="Perlu dikirim hari ini"
+              label="Order hari ini"
+              value={formatNumber(placedToday?.total ?? 0)}
+              hint="Shopee + TikTok/Tokopedia · cutoff 15.00–15.00 WIB"
+            />
+            <StatCard
+              label="Antrian kirim"
+              value={formatNumber(overview.todayProcessCount)}
+              hint={`${formatNumber(overview.todayProcessItems)} item · tenggat hari ini, tidak turun setelah pickup`}
+            />
+            <StatCard
+              label="Sisa di gudang"
               value={formatNumber(overview.totalOrders)}
-              hint={`${formatNumber(overview.totalItems)} item · Shopee + TikTok, tanpa Jubelio${overview.preorder ? ` · ${overview.preorder} preorder` : ""}`}
+              hint={
+                overview.todayPickedUp > 0
+                  ? `${formatNumber(overview.todayPickedUp)} sudah berangkat (pickup / instant dikirim)`
+                  : "Belum pickup · instant masih diproses ikut di sini"
+              }
             />
             <StatCard
               label="Wajib dikirim sekarang"

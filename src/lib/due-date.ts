@@ -6,6 +6,8 @@ const TZ = INDONESIA_TZ;
 const URGENT_MS = 60 * 60 * 1000;
 
 const SKIP_STATUS = new Set(["cancelled", "returned", "delivered", "shipped"]);
+const DROP_FROM_TODAY_TOTAL = new Set(["cancelled", "returned"]);
+const PICKED_UP_STATUS = new Set(["shipped", "delivered"]);
 
 export type MarketplaceName = "Shopee" | "TikTok" | "Tokopedia";
 
@@ -89,6 +91,9 @@ export interface DueDateOverview {
   missingJubelioRows: DueDateRow[];
   penjualanOnlyRows: DueDateRow[];
   jubelioOnlyRows: DueDateRow[];
+  todayProcessCount: number;
+  todayPickedUp: number;
+  todayProcessItems: number;
 }
 
 function toDate(value?: Date | string | null): Date | undefined {
@@ -150,6 +155,14 @@ function marketplaceName(order?: Order): MarketplaceName | undefined {
 
 function isOpen(order: Order): boolean {
   return !SKIP_STATUS.has(order.status);
+}
+
+function isTodayProcessable(order: Order): boolean {
+  return !DROP_FROM_TODAY_TOTAL.has(order.status);
+}
+
+export function isPickedUpStatus(status?: string | null) {
+  return PICKED_UP_STATUS.has(String(status || ""));
 }
 
 export function parseJubelioMenu(order?: Order | null): JubelioMenu | null {
@@ -329,8 +342,7 @@ function isMarketplaceRelevantToday(row: DueDateRow, today: string): boolean {
   return mk === today || row.overdue;
 }
 
-function isDueOnQueueDate(order: Order, dateKey: string, now: Date): boolean {
-  if (!isOpen(order)) return false;
+function isDueOnDate(order: Order, dateKey: string, now: Date): boolean {
   const due = toDate(order.mustShipBefore);
   const mk = dayKey(due);
   if (!mk) return false;
@@ -342,6 +354,11 @@ function isDueOnQueueDate(order: Order, dateKey: string, now: Date): boolean {
   return mk === dateKey;
 }
 
+function isDueOnQueueDate(order: Order, dateKey: string, now: Date): boolean {
+  if (!isOpen(order)) return false;
+  return isDueOnDate(order, dateKey, now);
+}
+
 /** Pesanan terbuka yang tenggatnya hari ini atau sudah lewat (antrian Kirim hari ini). */
 export function isShipTodayQueueOrder(order: Order, now = new Date()): boolean {
   return isDueOnQueueDate(order, todayKey(now), now);
@@ -349,6 +366,55 @@ export function isShipTodayQueueOrder(order: Order, now = new Date()): boolean {
 
 export function filterShipTodayQueue<T extends Order>(orders: T[], now = new Date()): T[] {
   return orders.filter((order) => isShipTodayQueueOrder(order, now));
+}
+
+export function mergeTodayQueueWithPickedUp<T extends Order>(
+  incoming: T[],
+  existing: T[],
+  platforms: string[],
+  now = new Date()
+): T[] {
+  const incomingIds = new Set(incoming.map((order) => order.id));
+  const incomingNumbers = new Set(
+    incoming.map((order) => String(order.orderNumber || "").trim()).filter(Boolean)
+  );
+  const kept = existing.flatMap((order) => {
+    if (!platforms.includes(order.platform)) return [];
+    if (incomingIds.has(order.id)) return [];
+    if (incomingNumbers.has(String(order.orderNumber || "").trim())) return [];
+    if (!isTodayProcessable(order)) return [];
+    if (isPickedUpStatus(order.status)) {
+      return isPickedUpTodayOrder(order, now) ? [order] : [];
+    }
+    if (!isDueOnDate(order, todayKey(now), now)) return [];
+    return [
+      {
+        ...order,
+        status: "shipped" as T["status"],
+        pickupTime: order.pickupTime || now,
+        shippedTime: order.shippedTime || now,
+      },
+    ];
+  });
+  return [...incoming, ...kept];
+}
+
+function movedOutToday(order: Order, now: Date): boolean {
+  if (!isPickedUpStatus(order.status)) return false;
+  const today = todayKey(now);
+  return dayKey(order.pickupTime) === today || dayKey(order.shippedTime) === today;
+}
+
+/** Tetap dihitung di total hari ini meski kurir sudah pickup. Reset tiap ganti hari WIB. */
+export function isPickedUpTodayOrder(order: Order, now = new Date()): boolean {
+  return movedOutToday(order, now);
+}
+
+export function isTodayProcessOrder(order: Order, now = new Date()): boolean {
+  if (order.platform === "jubelio") return false;
+  if (!isTodayProcessable(order)) return false;
+  if (isPickedUpStatus(order.status)) return movedOutToday(order, now);
+  return isDueOnDate(order, todayKey(now), now);
 }
 
 /** Pesanan toko (bukan Jubelio) yang masih terbuka dan tenggatnya pada `dateKey` (YYYY-MM-DD, Asia/Jakarta). */
@@ -542,8 +608,10 @@ export function buildDueDateOverview(orders: Order[], now = new Date()): DueDate
   const open = orders.filter(isOpen);
   const openJubelio = open.filter((o) => o.platform === "jubelio");
   const matchableJubelio = orders.filter(isMatchableJubelio);
-  const platformOrders = open.filter(
-    (o) => o.platform === "shopee" || o.platform === "tiktok" || o.platform === "tokopedia"
+  const platformOrders = orders.filter(
+    (o) =>
+      (o.platform === "shopee" || o.platform === "tiktok" || o.platform === "tokopedia") &&
+      isTodayProcessable(o)
   );
 
   const { pairs, matchedJubelio, matchedPlatform } = matchOrders(matchableJubelio, platformOrders);
@@ -581,9 +649,12 @@ export function buildDueDateOverview(orders: Order[], now = new Date()): DueDate
     return a.remainingMs - b.remainingMs;
   };
 
-  const rows = pairedAndPlatform
+  const todayProcessRows = pairedAndPlatform
     .filter((row) => Boolean(row.marketplaceOrder) && isMarketplaceRelevantToday(row, today))
     .sort(byUrgency);
+  const rows = todayProcessRows.filter(
+    (row) => row.marketplaceOrder && isOpen(row.marketplaceOrder)
+  );
   const jubelioOnlyRows = unmatchedJubelio
     .filter((row) => isJubelioOnlyRelevantToday(row, today))
     .sort(byUrgency);
@@ -667,5 +738,10 @@ export function buildDueDateOverview(orders: Order[], now = new Date()): DueDate
     missingJubelioRows,
     penjualanOnlyRows,
     jubelioOnlyRows,
+    todayProcessCount: todayProcessRows.filter(
+      (row) => row.marketplace === "Shopee" || row.marketplace === "TikTok" || row.marketplace === "Tokopedia"
+    ).length,
+    todayPickedUp: todayProcessRows.filter((row) => isPickedUpStatus(row.marketplaceOrder?.status)).length,
+    todayProcessItems: todayProcessRows.reduce((sum, row) => sum + row.quantity, 0),
   };
 }

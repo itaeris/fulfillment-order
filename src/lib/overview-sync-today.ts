@@ -1,11 +1,19 @@
 import {
-  countOverviewOrdersByPlatforms,
   getAllOverviewOrders,
+  getMarketplaceOrdersMovedOn,
   insertOverviewFile,
   insertOverviewOrders,
+  deleteOverviewOrdersByIds,
   replaceOverviewOrdersByPlatforms,
 } from "@/lib/db";
-import { filterShipTodayQueue, unmatchedMarketplaceOrders } from "@/lib/due-date";
+import {
+  filterShipTodayQueue,
+  isPickedUpStatus,
+  isPickedUpTodayOrder,
+  isTodayProcessOrder,
+  mergeTodayQueueWithPickedUp,
+  unmatchedMarketplaceOrders,
+} from "@/lib/due-date";
 import { fetchJubelioOrdersByKeys, fetchJubelioReadyToShipBatch } from "@/lib/jubelio-api";
 import {
   fetchShopeeReadyToShipBatch,
@@ -18,6 +26,7 @@ import {
   mapTikTokListedOrders,
 } from "@/lib/tiktok-api";
 import { toIndonesianError } from "@/lib/errors";
+import { indonesiaDateKey } from "@/lib/timezone";
 import { Order, Platform } from "@/types/order";
 
 type OverviewSyncSource = "shopee" | "tiktok" | "jubelio";
@@ -130,22 +139,68 @@ export async function backfillJubelioMirrors(limit = 50): Promise<{
   return { missing: unmatched.length, lookedUp: keys.length, found: found.length };
 }
 
+export async function retainOverviewTodayPickedUp(): Promise<{ added: number; pruned: number }> {
+  const now = new Date();
+  const dateKey = indonesiaDateKey(now);
+  const existing = await getAllOverviewOrders();
+  const staleIds = existing
+    .filter(
+      (order) =>
+        order.platform !== "jubelio" &&
+        isPickedUpStatus(order.status) &&
+        !isPickedUpTodayOrder(order, now)
+    )
+    .map((order) => order.id);
+  if (staleIds.length > 0) {
+    await deleteOverviewOrdersByIds(staleIds);
+  }
+  const remaining = existing.filter((order) => !staleIds.includes(order.id));
+  const haveIds = new Set(remaining.map((order) => order.id));
+  const haveNumbers = new Set(
+    remaining.map((order) => String(order.orderNumber || "").trim().toUpperCase()).filter(Boolean)
+  );
+  const { fromOrders, fromLive } = await getMarketplaceOrdersMovedOn(dateKey);
+  const extras: Order[] = [];
+  for (const order of [...fromOrders, ...fromLive]) {
+    if (!isTodayProcessOrder(order, now)) continue;
+    const number = String(order.orderNumber || "").trim().toUpperCase();
+    if (haveIds.has(order.id) || (number && haveNumbers.has(number))) continue;
+    haveIds.add(order.id);
+    if (number) haveNumbers.add(number);
+    extras.push({
+      ...order,
+      status: order.status === "delivered" ? "delivered" : "shipped",
+      pickupTime: order.pickupTime || now,
+      shippedTime: order.shippedTime || now,
+    });
+  }
+  if (extras.length > 0) {
+    await insertOverviewOrders(extras.map(toInput));
+  }
+  return { added: extras.length, pruned: staleIds.length };
+}
+
 export async function persistOverviewToday(
   source: OverviewSyncSource,
   orders: Order[]
 ): Promise<OverviewTodaySyncResult> {
   const meta = FILE_META[source];
-  const existing = await countOverviewOrdersByPlatforms(meta.platforms);
-  if (orders.length === 0 && existing > 0) {
-    return { source, count: existing, preserved: true };
+  const existingAll = await getAllOverviewOrders();
+  const existing = existingAll.filter((order) => meta.platforms.includes(order.platform));
+  if (orders.length === 0 && existing.length > 0) {
+    return { source, count: existing.length, preserved: true };
   }
-  await replaceOverviewOrdersByPlatforms(meta.platforms, orders.map(toInput));
+  const keptMerged = mergeTodayQueueWithPickedUp(orders, existing, meta.platforms);
+  await replaceOverviewOrdersByPlatforms(meta.platforms, keptMerged.map(toInput));
+  await retainOverviewTodayPickedUp().catch((error) => {
+    console.error("retain today picked up skipped:", error);
+  });
   await insertOverviewFile({
     name: meta.name,
     platform: meta.platforms[0],
-    orderCount: orders.length,
+    orderCount: keptMerged.length,
   });
-  return { source, count: orders.length };
+  return { source, count: keptMerged.length };
 }
 
 export async function syncOverviewTodaySource(

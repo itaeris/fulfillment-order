@@ -11,6 +11,7 @@ export interface ApiSyncState {
   syncError: string;
   syncErrorSource: ApiSyncSource | null;
   syncProgress: number;
+  autoSyncing?: boolean;
   onSync: (source: ApiSyncSource) => void;
   lastTiktokSync: string | null;
   lastJubelioSync: string | null;
@@ -56,14 +57,15 @@ export default function ApiSyncBar({
   syncing,
   syncError,
   syncProgress,
+  autoSyncing,
   onSync,
   lastTiktokSync,
   lastJubelioSync,
   lastShopeeSync,
-  hint = "Cukup ambil data sekali. Yang sudah ada disimpan, sync berikutnya hanya yang berubah.",
+  hint = "Data dashboard disinkronkan otomatis. Tombol ini untuk tarik ulang sekarang.",
   compact = false,
 }: ApiSyncState & { hint?: string; compact?: boolean }) {
-  const busy = !!syncing;
+  const busy = !!syncing || Boolean(autoSyncing);
   const progressLabel =
     syncProgress > 0 ? `Mengambil data... ${syncProgress.toLocaleString("id-ID")}` : "Mengambil data...";
 

@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   LogOut,
   ScanLine,
+  XCircle,
 } from "lucide-react";
 import { cn, formatNumber } from "@/lib/utils";
 import {
@@ -24,33 +25,54 @@ import { Order } from "@/types/order";
 import { OrderDetailPreview } from "@/components/OrderDetailPreview";
 import { PlatformLogo } from "@/components/PlatformLogo";
 import {
+  buildOrderScanIndex,
+  buildOverdueScanIndex,
+  cancelledScanOrderIds,
+  hydrateOverdueScan,
+  isCancelledStatus,
+  matchOrderFromIndex,
+  matchOverdueScanFromIndex,
+  ordersForScan,
+  overdueScanMatchFromOrder,
+  overdueScanMatchFromRow,
+  rowHasId,
+  rowIsCancelled,
   rowIsValidated,
   scannedOrderIds,
+  scanResultOf,
   type OverdueScan,
+  type OverdueScanMatch,
   type OverdueScanStatus,
 } from "@/lib/overdue-scan";
+import { indonesiaDateKey } from "@/lib/timezone";
 
-function hydrateScanLike(scan: OverdueScan): OverdueScan {
-  return {
-    ...scan,
-    scannedAt: scan.scannedAt ? new Date(scan.scannedAt) : new Date(),
-  };
-}
-
-type FilterId = "pending" | "valid" | "overdue" | "all";
+type FilterId = "pending" | "valid" | "overdue" | "cancelled" | "all";
 
 interface OverdueScanViewProps {
   orders: Order[];
   scans: OverdueScan[];
   onScansChange: (scans: OverdueScan[]) => void;
+  onOrdersChange: (orders: Order[]) => void;
+  onSkipShipping: (orders: Order[]) => void;
   onRefresh: () => void;
   onSignOut: () => void;
   workerName?: string;
+  placedToday?: {
+    total: number;
+    shopee: number;
+    tiktok: number;
+  };
 }
+
+let scanBeepCtx: AudioContext | null = null;
 
 function playBeep(status: OverdueScanStatus) {
   try {
-    const ctx = new AudioContext();
+    const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    if (!scanBeepCtx) scanBeepCtx = new AudioCtx();
+    const ctx = scanBeepCtx;
+    if (ctx.state === "suspended") void ctx.resume();
     const beep = (freq: number, start: number, duration: number) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -64,7 +86,10 @@ function playBeep(status: OverdueScanStatus) {
     };
     if (status === "valid") beep(880, 0, 0.12);
     else if (status === "duplicate") beep(520, 0, 0.16);
-    else {
+    else if (status === "cancelled") {
+      beep(360, 0, 0.1);
+      beep(280, 0.12, 0.14);
+    } else {
       beep(220, 0, 0.12);
       beep(180, 0.16, 0.16);
     }
@@ -121,21 +146,35 @@ function StatCard({
   value,
   hint,
   valueClass,
+  onClick,
 }: {
   label: string;
   value: string | number;
   hint?: string;
   valueClass?: string;
+  onClick?: () => void;
 }) {
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-brand-200 px-3 py-2.5 sm:px-4 sm:py-3">
+  const className = cn(
+    "bg-white rounded-xl shadow-sm border border-brand-200 px-3 py-2.5 sm:px-4 sm:py-3 text-left",
+    onClick && "hover:border-brand-400"
+  );
+  const body = (
+    <>
       <p className="text-[11px] sm:text-xs text-brand-400">{label}</p>
       <p className={cn("text-xl sm:text-2xl font-semibold tracking-tight mt-0.5", valueClass || "text-brand-800")}>
         {value}
       </p>
       {hint ? <p className="text-[11px] text-brand-400 mt-0.5">{hint}</p> : null}
-    </div>
+    </>
   );
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={className}>
+        {body}
+      </button>
+    );
+  }
+  return <div className={className}>{body}</div>;
 }
 
 function statusCopy(status: OverdueScanStatus) {
@@ -144,6 +183,9 @@ function statusCopy(status: OverdueScanStatus) {
   }
   if (status === "duplicate") {
     return { title: "Sudah discan sebelumnya", className: "bg-amber-50 border-amber-200 text-amber-900" };
+  }
+  if (status === "cancelled") {
+    return { title: "Dibatalkan — skip pengiriman", className: "bg-slate-100 border-slate-300 text-slate-800" };
   }
   return { title: "Tidak ada di antrian kirim hari ini", className: "bg-red-50 border-red-200 text-red-800" };
 }
@@ -160,98 +202,251 @@ export default function OverdueScanView({
   orders,
   scans,
   onScansChange,
+  onOrdersChange,
+  onSkipShipping,
   onRefresh,
   onSignOut,
   workerName,
+  placedToday,
 }: OverdueScanViewProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const previewOpenRef = useRef(false);
+  const scansRef = useRef(scans);
+  scansRef.current = scans;
   const [code, setCode] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [filter, setFilter] = useState<FilterId>("pending");
-  const [previewRow, setPreviewRow] = useState<DueDateRow | null>(null);
+  const [preview, setPreview] = useState<{
+    title: string;
+    orders: Order[];
+    row?: DueDateRow;
+  } | null>(null);
   const [flash, setFlash] = useState<{
     status: OverdueScanStatus;
     code: string;
     orderNumber?: string;
   } | null>(null);
   const [error, setError] = useState("");
+  const previewOpen = Boolean(preview);
+  previewOpenRef.current = previewOpen;
+
+  const focusScanInput = () => {
+    if (previewOpenRef.current) return;
+    inputRef.current?.focus({ preventScroll: true });
+  };
 
   const overview = useMemo(() => buildDueDateOverview(orders), [orders]);
+  const scanIndex = useMemo(() => buildOverdueScanIndex(overview.rows), [overview.rows]);
+  const orderIndex = useMemo(() => buildOrderScanIndex(orders), [orders]);
   const validatedIds = useMemo(() => scannedOrderIds(scans), [scans]);
+  const cancelledIds = useMemo(() => cancelledScanOrderIds(scans), [scans]);
+  const cancelledScans = useMemo(
+    () => scans.filter((scan) => scanResultOf(scan) === "cancelled"),
+    [scans]
+  );
   const unmatched = useMemo(
-    () => scans.filter((scan) => !scan.matched).slice(0, 20),
+    () => scans.filter((scan) => scanResultOf(scan) === "not_in_queue").slice(0, 20),
     [scans]
   );
 
   const rowsWithStatus = useMemo(
     () =>
-      overview.rows.map((row) => ({
-        row,
-        validated: rowIsValidated(row, validatedIds),
-      })),
-    [overview.rows, validatedIds]
+      overview.rows
+        .filter((row) => !rowHasId(row, cancelledIds) && !rowIsCancelled(row))
+        .map((row) => ({
+          row,
+          validated: rowIsValidated(row, validatedIds),
+        })),
+    [overview.rows, validatedIds, cancelledIds]
   );
 
   const validCount = rowsWithStatus.filter((item) => item.validated).length;
-  const pendingCount = overview.totalOrders - validCount;
+  const pendingCount = rowsWithStatus.length - validCount;
   const overduePending = rowsWithStatus.filter((item) => item.row.overdue && !item.validated).length;
+  const shippingCount = rowsWithStatus.length;
 
   const visible = useMemo(() => {
     return rowsWithStatus.filter(({ row, validated }) => {
       if (filter === "pending") return !validated;
       if (filter === "valid") return validated;
       if (filter === "overdue") return row.overdue;
+      if (filter === "cancelled") return false;
       return true;
     });
   }, [rowsWithStatus, filter]);
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    focusScanInput();
+  }, [previewOpen, flash]);
 
-  const submitScan = async (raw: string) => {
-    const next = raw.trim();
-    if (!next || submitting) return;
-    setSubmitting(true);
-    setError("");
-    try {
-      const res = await fetch("/api/overdue/scans", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: next, scannedBy: workerName }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        status?: OverdueScanStatus;
-        scan?: OverdueScan;
-        match?: { orderNumber?: string } | null;
-        error?: string;
-      };
-      if (!res.ok || !data.status || !data.scan) {
-        setError(data.error || "Gagal menyimpan scan");
-        playBeep("not_in_queue");
-        return;
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (previewOpen) return;
+      const el = inputRef.current;
+      if (!el || document.activeElement === el) return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.key.length === 1 || event.key === "Enter") {
+        el.focus({ preventScroll: true });
       }
-      const scan = hydrateScanLike(data.scan);
-      onScansChange([scan, ...scans.filter((item) => item.id !== scan.id)]);
-      setFlash({
-        status: data.status,
-        code: next,
-        orderNumber: data.match?.orderNumber,
-      });
-      playBeep(data.status);
-    } catch {
-      setError("Gagal menyimpan scan");
-      playBeep("not_in_queue");
-    } finally {
-      setCode("");
-      setSubmitting(false);
-      inputRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [previewOpen]);
+
+  const submitScan = (raw: string) => {
+    const next = raw.trim();
+    if (!next) return;
+
+    setCode("");
+    setError("");
+    window.requestAnimationFrame(() => focusScanInput());
+
+    const row = matchOverdueScanFromIndex(next, scanIndex);
+    const order = matchOrderFromIndex(next, orderIndex);
+    const cancelled = Boolean(
+      (row && rowIsCancelled(row)) || (order && isCancelledStatus(order.status))
+    );
+    const match: OverdueScanMatch | null = row
+      ? overdueScanMatchFromRow(row)
+      : order
+        ? overdueScanMatchFromOrder(order)
+        : null;
+
+    let status: OverdueScanStatus = "not_in_queue";
+    if (cancelled && match) status = "cancelled";
+    else if (row && match) {
+      status = rowIsValidated(row, scannedOrderIds(scansRef.current)) ? "duplicate" : "valid";
+    } else if (match && cancelledScanOrderIds(scansRef.current).has(match.orderId)) {
+      status = "duplicate";
     }
+
+    if (status === "valid" && match && cancelledScanOrderIds(scansRef.current).has(match.orderId)) {
+      status = "cancelled";
+    }
+
+    if (status === "cancelled" && match) {
+      const existing = scansRef.current.find(
+        (scan) => scan.orderId === match.orderId && scanResultOf(scan) === "cancelled"
+      );
+      if (existing) status = "duplicate";
+    }
+
+    setFlash({
+      status,
+      code: next,
+      orderNumber: match?.orderNumber,
+    });
+    playBeep(status);
+
+    if (status === "duplicate") return;
+
+    const scan: OverdueScan = {
+      id: crypto.randomUUID(),
+      scannedCode: next,
+      orderId: match?.orderId,
+      orderNumber: match?.orderNumber,
+      platform: match?.platform,
+      matched: status === "valid" || status === "cancelled",
+      result:
+        status === "cancelled" ? "cancelled" : status === "valid" ? "valid" : "not_in_queue",
+      scannedAt: new Date(),
+      scannedBy: workerName,
+      scanDate: indonesiaDateKey(),
+    };
+
+    if (status === "cancelled" && match) {
+      const existingValid = scansRef.current.find(
+        (item) => item.matched && item.orderId === match.orderId
+      );
+      if (existingValid) scan.id = existingValid.id;
+    }
+
+    const nextScans = [
+      scan,
+      ...scansRef.current.filter(
+        (item) => item.id !== scan.id && (!scan.orderId || item.orderId !== scan.orderId)
+      ),
+    ];
+    scansRef.current = nextScans;
+    onScansChange(nextScans);
+
+    if (status === "cancelled") {
+      const kickIds = new Set(
+        [row?.marketplaceOrder?.id, row?.jubelioOrder?.id, order?.id, match?.orderId].filter(Boolean) as string[]
+      );
+      const kicked = orders
+        .filter((item) => kickIds.has(item.id))
+        .map((item) => ({ ...item, status: "cancelled" as const }));
+      if (kicked.length > 0) {
+        const kickedIds = new Set(kicked.map((item) => item.id));
+        onOrdersChange(orders.map((item) => (kickedIds.has(item.id) ? { ...item, status: "cancelled" } : item)));
+        onSkipShipping(kicked);
+      }
+    }
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/overdue/scans", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: scan.id,
+            code: next,
+            scannedBy: workerName,
+            orderId: match?.orderId,
+            orderNumber: match?.orderNumber,
+            platform: match?.platform,
+            result: status,
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          status?: OverdueScanStatus;
+          scan?: OverdueScan;
+          error?: string;
+        };
+        if (!res.ok || !data.status || !data.scan) {
+          setError(data.error || "Gagal menyimpan scan");
+          return;
+        }
+        const saved = hydrateOverdueScan(data.scan);
+        const merged = [saved, ...scansRef.current.filter((item) => item.id !== scan.id && item.id !== saved.id)];
+        scansRef.current = merged;
+        onScansChange(merged);
+        if (data.status !== status) {
+          setFlash({
+            status: data.status,
+            code: next,
+            orderNumber: match?.orderNumber || saved.orderNumber,
+          });
+          playBeep(data.status);
+        }
+      } catch {
+        setError("Gagal menyimpan scan");
+      }
+    })();
   };
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     void submitScan(code);
+  };
+
+  const openRowPreview = (row: DueDateRow) => {
+    setPreview({
+      title: row.orderNumber,
+      row,
+      orders: [row.marketplaceOrder, row.jubelioOrder].filter(Boolean) as Order[],
+    });
+  };
+
+  const openScanPreview = (scan: OverdueScan) => {
+    const related = ordersForScan(scan, orders);
+    const ids = new Set(related.map((item) => item.id));
+    const row = overview.rows.find((item) => rowHasId(item, ids));
+    setPreview({
+      title: scan.orderNumber || scan.scannedCode,
+      orders: related,
+      row,
+    });
   };
 
   return (
@@ -305,34 +500,51 @@ export default function OverdueScanView({
                 ref={inputRef}
                 value={code}
                 onChange={(event) => setCode(event.target.value)}
-                onBlur={(event) => {
-                  const next = event.relatedTarget as HTMLElement | null;
-                  if (next?.closest("a,button,input,textarea,[role='dialog']")) return;
-                  window.setTimeout(() => inputRef.current?.focus(), 120);
+                onBlur={() => {
+                  window.setTimeout(focusScanInput, 50);
                 }}
-                disabled={submitting}
+                autoFocus
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck={false}
+                enterKeyHint="done"
                 placeholder="Arahkan scanner ke sini, lalu Enter"
                 className="w-full h-12 sm:h-14 pl-11 pr-3 text-lg sm:text-xl font-mono tracking-wide rounded-xl border border-brand-200 bg-cream-50 text-brand-800 placeholder:text-brand-300 focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
             <button
               type="submit"
-              disabled={submitting || !code.trim()}
+              tabIndex={-1}
+              onMouseDown={(event) => event.preventDefault()}
+              disabled={!code.trim()}
               className="px-4 sm:px-5 h-12 sm:h-14 text-sm font-medium text-white bg-brand-600 rounded-xl hover:bg-brand-700 disabled:opacity-50"
             >
               Cek
             </button>
           </div>
           {flash ? (
-            <div className={cn("rounded-xl border px-3 py-2.5 text-sm", statusCopy(flash.status).className)}>
+            <button
+              type="button"
+              onClick={() => {
+                const hit = cancelledScans.find(
+                  (scan) => scan.orderNumber === flash.orderNumber || scan.scannedCode === flash.code
+                ) || scansRef.current.find((scan) => scan.scannedCode === flash.code || scan.orderNumber === flash.orderNumber);
+                if (hit) openScanPreview(hit);
+                else if (flash.orderNumber) {
+                  const row = overview.rows.find((item) => item.orderNumber === flash.orderNumber);
+                  if (row) openRowPreview(row);
+                }
+              }}
+              className={cn("w-full rounded-xl border px-3 py-2.5 text-sm text-left", statusCopy(flash.status).className)}
+            >
               <p className="font-semibold">{statusCopy(flash.status).title}</p>
               <p className="text-xs mt-0.5 font-mono break-all">
                 {flash.orderNumber || flash.code}
               </p>
-            </div>
+              {flash.status === "cancelled" ? (
+                <p className="text-[11px] mt-1">Klik untuk lihat detail · tidak masuk pengiriman</p>
+              ) : null}
+            </button>
           ) : null}
           {error ? <p className="text-xs text-red-600">{error}</p> : null}
         </form>
@@ -340,26 +552,55 @@ export default function OverdueScanView({
 
       <main className="flex-1 overflow-y-auto overflow-x-hidden">
         <div className="max-w-6xl mx-auto px-3 sm:px-6 py-3 sm:py-5 space-y-3 sm:space-y-5">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-            <StatCard label="Antrian hari ini" value={formatNumber(overview.totalOrders)} hint="Shopee + TikTok" />
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2 sm:gap-3">
+            <StatCard
+              label="Order hari ini"
+              value={formatNumber(placedToday?.total ?? 0)}
+              hint="Shopee + TikTok/Tokopedia · cutoff 15.00–15.00 WIB"
+            />
+            <StatCard
+              label="Antrian kirim"
+              value={formatNumber(overview.todayProcessCount)}
+              hint={
+                overview.todayPickedUp > 0
+                  ? `${formatNumber(overview.todayPickedUp)} sudah berangkat · total tetap`
+                  : "Tenggat hari ini, tidak turun setelah pickup"
+              }
+            />
+            <StatCard
+              label="Sisa di gudang"
+              value={formatNumber(shippingCount)}
+              hint="Belum pickup / instant belum dikirim"
+              onClick={() => setFilter("all")}
+            />
             <StatCard
               label="Sudah valid"
               value={formatNumber(validCount)}
               valueClass="text-green-700"
+              onClick={() => setFilter("valid")}
             />
             <StatCard
               label="Belum dicek"
               value={formatNumber(Math.max(0, pendingCount))}
               valueClass={pendingCount > 0 ? "text-amber-700" : undefined}
+              onClick={() => setFilter("pending")}
             />
             <StatCard
               label="Terlambat belum dicek"
               value={formatNumber(overduePending)}
               valueClass={overduePending > 0 ? "text-red-600" : undefined}
+              onClick={() => setFilter("overdue")}
+            />
+            <StatCard
+              label="Cancel"
+              value={formatNumber(cancelledScans.length)}
+              hint="Skip pengiriman"
+              valueClass={cancelledScans.length > 0 ? "text-slate-800" : undefined}
+              onClick={() => setFilter("cancelled")}
             />
           </div>
 
-          {overview.totalOrders === 0 ? (
+          {overview.todayProcessCount === 0 && cancelledScans.length === 0 ? (
             <section className="bg-white rounded-xl shadow-sm border border-brand-200 px-4 py-8 text-center">
               <AlertTriangle className="w-6 h-6 text-amber-600 mx-auto mb-2" />
               <p className="text-sm font-medium text-brand-800">Antrian kirim hari ini masih kosong</p>
@@ -394,8 +635,11 @@ export default function OverdueScanView({
                 <FilterPill active={filter === "overdue"} onClick={() => setFilter("overdue")}>
                   Terlambat {formatNumber(overview.overdue)}
                 </FilterPill>
+                <FilterPill active={filter === "cancelled"} onClick={() => setFilter("cancelled")}>
+                  Cancel {formatNumber(cancelledScans.length)}
+                </FilterPill>
                 <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>
-                  Semua {formatNumber(overview.totalOrders)}
+                  Semua {formatNumber(shippingCount)}
                 </FilterPill>
                 <button
                   type="button"
@@ -436,7 +680,7 @@ export default function OverdueScanView({
                         <tr
                           key={row.key}
                           className={cn("cursor-pointer hover:bg-cream-50", rowTone(row, validated))}
-                          onClick={() => setPreviewRow(row)}
+                          onClick={() => openRowPreview(row)}
                         >
                           <td className="px-3 py-2 whitespace-nowrap">
                             {validated ? (
@@ -490,6 +734,50 @@ export default function OverdueScanView({
             </div>
           </section>
 
+          {filter === "cancelled" || cancelledScans.length > 0 ? (
+            <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="px-3 sm:px-4 py-2.5 border-b border-slate-200">
+                <h2 className="text-sm font-semibold text-slate-800 inline-flex items-center gap-1.5">
+                  <XCircle className="w-4 h-4" />
+                  Cancel — skip pengiriman
+                </h2>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Order ID hasil scan yang dibatalkan. Tidak masuk tahap pengiriman. Klik baris untuk lihat detail.
+                </p>
+              </div>
+              {cancelledScans.length === 0 ? (
+                <p className="px-4 py-6 text-center text-xs text-brand-400">Belum ada scan cancel hari ini.</p>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {cancelledScans.map((scan) => (
+                    <button
+                      key={scan.id}
+                      type="button"
+                      onClick={() => openScanPreview(scan)}
+                      className="w-full px-3 sm:px-4 py-2.5 flex items-start justify-between gap-3 text-left hover:bg-slate-50"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-xs font-mono font-medium break-all text-brand-800">
+                          {scan.orderNumber || scan.scannedCode}
+                        </p>
+                        {scan.orderNumber && scan.scannedCode !== scan.orderNumber ? (
+                          <p className="text-[11px] font-mono text-brand-400 break-all mt-0.5">{scan.scannedCode}</p>
+                        ) : null}
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          {scan.platform || "—"} · klik untuk detail
+                        </p>
+                      </div>
+                      <p className="text-[11px] text-brand-400 whitespace-nowrap">
+                        {formatScanTime(scan.scannedAt)}
+                        {scan.scannedBy ? ` · ${scan.scannedBy}` : ""}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+          ) : null}
+
           {unmatched.length > 0 ? (
             <section className="bg-white rounded-xl shadow-sm border border-red-100 overflow-hidden">
               <div className="px-3 sm:px-4 py-2.5 border-b border-red-100">
@@ -513,32 +801,37 @@ export default function OverdueScanView({
       </main>
 
       <OrderDetailPreview
-        open={!!previewRow}
-        onClose={() => setPreviewRow(null)}
-        title={previewRow?.orderNumber || "Detail pesanan"}
+        open={!!preview}
+        onClose={() => setPreview(null)}
+        title={preview?.title || "Detail pesanan"}
         notes={
-          previewRow
+          preview?.row
             ? [
-                { label: "Sisa waktu", value: previewRow.remainingLabel },
-                { label: "Kurir", value: previewRow.courier || "-" },
-                { label: "Resi", value: (previewRow.marketplaceOrder || previewRow.jubelioOrder)?.trackingNumber || "-" },
-                { label: "Menu Jubelio", value: jubelioMenuLabel(previewRow) },
-                { label: "Keterangan Jubelio", value: jubelioMenuHint(previewRow) },
-                { label: "Catatan", value: previewRow.reason },
+                { label: "Sisa waktu", value: preview.row.remainingLabel },
+                { label: "Kurir", value: preview.row.courier || "-" },
+                { label: "Resi", value: (preview.row.marketplaceOrder || preview.row.jubelioOrder)?.trackingNumber || "-" },
+                { label: "Menu Jubelio", value: jubelioMenuLabel(preview.row) },
+                { label: "Keterangan Jubelio", value: jubelioMenuHint(preview.row) },
+                { label: "Catatan", value: preview.row.reason },
               ]
-            : undefined
+            : preview
+              ? [{ label: "Status", value: "Dibatalkan — skip pengiriman" }]
+              : undefined
         }
         sections={
-          previewRow
+          preview?.row
             ? [
-                ...(previewRow.marketplaceOrder
-                  ? [{ label: previewRow.marketplace || "Marketplace", order: previewRow.marketplaceOrder }]
+                ...(preview.row.marketplaceOrder
+                  ? [{ label: preview.row.marketplace || "Marketplace", order: preview.row.marketplaceOrder }]
                   : []),
-                ...(previewRow.jubelioOrder
-                  ? [{ label: "Jubelio", order: previewRow.jubelioOrder }]
+                ...(preview.row.jubelioOrder
+                  ? [{ label: "Jubelio", order: preview.row.jubelioOrder }]
                   : []),
               ]
-            : []
+            : (preview?.orders || []).map((order) => ({
+                label: order.platform === "jubelio" ? "Jubelio" : order.platform,
+                order,
+              }))
         }
       />
     </div>
