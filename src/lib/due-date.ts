@@ -1,7 +1,8 @@
 import { Order } from "@/types/order";
 import { orderNumberKeys, trackingKeys } from "@/lib/order-match";
+import { INDONESIA_TZ } from "@/lib/timezone";
 
-const TZ = "Asia/Jakarta";
+const TZ = INDONESIA_TZ;
 const URGENT_MS = 60 * 60 * 1000;
 
 const SKIP_STATUS = new Set(["cancelled", "returned", "delivered", "shipped"]);
@@ -12,6 +13,8 @@ export type CriticalLevel = "overdue" | "due_soon" | "instant" | null;
 
 export type ShippingKind = "regular" | "instant" | "same_day";
 
+export type JubelioMenu = "shipping" | "penjualan";
+
 export interface DueDateRow {
   key: string;
   orderNumber: string;
@@ -19,6 +22,7 @@ export interface DueDateRow {
   marketplace?: MarketplaceName;
   marketplaceOrder?: Order;
   jubelioOrder?: Order;
+  jubelioMenu: JubelioMenu | null;
   marketplaceDue?: Date;
   jubelioDue?: Date;
   effectiveDue?: Date;
@@ -83,6 +87,7 @@ export interface DueDateOverview {
   couriers: CourierStat[];
   mismatchRows: DueDateRow[];
   missingJubelioRows: DueDateRow[];
+  penjualanOnlyRows: DueDateRow[];
   jubelioOnlyRows: DueDateRow[];
 }
 
@@ -145,6 +150,43 @@ function marketplaceName(order?: Order): MarketplaceName | undefined {
 
 function isOpen(order: Order): boolean {
   return !SKIP_STATUS.has(order.status);
+}
+
+export function parseJubelioMenu(order?: Order | null): JubelioMenu | null {
+  if (!order || order.platform !== "jubelio") return null;
+  const text = String(order.orderType || "").toLowerCase();
+  if (text.includes("penjualan")) return "penjualan";
+  return "shipping";
+}
+
+export function jubelioMenuLabel(row: Pick<DueDateRow, "jubelioOrder" | "jubelioMenu">): string {
+  if (!row.jubelioOrder) return "Tidak ketemu di Jubelio";
+  if (row.jubelioMenu === "penjualan") return "Jubelio · Penjualan";
+  return "Jubelio · Shipping";
+}
+
+export function jubelioMenuHint(row: DueDateRow): string {
+  const foundAs = row.jubelioOrder?.orderNumber;
+  if (!row.jubelioOrder) {
+    return "Tidak ketemu di Shipping / Siap Kirim. Coba cari nomor ini di menu Penjualan.";
+  }
+  if (row.jubelioMenu === "penjualan") {
+    return `Ketemu di menu Penjualan${foundAs ? ` sebagai ${foundAs}` : ""}, belum muncul di Shipping / Siap Kirim.`;
+  }
+  return `Ketemu di menu Shipping / Siap Kirim${foundAs ? ` sebagai ${foundAs}` : ""}.`;
+}
+
+export function jubelioMenuBadge(row: Pick<DueDateRow, "jubelioOrder" | "jubelioMenu">): {
+  label: string;
+  className: string;
+} {
+  if (!row.jubelioOrder) {
+    return { label: "Tidak di Jubelio", className: "text-amber-800 bg-amber-100" };
+  }
+  if (row.jubelioMenu === "penjualan") {
+    return { label: "Penjualan", className: "text-orange-900 bg-orange-100" };
+  }
+  return { label: "Shipping", className: "text-green-800 bg-green-100" };
 }
 
 function isMatchableJubelio(order: Order): boolean {
@@ -431,6 +473,7 @@ function buildRow(args: {
   const reason = deadlineMismatch
     ? `${baseReason} · Tenggat marketplace ≠ Jubelio`
     : baseReason;
+  const jubelioMenu = parseJubelioMenu(jubelioOrder);
 
   const orderNumber =
     marketplaceOrder?.orderNumber ||
@@ -445,6 +488,7 @@ function buildRow(args: {
     marketplace,
     marketplaceOrder,
     jubelioOrder,
+    jubelioMenu,
     marketplaceDue,
     jubelioDue,
     effectiveDue,
@@ -544,6 +588,7 @@ export function buildDueDateOverview(orders: Order[], now = new Date()): DueDate
     .filter((row) => isJubelioOnlyRelevantToday(row, today))
     .sort(byUrgency);
   const missingJubelioRows = rows.filter((row) => !row.jubelioOrder);
+  const penjualanOnlyRows = rows.filter((row) => row.jubelioMenu === "penjualan");
   const mismatchRows = rows.filter((row) => row.deadlineMismatch);
 
   const bucketsMap = new Map<string, DeadlineBucket>();
@@ -606,7 +651,7 @@ export function buildDueDateOverview(orders: Order[], now = new Date()): DueDate
     totalItems: rows.reduce((sum, row) => sum + row.quantity, 0),
     shopee,
     tiktok,
-    jubelio: rows.filter((r) => r.jubelioOrder).length,
+    jubelio: rows.filter((r) => r.jubelioMenu === "shipping").length,
     instant: rows.filter((r) => r.instant).length,
     urgent: rows.filter((r) => r.critical).length,
     overdue: rows.filter((r) => r.overdue).length,
@@ -620,6 +665,7 @@ export function buildDueDateOverview(orders: Order[], now = new Date()): DueDate
     couriers: Array.from(courierMap.values()).sort((a, b) => b.orders - a.orders),
     mismatchRows,
     missingJubelioRows,
+    penjualanOnlyRows,
     jubelioOnlyRows,
   };
 }

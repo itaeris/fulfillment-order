@@ -79,3 +79,22 @@ export function identityKeys(order: {
 function uniqueKeys(keys: string[]): string[] {
   return Array.from(new Set(keys.filter(Boolean)));
 }
+
+/** Varian ID untuk GET /sales/orders/{id} — Shopee di Jubelio biasanya SP-{sn}. */
+export function jubelioApiLookupKeys(value?: string | null): string[] {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return [];
+  const keys = new Set<string>([trimmed]);
+  const n = normalizeMatchKey(trimmed);
+  const prefixed = n.match(/^(SP|TT|TP|TTS)(.+)$/);
+  if (prefixed && prefixed[2].length >= 8) {
+    const rest = trimmed.replace(/^(SP|TT|TP|TTS)-?/i, "");
+    if (rest) keys.add(rest);
+  } else if (/^\d{6,}[A-Z0-9]*$/i.test(n)) {
+    keys.add(`SP-${trimmed}`);
+  } else if (/^\d{12,}$/.test(n)) {
+    keys.add(`TT-${trimmed}`);
+    keys.add(`TP-${trimmed}`);
+  }
+  return Array.from(keys);
+}

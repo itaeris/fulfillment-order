@@ -1,5 +1,6 @@
 import { Order, OrderStatus } from "@/types/order";
 import { sanitizeOrderMetrics } from "@/lib/utils";
+import { addCalendarDays, indonesiaDateKey, indonesiaDayEndUnix, indonesiaDayStartUnix } from "@/lib/timezone";
 import {
   ensureFreshTokens,
   getShopeeBaseUrl,
@@ -299,11 +300,13 @@ function mapShopeeOrder(order: ShopeeOrder): Order[] {
 }
 
 function timeWindows(days: number, windowDays = 15): { from: number; to: number }[] {
-  const now = Math.floor(Date.now() / 1000);
+  const today = indonesiaDateKey();
+  const nowUnix = Math.floor(Date.now() / 1000);
+  const toBound = Math.min(nowUnix, indonesiaDayEndUnix(today));
+  const oldest = indonesiaDayStartUnix(addCalendarDays(today, -days));
   const span = windowDays * 24 * 60 * 60;
   const windows: { from: number; to: number }[] = [];
-  let to = now;
-  const oldest = now - days * 24 * 60 * 60;
+  let to = toBound;
   while (to > oldest) {
     const from = Math.max(oldest, to - span + 1);
     windows.push({ from, to });

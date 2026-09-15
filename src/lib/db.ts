@@ -663,3 +663,84 @@ function rowToFile(r: any) {
     orderCount: r.order_count,
   };
 }
+
+// ── Validasi scan kirim hari ini (overdue_scans) ──
+
+export type OverdueScanRow = {
+  id: string;
+  scannedCode: string;
+  orderId?: string;
+  orderNumber?: string;
+  platform?: string;
+  matched: boolean;
+  scannedAt: Date;
+  scannedBy?: string;
+  scanDate: string;
+};
+
+function rowToOverdueScan(r: any): OverdueScanRow {
+  return {
+    id: r.id,
+    scannedCode: r.scanned_code,
+    orderId: r.order_id || undefined,
+    orderNumber: r.order_number || undefined,
+    platform: r.platform || undefined,
+    matched: Boolean(r.matched),
+    scannedAt: r.scanned_at ? new Date(r.scanned_at) : new Date(),
+    scannedBy: r.scanned_by || undefined,
+    scanDate: String(r.scan_date || "").slice(0, 10),
+  };
+}
+
+export async function getOverdueScans(scanDate: string): Promise<OverdueScanRow[]> {
+  const { data, error } = await supabase
+    .from("overdue_scans")
+    .select("*")
+    .eq("scan_date", scanDate)
+    .order("scanned_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(rowToOverdueScan);
+}
+
+export async function findMatchedOverdueScan(
+  scanDate: string,
+  orderId: string
+): Promise<OverdueScanRow | null> {
+  const { data, error } = await supabase
+    .from("overdue_scans")
+    .select("*")
+    .eq("scan_date", scanDate)
+    .eq("order_id", orderId)
+    .eq("matched", true)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? rowToOverdueScan(data) : null;
+}
+
+export async function insertOverdueScan(input: {
+  id: string;
+  scannedCode: string;
+  orderId?: string;
+  orderNumber?: string;
+  platform?: string;
+  matched: boolean;
+  scannedBy?: string;
+  scanDate: string;
+}): Promise<OverdueScanRow> {
+  const { data, error } = await supabase
+    .from("overdue_scans")
+    .insert({
+      id: input.id,
+      scanned_code: input.scannedCode,
+      order_id: input.orderId || null,
+      order_number: input.orderNumber || null,
+      platform: input.platform || null,
+      matched: input.matched,
+      scanned_by: input.scannedBy || null,
+      scan_date: input.scanDate,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return rowToOverdueScan(data);
+}

@@ -1,6 +1,7 @@
 import { Order, OrderStatus } from "@/types/order";
 import { sanitizeOrderMetrics } from "@/lib/utils";
-import { expandMatchKeys, identityKeys } from "@/lib/order-match";
+import { expandMatchKeys, identityKeys, jubelioApiLookupKeys } from "@/lib/order-match";
+import { indonesiaDateRange, parseIndonesiaDateTime } from "@/lib/timezone";
 import {
   ensureJubelioToken,
   getJubelioBaseUrl,
@@ -119,17 +120,7 @@ function mapStatus(raw?: string): OrderStatus {
 }
 
 function toDate(value?: string | number): Date | undefined {
-  if (value == null || value === "") return undefined;
-  if (typeof value === "number") {
-    if (value <= 0) return undefined;
-    const ms = value > 1e12 ? value : value > 1e9 ? value * 1000 : undefined;
-    if (!ms) return undefined;
-    const parsed = new Date(ms);
-    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return undefined;
-  return parsed;
+  return parseIndonesiaDateTime(value);
 }
 
 function isClosedOrder(row: JubelioRawOrder): boolean {
@@ -262,18 +253,16 @@ async function jubelioGet(path: string, query: Record<string, string> = {}): Pro
 }
 
 function dateRangeQuery(): Record<string, string> {
-  const to = new Date();
-  const from = new Date();
-  from.setDate(from.getDate() - 400);
-  const fromStr = from.toISOString().slice(0, 10);
-  const toStr = to.toISOString().slice(0, 10);
+  const { from, to } = indonesiaDateRange(400);
   return {
-    from: fromStr,
-    to: toStr,
-    fromDate: fromStr,
-    toDate: toStr,
-    startDate: fromStr,
-    endDate: toStr,
+    from,
+    to,
+    fromDate: from,
+    toDate: to,
+    startDate: from,
+    endDate: to,
+    timezone: "Asia/Jakarta",
+    tz: "+07:00",
   };
 }
 
@@ -360,7 +349,7 @@ function collectRawIdentityValues(raw: JubelioRawOrder): string[] {
   return values;
 }
 
-function mapRawOrder(raw: JubelioRawOrder): Order {
+function mapRawOrder(raw: JubelioRawOrder, menu: "shipping" | "penjualan" = "shipping"): Order {
   const orderNumber = String(raw.salesorder_no || raw.salesorder_id || rawOrderKey(raw)).trim();
   const items = raw.items ?? raw.salesorder_details ?? [];
   const first = items[0];
@@ -376,6 +365,10 @@ function mapRawOrder(raw: JubelioRawOrder): Order {
   const identityValues = collectRawIdentityValues(raw).filter(
     (value) => value.replace(/[\s\-_.#]+/g, "").toUpperCase() !== orderNumber.replace(/[\s\-_.#]+/g, "").toUpperCase()
   );
+  const originalType = raw.order_type ? String(raw.order_type) : "";
+  const orderType = originalType && originalType !== menu
+    ? `jubelio:${menu}|${originalType}`
+    : `jubelio:${menu}`;
 
   return sanitizeOrderMetrics({
     id: `jubelio-${raw.salesorder_id ?? orderNumber}`,
@@ -403,7 +396,7 @@ function mapRawOrder(raw: JubelioRawOrder): Order {
     shippingAddress: raw.shipping_address,
     city: raw.city,
     province: raw.province,
-    orderType: raw.order_type ? String(raw.order_type) : undefined,
+    orderType,
     isPreorder: Boolean(
       raw.is_po === true ||
         raw.is_po === 1 ||
@@ -555,7 +548,7 @@ export async function fetchJubelioReadyToShipBatch(input: {
     const shortPage = firstRows.length === 0 || firstRows.length < cursor.actualPageSize;
     const nextPage = shortPage && cursor.totalPages <= 1 ? null : 2;
     return {
-      orders: rows.map(mapRawOrder),
+      orders: rows.map((row) => mapRawOrder(row, "shipping")),
       cursor,
       nextPage,
       done: nextPage == null,
@@ -585,7 +578,7 @@ export async function fetchJubelioReadyToShipBatch(input: {
     if (short) {
       const rows = dedupeOrders(collected).filter((row) => rawOrderKey(row));
       return {
-        orders: rows.map(mapRawOrder),
+        orders: rows.map((row) => mapRawOrder(row, "shipping")),
         cursor,
         nextPage: null,
         done: true,
@@ -596,7 +589,7 @@ export async function fetchJubelioReadyToShipBatch(input: {
   const rows = dedupeOrders(collected).filter((row) => rawOrderKey(row));
   const nextPage = endPage < cursor.totalPages ? endPage + 1 : null;
   return {
-    orders: rows.map(mapRawOrder),
+    orders: rows.map((row) => mapRawOrder(row, "shipping")),
     cursor,
     nextPage,
     done: nextPage == null,
@@ -669,18 +662,21 @@ export function mapJubelioStatusLabel(raw?: string): OrderStatus {
 export async function fetchJubelioOrderByKey(key: string): Promise<Order | undefined> {
   const trimmed = String(key || "").trim();
   if (!trimmed) return undefined;
+  const variants = jubelioApiLookupKeys(trimmed);
 
-  const paths = [
-    `/sales/orders/${encodeURIComponent(trimmed)}/`,
-    `/sales/orders/${encodeURIComponent(trimmed)}`,
-  ];
-  for (const path of paths) {
-    try {
-      const json = await jubelioGet(path);
-      const raw = asRawOrder(json);
-      if (raw) return mapRawOrder(raw);
-    } catch {
-      // Coba pencarian q= satu kali, jangan spam /sales/orders/.
+  for (const variant of variants) {
+    const paths = [
+      `/sales/orders/${encodeURIComponent(variant)}/`,
+      `/sales/orders/${encodeURIComponent(variant)}`,
+    ];
+    for (const path of paths) {
+      try {
+        const json = await jubelioGet(path);
+        const raw = asRawOrder(json);
+        if (raw) return mapRawOrder(raw, "penjualan");
+      } catch {
+        // Coba varian ID berikutnya (SP- / tanpa prefix).
+      }
     }
   }
 
@@ -690,14 +686,14 @@ export async function fetchJubelioOrderByKey(key: string): Promise<Order | undef
       page: "1",
       pageSize: "20",
     });
-    const wanted = new Set(expandMatchKeys(trimmed));
+    const wanted = new Set(variants.flatMap((value) => expandMatchKeys(value)));
     const match = flattenOrderRows(extractList(json)).find((row) => {
       const keys = collectRawIdentityValues(row)
         .concat(String(row.salesorder_id ?? ""))
         .flatMap((value) => expandMatchKeys(value));
       return keys.some((item) => wanted.has(item));
     });
-    if (match) return mapRawOrder(match);
+    if (match) return mapRawOrder(match, "penjualan");
   } catch {
     return undefined;
   }

@@ -8,6 +8,9 @@ import {
   buildDueDateOverview,
   formatAnalyzedAt,
   formatDueLabel,
+  jubelioMenuBadge,
+  jubelioMenuHint,
+  jubelioMenuLabel,
   type DueDateRow,
 } from "@/lib/due-date";
 import { Order } from "@/types/order";
@@ -96,6 +99,14 @@ export default function CerminJubelioFullView({
     () => overview.missingJubelioRows.filter((row) => matchesQuery(row, query)),
     [overview.missingJubelioRows, query]
   );
+  const penjualanRows = useMemo(
+    () => overview.penjualanOnlyRows.filter((row) => matchesQuery(row, query)),
+    [overview.penjualanOnlyRows, query]
+  );
+  const notInShippingRows = useMemo(
+    () => [...penjualanRows, ...missingRows],
+    [penjualanRows, missingRows]
+  );
   const jubelioOnlyRows = useMemo(
     () => overview.jubelioOnlyRows.filter((row) => matchesQuery(row, query)),
     [overview.jubelioOnlyRows, query]
@@ -108,7 +119,7 @@ export default function CerminJubelioFullView({
           <div className="min-w-0">
             <h1 className="text-base sm:text-xl font-semibold text-brand-800">Cermin Jubelio</h1>
             <p className="text-[11px] sm:text-xs text-brand-400 mt-0.5">
-              {formatNumber(overview.jubelio)} dari {formatNumber(overview.totalOrders)} pesanan Shopee / TikTok / Tokopedia sudah tercermin
+              {formatNumber(overview.jubelio)} di Shipping · {formatNumber(overview.penjualanOnlyRows.length)} di Penjualan · {formatNumber(overview.missingJubelioRows.length)} belum ketemu
               {workerName ? ` · ${workerName}` : ""} · {formatAnalyzedAt(now)}
             </p>
           </div>
@@ -156,22 +167,22 @@ export default function CerminJubelioFullView({
             <div className="px-3 sm:px-4 py-2.5 border-b border-amber-100 bg-amber-50/80 flex flex-col sm:flex-row sm:items-start gap-2 sm:justify-between shrink-0">
               <div>
                 <h2 className="text-sm font-semibold text-amber-900">
-                  Ada di Shopee / TikTok / Tokopedia, belum di Jubelio
+                  Belum di Jubelio Shipping
                 </h2>
                 <p className="text-[11px] text-amber-800 mt-0.5">
-                  {formatNumber(missingRows.length)}
-                  {query.trim() ? ` dari ${formatNumber(overview.missingJubelioRows.length)}` : ""} nomor — sudah dicari by ID di Jubelio
+                  {formatNumber(notInShippingRows.length)}
+                  {query.trim() ? ` dari ${formatNumber(overview.missingJubelioRows.length + overview.penjualanOnlyRows.length)}` : ""} nomor — ketemu di Penjualan atau tidak ketemu sama sekali
                 </p>
               </div>
               <CopyButton
-                rows={missingRows}
+                rows={notInShippingRows}
                 listId="missing"
                 copiedList={copiedList}
                 onCopied={setCopiedList}
               />
             </div>
             <div className="flex-1 min-h-0 overflow-auto">
-              {missingRows.length === 0 ? (
+              {notInShippingRows.length === 0 ? (
                 <p className="px-4 py-8 text-sm text-brand-400 text-center">Tidak ada.</p>
               ) : (
                 <table className="w-full text-sm">
@@ -179,12 +190,15 @@ export default function CerminJubelioFullView({
                     <tr>
                       <th className="text-left font-medium px-3 py-2">No. pesanan</th>
                       <th className="text-left font-medium px-3 py-2">Platform</th>
+                      <th className="text-left font-medium px-3 py-2">Menu Jubelio</th>
                       <th className="text-left font-medium px-3 py-2">Tenggat</th>
                       <th className="text-left font-medium px-3 py-2">Kurir</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-brand-100">
-                    {missingRows.map((row) => (
+                    {notInShippingRows.map((row) => {
+                      const badge = jubelioMenuBadge(row);
+                      return (
                       <tr
                         key={row.key}
                         onClick={() => setPreviewRow(row)}
@@ -192,16 +206,28 @@ export default function CerminJubelioFullView({
                       >
                         <td className="px-3 py-2 font-mono text-xs font-semibold text-brand-800 break-all">
                           {row.orderNumber}
+                          {row.jubelioOrder?.orderNumber && row.jubelioOrder.orderNumber !== row.orderNumber ? (
+                            <p className="font-normal text-[11px] text-brand-500 mt-0.5">
+                              Jubelio: {row.jubelioOrder.orderNumber}
+                            </p>
+                          ) : null}
                         </td>
                         <td className="px-3 py-2 text-xs text-brand-700 whitespace-nowrap">
                           {row.marketplace || "—"}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${badge.className}`}>
+                            {badge.label}
+                          </span>
+                          <p className="text-[11px] text-brand-500 mt-0.5">{jubelioMenuHint(row)}</p>
                         </td>
                         <td className="px-3 py-2 text-xs text-brand-600 whitespace-nowrap">
                           {formatDueLabel(row.marketplaceDue)}
                         </td>
                         <td className="px-3 py-2 text-xs text-brand-500">{row.courier}</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -271,6 +297,8 @@ export default function CerminJubelioFullView({
             ? [
                 { label: "Sisa waktu", value: previewRow.remainingLabel },
                 { label: "Kurir", value: previewRow.courier || "-" },
+                { label: "Menu Jubelio", value: jubelioMenuLabel(previewRow) },
+                { label: "Keterangan Jubelio", value: jubelioMenuHint(previewRow) },
                 { label: "Catatan", value: previewRow.reason },
                 { label: "Tenggat marketplace", value: formatDueLabel(previewRow.marketplaceDue) },
                 { label: "Tenggat Jubelio", value: formatDueLabel(previewRow.jubelioDue) },

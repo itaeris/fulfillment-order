@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import DueDateOverviewView from "@/components/DueDateOverview";
+import { type ApiSyncSource } from "@/components/ApiSyncBar";
+import DueDateOverviewView, {
+  type OverviewSyncProgress,
+  type RealtimeState,
+} from "@/components/DueDateOverview";
 import { OverviewSkeleton } from "@/components/Skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -25,7 +29,6 @@ import {
 } from "@/lib/client-data";
 import { toIndonesianError } from "@/lib/errors";
 import { isShipTodayQueueOrder } from "@/lib/due-date";
-import { type ApiSyncSource } from "@/components/ApiSyncBar";
 import { fetchMarketplaceTokenStatus, isShopLinkedPayload } from "@/lib/shop-link-status";
 import { supabase } from "@/lib/supabase";
 import { Order, Platform, UploadedFile } from "@/types/order";
@@ -45,6 +48,22 @@ const SYNC_FILE: Record<ApiSyncSource, { name: string; platform: Platform }> = {
 const MAX_API_PAGES = 20;
 const AUTO_SYNC_MS = 3 * 60 * 1000;
 
+function sourceLabel(source: ApiSyncSource) {
+  return source === "jubelio" ? "Jubelio" : source === "shopee" ? "Shopee" : "TikTok";
+}
+
+function fetchProgress(source: ApiSyncSource, page: number, count: number): OverviewSyncProgress {
+  const percent = Math.min(82, 8 + Math.round((page / MAX_API_PAGES) * 74));
+  return {
+    source,
+    percent,
+    label:
+      count > 0
+        ? `${sourceLabel(source)} · halaman ${page} · ${count.toLocaleString("id-ID")} pesanan`
+        : `${sourceLabel(source)} · mengambil halaman ${page}...`,
+  };
+}
+
 export default function OverviewDueDatePage() {
   const { user, profile, isLoading: authLoading, signOut } = useAuth();
   const router = useRouter();
@@ -52,6 +71,9 @@ export default function OverviewDueDatePage() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [syncing, setSyncing] = useState<ApiSyncSource | null>(null);
+  const [syncProgress, setSyncProgress] = useState<OverviewSyncProgress | null>(null);
+  const [autoSyncing, setAutoSyncing] = useState(false);
+  const [realtimeState, setRealtimeState] = useState<RealtimeState>("connecting");
   const [shopeeLinked, setShopeeLinked] = useState<boolean | null>(null);
   const [tiktokLinked, setTiktokLinked] = useState<boolean | null>(null);
   const [connectMsg, setConnectMsg] = useState("");
@@ -63,7 +85,7 @@ export default function OverviewDueDatePage() {
   const tiktokLinkedRef = useRef<boolean | null>(null);
   const handleSyncApiRef = useRef<(
     source: ApiSyncSource,
-    options?: { preserveIfEmpty?: boolean }
+    options?: { preserveIfEmpty?: boolean; silent?: boolean }
   ) => Promise<{ count: number; error?: string }>>();
   ordersRef.current = orders;
   shopeeLinkedRef.current = shopeeLinked;
@@ -217,13 +239,25 @@ export default function OverviewDueDatePage() {
 
   const handleSyncApi = useCallback(async (
     source: ApiSyncSource,
-    options?: { preserveIfEmpty?: boolean }
+    options?: { preserveIfEmpty?: boolean; silent?: boolean }
   ) => {
-    if (syncLock.current) return { count: 0, error: "Sedang mengambil data." };
+    const silent = Boolean(options?.silent);
+    if (syncLock.current) {
+      return {
+        count: 0,
+        error: silent
+          ? undefined
+          : autoSyncLock.current
+            ? "Sedang sinkron otomatis. Tunggu sebentar, lalu ambil data lagi."
+            : "Sedang mengambil data.",
+      };
+    }
     syncLock.current = true;
-    setSyncing(source);
-    const label =
-      source === "tiktok" ? "TikTok" : source === "shopee" ? "Shopee" : "Jubelio";
+    if (!silent) {
+      setSyncing(source);
+      setSyncProgress(fetchProgress(source, 1, 0));
+    }
+    const label = sourceLabel(source);
     const platforms: Platform[] =
       source === "tiktok" ? ["tiktok", "tokopedia"] : [source];
     try {
@@ -232,6 +266,7 @@ export default function OverviewDueDatePage() {
       let insertedSoFar = 0;
       let startPage = 1;
       for (let page = 0; page < MAX_API_PAGES; page += 1) {
+        if (!silent) setSyncProgress(fetchProgress(source, page + 1, collected.length));
         const res = await fetch(SYNC_URL[source], {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -266,6 +301,7 @@ export default function OverviewDueDatePage() {
         const batch = Array.isArray(data.orders) ? data.orders : [];
         collected.push(...batch.map(hydrateOrder).filter((order) => isShipTodayQueueOrder(order)));
         insertedSoFar = data.count || insertedSoFar + batch.length;
+        if (!silent) setSyncProgress(fetchProgress(source, page + 1, collected.length));
         if (data.done) break;
         if (!data.nextPage && !data.cursor) break;
         startPage = data.nextPage || startPage;
@@ -279,6 +315,13 @@ export default function OverviewDueDatePage() {
         return { count: existingCount };
       }
 
+      if (!silent) {
+        setSyncProgress({
+          source,
+          percent: 88,
+          label: `Menyimpan antrian ${label}...`,
+        });
+      }
       const next = await replaceOverviewPlatforms(platforms, collected);
       dataGen.current += 1;
       setOrders(next.map(hydrateOrder));
@@ -296,6 +339,13 @@ export default function OverviewDueDatePage() {
         uploadedFile,
       ]);
       if (!options?.preserveIfEmpty) {
+        if (!silent) {
+          setSyncProgress({
+            source,
+            percent: 96,
+            label: "Mencocokkan cermin Jubelio...",
+          });
+        }
         try {
           const matchRes = await fetch("/api/overview/match-jubelio", { method: "POST" });
           const matchData = (await matchRes.json().catch(() => ({}))) as { found?: number };
@@ -306,6 +356,13 @@ export default function OverviewDueDatePage() {
           // Cermin tetap memakai data yang baru ditarik.
         }
       }
+      if (!silent) {
+        setSyncProgress({
+          source,
+          percent: 100,
+          label: `${collected.length.toLocaleString("id-ID")} pesanan ${label} siap.`,
+        });
+      }
       return { count: collected.length };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : null;
@@ -315,7 +372,10 @@ export default function OverviewDueDatePage() {
       };
     } finally {
       syncLock.current = false;
-      setSyncing(null);
+      if (!silent) {
+        setSyncing(null);
+        setSyncProgress(null);
+      }
     }
   }, [loadData]);
   handleSyncApiRef.current = handleSyncApi;
@@ -329,6 +389,7 @@ export default function OverviewDueDatePage() {
       const sync = handleSyncApiRef.current;
       if (!sync || cancelled || document.hidden || autoSyncLock.current) return;
       autoSyncLock.current = true;
+      setAutoSyncing(true);
       lastRun = Date.now();
       try {
         for (let i = 0; i < 20 && (shopeeLinkedRef.current == null || tiktokLinkedRef.current == null); i += 1) {
@@ -336,14 +397,14 @@ export default function OverviewDueDatePage() {
           if (cancelled) return;
         }
         if (shopeeLinkedRef.current !== false) {
-          await sync("shopee", { preserveIfEmpty: true });
+          await sync("shopee", { preserveIfEmpty: true, silent: true });
           if (cancelled) return;
         }
         if (tiktokLinkedRef.current !== false) {
-          await sync("tiktok", { preserveIfEmpty: true });
+          await sync("tiktok", { preserveIfEmpty: true, silent: true });
           if (cancelled) return;
         }
-        await sync("jubelio", { preserveIfEmpty: true });
+        await sync("jubelio", { preserveIfEmpty: true, silent: true });
         if (cancelled) return;
         try {
           const matchRes = await fetch("/api/overview/match-jubelio", { method: "POST" });
@@ -356,6 +417,7 @@ export default function OverviewDueDatePage() {
         }
       } finally {
         autoSyncLock.current = false;
+        setAutoSyncing(false);
       }
     };
 
@@ -403,7 +465,11 @@ export default function OverviewDueDatePage() {
         { event: "*", schema: "public", table: "live_order_status" },
         reload
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") setRealtimeState("live");
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") setRealtimeState("error");
+        else if (status === "CLOSED") setRealtimeState("connecting");
+      });
     return () => {
       window.clearTimeout(debounce);
       void supabase.removeChannel(channel);
@@ -443,6 +509,9 @@ export default function OverviewDueDatePage() {
       orders={orders}
       onSyncApi={handleSyncApi}
       syncing={syncing}
+      syncProgress={syncProgress}
+      autoSyncing={autoSyncing}
+      realtimeState={realtimeState}
       shopeeLinked={shopeeLinked}
       tiktokLinked={tiktokLinked}
       connectMsg={connectMsg}

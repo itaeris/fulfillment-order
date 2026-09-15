@@ -13,6 +13,7 @@ import {
   Settings,
   ChevronUp,
   CalendarClock,
+  ScanLine,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -168,16 +169,28 @@ export default function Sidebar({
             <p className="px-3 mb-2 text-[10px] font-semibold tracking-widest text-brand-400 uppercase">
               Gudang
             </p>
-            <Link
-              href="/overview-duedate"
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={onClose}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-brand-300 hover:bg-brand-800 hover:text-cream-100"
-            >
-              <CalendarClock className="w-[18px] h-[18px] shrink-0" />
-              <span className="truncate">Kirim hari ini</span>
-            </Link>
+            <div className="space-y-0.5">
+              <Link
+                href="/overview-duedate"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={onClose}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-brand-300 hover:bg-brand-800 hover:text-cream-100"
+              >
+                <CalendarClock className="w-[18px] h-[18px] shrink-0" />
+                <span className="truncate">Kirim hari ini</span>
+              </Link>
+              <Link
+                href="/scanner-barcode"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={onClose}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-brand-300 hover:bg-brand-800 hover:text-cream-100"
+              >
+                <ScanLine className="w-[18px] h-[18px] shrink-0" />
+                <span className="truncate">Validasi scan</span>
+              </Link>
+            </div>
           </div>
         </nav>
 

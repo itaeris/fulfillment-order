@@ -13,6 +13,7 @@ import {
   Search,
   LayoutDashboard,
   Bell,
+  ScanLine,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -21,6 +22,9 @@ import {
   buildDueDateOverview,
   formatAnalyzedAt,
   formatDueLabel,
+  jubelioMenuBadge,
+  jubelioMenuHint,
+  jubelioMenuLabel,
   type DueDateRow,
   type ShippingBreakdown,
 } from "@/lib/due-date";
@@ -34,10 +38,21 @@ export type OverviewSyncResult = {
   error?: string;
 };
 
+export type OverviewSyncProgress = {
+  source: ApiSyncSource;
+  percent: number;
+  label: string;
+};
+
+export type RealtimeState = "connecting" | "live" | "error";
+
 interface DueDateOverviewViewProps {
   orders: Order[];
   onSyncApi: (source: ApiSyncSource) => Promise<OverviewSyncResult>;
   syncing: ApiSyncSource | null;
+  syncProgress?: OverviewSyncProgress | null;
+  autoSyncing?: boolean;
+  realtimeState?: RealtimeState;
   shopeeLinked: boolean | null;
   tiktokLinked: boolean | null;
   connectMsg?: string;
@@ -158,6 +173,21 @@ function rowPlatform(row: DueDateRow): Exclude<PlatformFilter, "all"> {
   return "jubelio";
 }
 
+function SyncProgressBar({ percent, label }: { percent: number; label: string }) {
+  const width = Math.max(6, Math.min(100, percent));
+  return (
+    <div className="space-y-1">
+      <div className="h-1.5 rounded-full bg-brand-100 overflow-hidden">
+        <div
+          className="h-full rounded-full bg-brand-600 transition-[width] duration-300 ease-out"
+          style={{ width: `${width}%` }}
+        />
+      </div>
+      <p className="text-[11px] text-brand-500">{label}</p>
+    </div>
+  );
+}
+
 function SourceCard({
   title,
   titleClass,
@@ -170,6 +200,7 @@ function SourceCard({
   lastFile,
   syncing,
   busy,
+  progress,
   onSync,
 }: {
   title: string;
@@ -183,6 +214,7 @@ function SourceCard({
   lastFile?: string | null;
   syncing: boolean;
   busy: boolean;
+  progress?: OverviewSyncProgress | null;
   onSync: () => void;
 }) {
   const needsConnect = showLinkStatus && linked === false && connectHref;
@@ -219,20 +251,26 @@ function SourceCard({
           disabled={busy}
           className="inline-flex items-center gap-1.5 text-[11px] font-medium text-brand-700 hover:underline disabled:opacity-50 text-left"
         >
-          <Cloud className="w-3.5 h-3.5" />
-          {syncing ? "Mengambil API..." : "Ambil data API"}
+          <Cloud className={cn("w-3.5 h-3.5", syncing && "animate-pulse")} />
+          {syncing ? "Mengambil API..." : busy ? "Menunggu sinkron otomatis..." : "Ambil data API"}
         </button>
       )}
-      <a
-        href={sellerHref}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-1.5 text-[11px] font-medium text-brand-500 hover:underline"
-      >
-        <ExternalLink className="w-3.5 h-3.5" />
-        Seller Centre
-      </a>
-      <span className="text-[11px] text-brand-400">{lastFile || "Belum ada data"}</span>
+      {syncing && progress ? (
+        <SyncProgressBar percent={progress.percent} label={progress.label} />
+      ) : (
+        <>
+          <a
+            href={sellerHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-[11px] font-medium text-brand-500 hover:underline"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            Seller Centre
+          </a>
+          <span className="text-[11px] text-brand-400">{lastFile || "Belum ada data"}</span>
+        </>
+      )}
     </div>
   );
 }
@@ -302,6 +340,9 @@ export default function DueDateOverviewView({
   orders,
   onSyncApi,
   syncing,
+  syncProgress = null,
+  autoSyncing = false,
+  realtimeState = "connecting",
   shopeeLinked,
   tiktokLinked,
   connectMsg,
@@ -323,7 +364,7 @@ export default function DueDateOverviewView({
   const overview = useMemo(() => buildDueDateOverview(orders), [orders]);
   const liveNow = useGoogleClock();
   const maxCourier = Math.max(1, ...overview.couriers.map((c) => c.orders));
-  const busy = !!syncing;
+  const busy = !!syncing || autoSyncing;
 
   useEffect(() => {
     if (!connectMsg) return;
@@ -338,7 +379,7 @@ export default function DueDateOverviewView({
   };
   const matchesPlatform = (row: DueDateRow) => {
     if (platformFilter === "all") return true;
-    if (platformFilter === "jubelio") return !row.jubelioOrder;
+    if (platformFilter === "jubelio") return !row.jubelioOrder || row.jubelioMenu === "penjualan";
     return rowPlatform(row) === platformFilter;
   };
   const matchesSearch = (row: DueDateRow) => {
@@ -373,7 +414,7 @@ export default function DueDateOverviewView({
     overview.rows.filter((row) => {
       if (!matchesType(row)) return false;
       if (id === "all") return true;
-      if (id === "jubelio") return !row.jubelioOrder;
+      if (id === "jubelio") return !row.jubelioOrder || row.jubelioMenu === "penjualan";
       return rowPlatform(row) === id;
     }).length;
 
@@ -409,6 +450,34 @@ export default function DueDateOverviewView({
               Dicek {formatAnalyzedAt(liveNow)}
               {workerName ? ` · ${workerName}` : ""}
             </p>
+            <p className="flex items-center gap-1.5 text-[11px] mt-0.5">
+              <span
+                className={cn(
+                  "w-1.5 h-1.5 rounded-full shrink-0",
+                  realtimeState === "live" && "bg-green-500 animate-pulse",
+                  realtimeState === "connecting" && "bg-amber-400",
+                  realtimeState === "error" && "bg-red-500"
+                )}
+              />
+              <span
+                className={cn(
+                  realtimeState === "live" && "text-green-700",
+                  realtimeState === "connecting" && "text-amber-700",
+                  realtimeState === "error" && "text-red-600"
+                )}
+              >
+                {realtimeState === "live"
+                  ? "Realtime aktif"
+                  : realtimeState === "error"
+                    ? "Realtime terputus"
+                    : "Menghubungkan realtime..."}
+              </span>
+              <span className="text-brand-400">
+                {autoSyncing
+                  ? "· sinkron otomatis..."
+                  : "· antrian otomatis tiap 3 menit"}
+              </span>
+            </p>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <Link
@@ -417,6 +486,14 @@ export default function DueDateOverviewView({
             >
               <LayoutDashboard className="w-3.5 h-3.5" />
               Dashboard
+            </Link>
+            <Link
+              href="/scanner-barcode"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-medium text-brand-600 border border-brand-200 rounded-lg hover:bg-cream-100"
+            >
+              <ScanLine className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Validasi scan</span>
+              <span className="sm:hidden">Scan</span>
             </Link>
             <button
               onClick={() => setShowSources((v) => !v)}
@@ -434,6 +511,11 @@ export default function DueDateOverviewView({
             </button>
           </div>
         </div>
+        {syncing && syncProgress ? (
+          <div className="mt-2.5">
+            <SyncProgressBar percent={syncProgress.percent} label={syncProgress.label} />
+          </div>
+        ) : null}
       </header>
 
       <main className="flex-1 overflow-y-auto overflow-x-hidden">
@@ -443,11 +525,11 @@ export default function DueDateOverviewView({
               <div>
                 <h2 className="text-sm font-semibold text-brand-800">Masukkan data 3 platform</h2>
                 <p className="text-xs text-brand-400 mt-0.5">
-                  Antrian kirim hari ini (tenggat hari ini atau terlambat) disinkronkan otomatis
-                  saat halaman ini terbuka, dan di server setiap beberapa menit. Status pesanan
-                  ikut terbarui realtime. Tombol Ambil data API untuk tarik ulang sekarang.
-                  Antrian kirim dari Shopee & TikTok saja; Jubelio cermin omnichannel,
-                  bukan menambah jumlah pesanan.
+                  Realtime sudah jalan: status pesanan ikut berubah langsung, antrian kirim
+                  disinkronkan otomatis saat halaman ini terbuka (tiap 3 menit) dan di server
+                  tiap 5 menit. Tombol Ambil data API untuk tarik ulang sekarang — ada progress
+                  bar selama prosesnya. Antrian kirim dari Shopee & TikTok saja; Jubelio cermin
+                  omnichannel, bukan menambah jumlah pesanan.
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -462,6 +544,7 @@ export default function DueDateOverviewView({
                   lastFile={lastShopeeFile}
                   syncing={syncing === "shopee"}
                   busy={busy}
+                  progress={syncing === "shopee" ? syncProgress : null}
                   onSync={() => handleSync("shopee")}
                 />
                 <SourceCard
@@ -475,6 +558,7 @@ export default function DueDateOverviewView({
                   lastFile={lastTiktokFile}
                   syncing={syncing === "tiktok"}
                   busy={busy}
+                  progress={syncing === "tiktok" ? syncProgress : null}
                   onSync={() => handleSync("tiktok")}
                 />
                 <SourceCard
@@ -486,6 +570,7 @@ export default function DueDateOverviewView({
                   lastFile={lastJubelioFile}
                   syncing={syncing === "jubelio"}
                   busy={busy}
+                  progress={syncing === "jubelio" ? syncProgress : null}
                   onSync={() => handleSync("jubelio")}
                 />
               </div>
@@ -558,10 +643,18 @@ export default function DueDateOverviewView({
               shipping={overview.tiktokShipping}
             />
             <StatCard
-              label="Belum di Jubelio"
-              value={formatNumber(overview.missingJubelioRows.length)}
-              valueClass={overview.missingJubelioRows.length > 0 ? "text-amber-700" : undefined}
-              hint="Ada di Shopee/TikTok, belum tercermin di Jubelio"
+              label="Belum di Shipping"
+              value={formatNumber(overview.missingJubelioRows.length + overview.penjualanOnlyRows.length)}
+              valueClass={
+                overview.missingJubelioRows.length + overview.penjualanOnlyRows.length > 0
+                  ? "text-amber-700"
+                  : undefined
+              }
+              hint={
+                overview.penjualanOnlyRows.length > 0
+                  ? `${overview.penjualanOnlyRows.length} ketemu di Penjualan, ${overview.missingJubelioRows.length} belum ketemu`
+                  : "Ada di Shopee/TikTok, belum di Jubelio Shipping"
+              }
             />
           </div>
 
@@ -572,10 +665,10 @@ export default function DueDateOverviewView({
                   <h2 className="text-sm font-semibold text-brand-800">Cermin Jubelio</h2>
                   <p className="text-[11px] text-brand-400 mt-0.5">
                     Jubelio hanya mirroring omnichannel. Tidak menambah jumlah pesanan Shopee/TikTok.
-                    Pakai daftar ini untuk cek yang benar-benar belum ketemu di Jubelio.
-                    App mencocokkan by ID order channel ke API Jubelio, bukan hanya antrian Siap Kirim.
+                    Pakai daftar ini untuk cek yang benar-benar belum ketemu, atau yang hanya
+                    ada di menu Penjualan (bukan Shipping / Siap Kirim).
                     {" "}
-                    {formatNumber(overview.jubelio)} dari {formatNumber(overview.totalOrders)} pesanan Shopee / TikTok / Tokopedia sudah tercermin.
+                    {formatNumber(overview.jubelio)} di Shipping, {formatNumber(overview.penjualanOnlyRows.length)} di Penjualan, {formatNumber(overview.missingJubelioRows.length)} belum ketemu.
                   </p>
                 </div>
                 <Link
@@ -588,18 +681,20 @@ export default function DueDateOverviewView({
                   Full size
                 </Link>
               </div>
-              {overview.missingJubelioRows.length === 0 && overview.jubelioOnlyRows.length === 0 ? (
+              {overview.missingJubelioRows.length === 0 &&
+              overview.penjualanOnlyRows.length === 0 &&
+              overview.jubelioOnlyRows.length === 0 ? (
                 <p className="px-3 sm:px-4 py-3 text-xs text-brand-600">
-                  Semua pesanan Shopee / TikTok / Tokopedia hari ini sudah ada di Jubelio. Tidak ada data Jubelio yang tidak ketemu di Shopee / TikTok / Tokopedia.
+                  Semua pesanan Shopee / TikTok / Tokopedia hari ini sudah ada di Jubelio Shipping. Tidak ada data Jubelio yang tidak ketemu di Shopee / TikTok / Tokopedia.
                 </p>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-brand-100">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-brand-100">
                   <div>
                     <div className="px-3 sm:px-4 py-2.5 flex items-start justify-between gap-2 bg-amber-50/70">
                       <div>
-                        <h3 className="text-xs font-semibold text-amber-900">Ada di Shopee / TikTok / Tokopedia, belum di Jubelio</h3>
+                        <h3 className="text-xs font-semibold text-amber-900">Tidak ketemu di Jubelio</h3>
                         <p className="text-[11px] text-amber-800 mt-0.5">
-                          {formatNumber(overview.missingJubelioRows.length)} nomor — sudah dicari by ID di Jubelio
+                          {formatNumber(overview.missingJubelioRows.length)} nomor — coba cari di menu Penjualan
                         </p>
                       </div>
                       {overview.missingJubelioRows.length > 0 ? (
@@ -626,6 +721,45 @@ export default function DueDateOverviewView({
                             <p className="text-[11px] text-brand-500 mt-0.5">
                               {row.marketplace || "Marketplace"} {formatDueLabel(row.marketplaceDue)}
                             </p>
+                            <p className="text-[11px] text-amber-800 mt-0.5">{jubelioMenuHint(row)}</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="px-3 sm:px-4 py-2.5 flex items-start justify-between gap-2 bg-orange-50/80">
+                      <div>
+                        <h3 className="text-xs font-semibold text-orange-950">Ada di Penjualan, belum Shipping</h3>
+                        <p className="text-[11px] text-orange-900 mt-0.5">
+                          {formatNumber(overview.penjualanOnlyRows.length)} nomor — ketemu di menu Penjualan
+                        </p>
+                      </div>
+                      {overview.penjualanOnlyRows.length > 0 ? (
+                        <CopyListButton
+                          rows={overview.penjualanOnlyRows}
+                          listId="penjualan"
+                          copiedList={copiedList}
+                          onCopied={setCopiedList}
+                        />
+                      ) : null}
+                    </div>
+                    {overview.penjualanOnlyRows.length === 0 ? (
+                      <p className="px-3 sm:px-4 py-3 text-[11px] text-brand-400">Tidak ada.</p>
+                    ) : (
+                      <div className="max-h-56 overflow-y-auto divide-y divide-brand-100">
+                        {overview.penjualanOnlyRows.map((row) => (
+                          <button
+                            key={row.key}
+                            type="button"
+                            onClick={() => setPreviewRow(row)}
+                            className="w-full text-left px-3 sm:px-4 py-2 hover:bg-cream-50"
+                          >
+                            <p className="text-xs font-semibold font-mono break-all text-brand-800">{row.orderNumber}</p>
+                            <p className="text-[11px] text-orange-900 mt-0.5 font-mono break-all">
+                              Jubelio: {row.jubelioOrder?.orderNumber}
+                            </p>
+                            <p className="text-[11px] text-orange-800 mt-0.5">{jubelioMenuHint(row)}</p>
                           </button>
                         ))}
                       </div>
@@ -634,9 +768,9 @@ export default function DueDateOverviewView({
                   <div>
                     <div className="px-3 sm:px-4 py-2.5 flex items-start justify-between gap-2 bg-cream-50">
                       <div>
-                        <h3 className="text-xs font-semibold text-brand-800">Ada di Jubelio, tidak di Shopee / TikTok / Tokopedia</h3>
+                        <h3 className="text-xs font-semibold text-brand-800">Ada di Jubelio, tidak di channel</h3>
                         <p className="text-[11px] text-brand-500 mt-0.5">
-                          {formatNumber(overview.jubelioOnlyRows.length)} nomor — tidak masuk antrian / total kirim
+                          {formatNumber(overview.jubelioOnlyRows.length)} nomor — tidak di Shopee / TikTok
                         </p>
                       </div>
                       {overview.jubelioOnlyRows.length > 0 ? (
@@ -661,8 +795,9 @@ export default function DueDateOverviewView({
                           >
                             <p className="text-xs font-semibold font-mono break-all text-brand-800">{row.orderNumber}</p>
                             <p className="text-[11px] text-brand-500 mt-0.5">
-                              Tidak di Shopee / TikTok / Tokopedia · {formatDueLabel(row.jubelioDue)}
+                              Jubelio {formatDueLabel(row.jubelioDue)}
                             </p>
+                            <p className="text-[11px] text-brand-500 mt-0.5">{jubelioMenuHint(row)}</p>
                           </button>
                         ))}
                       </div>
@@ -834,7 +969,7 @@ export default function DueDateOverviewView({
                     { id: "all" as const, label: "Semua platform" },
                     { id: "shopee" as const, label: "Shopee" },
                     { id: "tiktok" as const, label: "TikTok / Tokopedia" },
-                    { id: "jubelio" as const, label: "Belum di Jubelio" },
+                    { id: "jubelio" as const, label: "Belum di Shipping" },
                   ]).map((tab) => (
                     <FilterPill key={tab.id} active={platformFilter === tab.id} onClick={() => setPlatformFilter(tab.id)}>
                       {tab.label} {platformCount(tab.id)}
@@ -902,6 +1037,7 @@ export default function DueDateOverviewView({
                           Marketplace {formatDueLabel(row.marketplaceDue)} · Jubelio {formatDueLabel(row.jubelioDue)}
                         </p>
                       )}
+                      <p className="text-[11px] text-brand-600">{jubelioMenuHint(row)}</p>
                       <p className={cn("text-[11px]", row.critical ? "text-red-700 font-medium" : "text-brand-500")}>{row.reason}</p>
                     </article>
                   ))}
@@ -918,6 +1054,7 @@ export default function DueDateOverviewView({
                         <th className="text-left font-medium px-2 py-2">Tenggat marketplace</th>
                         <th className="text-left font-medium px-2 py-2">Tenggat Jubelio</th>
                         <th className="text-left font-medium px-2 py-2">Sisa</th>
+                        <th className="text-left font-medium px-2 py-2">Menu Jubelio</th>
                         <th className="text-left font-medium px-3 py-2">Catatan</th>
                       </tr>
                     </thead>
@@ -957,6 +1094,16 @@ export default function DueDateOverviewView({
                               {row.remainingLabel}
                             </span>
                           </td>
+                          <td className="px-2 py-2">
+                            <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-medium", jubelioMenuBadge(row).className)}>
+                              {jubelioMenuBadge(row).label}
+                            </span>
+                            {row.jubelioOrder?.orderNumber && row.jubelioOrder.orderNumber !== row.orderNumber ? (
+                              <p className="font-mono text-[10px] text-brand-400 mt-0.5 break-all">
+                                {row.jubelioOrder.orderNumber}
+                              </p>
+                            ) : null}
+                          </td>
                           <td className={cn("px-3 py-2 max-w-[280px]", row.critical ? "text-red-700 font-medium" : "text-brand-500")}>{row.reason}</td>
                         </tr>
                       ))}
@@ -990,6 +1137,8 @@ export default function DueDateOverviewView({
             ? [
                 { label: "Sisa waktu", value: previewRow.remainingLabel },
                 { label: "Kurir", value: previewRow.courier || "-" },
+                { label: "Menu Jubelio", value: jubelioMenuLabel(previewRow) },
+                { label: "Keterangan Jubelio", value: jubelioMenuHint(previewRow) },
                 { label: "Catatan", value: previewRow.reason },
                 ...(previewRow.deadlineMismatch
                   ? [

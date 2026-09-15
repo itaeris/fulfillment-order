@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { Order, OrderStatus } from "@/types/order";
 import { ensureFreshTokens, isTikTokAuthError, refreshAccessToken } from "@/lib/tiktok-auth";
+import { addCalendarDays, indonesiaDateKey, indonesiaDayStartUnix } from "@/lib/timezone";
 
 /**
  * TikTok Shop Open API client (version 202309).
@@ -507,7 +508,8 @@ const COMPLETED_STATUSES = ["COMPLETED", "DELIVERED"] as const;
 const COMPLETED_LOOKBACK_DAYS = 30;
 
 function completedSinceUnix() {
-  return Math.floor(Date.now() / 1000) - COMPLETED_LOOKBACK_DAYS * 24 * 60 * 60;
+  const fromKey = addCalendarDays(indonesiaDateKey(), -COMPLETED_LOOKBACK_DAYS);
+  return indonesiaDayStartUnix(fromKey);
 }
 
 export function emptyCompletedCursor(): TikTokSyncCursor {

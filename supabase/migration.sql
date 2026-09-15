@@ -266,3 +266,40 @@ DO $$ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE live_order_status;
   END IF;
 END $$;
+
+-- ── Validasi scan kirim hari ini (/scanner-barcode) ──
+CREATE TABLE IF NOT EXISTS overdue_scans (
+  id TEXT PRIMARY KEY,
+  scanned_code TEXT NOT NULL,
+  order_id TEXT,
+  order_number TEXT,
+  platform TEXT,
+  matched BOOLEAN NOT NULL DEFAULT false,
+  scanned_at TIMESTAMPTZ DEFAULT NOW(),
+  scanned_by TEXT,
+  scan_date DATE NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_overdue_scans_date ON overdue_scans(scan_date DESC, scanned_at DESC);
+CREATE INDEX IF NOT EXISTS idx_overdue_scans_order ON overdue_scans(scan_date, order_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_overdue_scans_unique_match
+  ON overdue_scans (scan_date, order_id)
+  WHERE matched = true AND order_id IS NOT NULL;
+
+ALTER TABLE overdue_scans ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow all access to overdue_scans') THEN
+    CREATE POLICY "Allow all access to overdue_scans" ON overdue_scans FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'overdue_scans'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE overdue_scans;
+  END IF;
+END $$;
