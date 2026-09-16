@@ -103,14 +103,46 @@ export default function CerminJubelioFullView({
     () => overview.penjualanOnlyRows.filter((row) => matchesQuery(row, query)),
     [overview.penjualanOnlyRows, query]
   );
-  const notInShippingRows = useMemo(
-    () => [...penjualanRows, ...missingRows],
-    [penjualanRows, missingRows]
-  );
   const jubelioOnlyRows = useMemo(
     () => overview.jubelioOnlyRows.filter((row) => matchesQuery(row, query)),
     [overview.jubelioOnlyRows, query]
   );
+
+  const panels = [
+    {
+      id: "missing",
+      title: "Tidak ketemu di Jubelio",
+      hint: "coba cari di menu Penjualan",
+      headerClass: "border-amber-100 bg-amber-50/80",
+      titleClass: "text-amber-900",
+      hintClass: "text-amber-800",
+      rows: missingRows,
+      total: overview.missingJubelioRows.length,
+      kind: "missing" as const,
+    },
+    {
+      id: "penjualan",
+      title: "Ada di Penjualan, belum Shipping",
+      hint: "ketemu di menu Penjualan",
+      headerClass: "border-orange-100 bg-orange-50/80",
+      titleClass: "text-orange-950",
+      hintClass: "text-orange-900",
+      rows: penjualanRows,
+      total: overview.penjualanOnlyRows.length,
+      kind: "penjualan" as const,
+    },
+    {
+      id: "jubelioOnly",
+      title: "Ada di Jubelio, tidak di channel",
+      hint: "tidak di Shopee / TikTok / Tokopedia",
+      headerClass: "border-brand-100 bg-cream-50",
+      titleClass: "text-brand-800",
+      hintClass: "text-brand-500",
+      rows: jubelioOnlyRows,
+      total: overview.jubelioOnlyRows.length,
+      kind: "jubelioOnly" as const,
+    },
+  ];
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-cream-100 text-brand-800">
@@ -162,129 +194,101 @@ export default function CerminJubelioFullView({
       </header>
 
       <main className="flex-1 min-h-0 p-3 sm:p-4">
-        <div className="h-full grid grid-cols-1 lg:grid-cols-2 gap-3 min-h-0">
-          <section className="bg-white rounded-xl shadow-sm border border-brand-200 flex flex-col min-h-0 overflow-hidden">
-            <div className="px-3 sm:px-4 py-2.5 border-b border-amber-100 bg-amber-50/80 flex flex-col sm:flex-row sm:items-start gap-2 sm:justify-between shrink-0">
-              <div>
-                <h2 className="text-sm font-semibold text-amber-900">
-                  Belum di Jubelio Shipping
-                </h2>
-                <p className="text-[11px] text-amber-800 mt-0.5">
-                  {formatNumber(notInShippingRows.length)}
-                  {query.trim() ? ` dari ${formatNumber(overview.missingJubelioRows.length + overview.penjualanOnlyRows.length)}` : ""} nomor — ketemu di Penjualan atau tidak ketemu sama sekali
-                </p>
+        <div className="h-full grid grid-cols-1 lg:grid-cols-3 gap-3 min-h-0">
+          {panels.map((panel) => (
+            <section
+              key={panel.id}
+              className="bg-white rounded-xl shadow-sm border border-brand-200 flex flex-col min-h-0 overflow-hidden"
+            >
+              <div
+                className={`px-3 sm:px-4 py-2.5 border-b flex flex-col sm:flex-row sm:items-start gap-2 sm:justify-between shrink-0 ${panel.headerClass}`}
+              >
+                <div>
+                  <h2 className={`text-sm font-semibold ${panel.titleClass}`}>{panel.title}</h2>
+                  <p className={`text-[11px] mt-0.5 ${panel.hintClass}`}>
+                    {formatNumber(panel.rows.length)}
+                    {query.trim() ? ` dari ${formatNumber(panel.total)}` : ""} nomor — {panel.hint}
+                  </p>
+                </div>
+                <CopyButton
+                  rows={panel.rows}
+                  listId={panel.id}
+                  copiedList={copiedList}
+                  onCopied={setCopiedList}
+                />
               </div>
-              <CopyButton
-                rows={notInShippingRows}
-                listId="missing"
-                copiedList={copiedList}
-                onCopied={setCopiedList}
-              />
-            </div>
-            <div className="flex-1 min-h-0 overflow-auto">
-              {notInShippingRows.length === 0 ? (
-                <p className="px-4 py-8 text-sm text-brand-400 text-center">Tidak ada.</p>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-white border-b border-brand-100 text-[11px] text-brand-400">
-                    <tr>
-                      <th className="text-left font-medium px-3 py-2">No. pesanan</th>
-                      <th className="text-left font-medium px-3 py-2">Platform</th>
-                      <th className="text-left font-medium px-3 py-2">Menu Jubelio</th>
-                      <th className="text-left font-medium px-3 py-2">Tenggat</th>
-                      <th className="text-left font-medium px-3 py-2">Kurir</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-brand-100">
-                    {notInShippingRows.map((row) => {
-                      const badge = jubelioMenuBadge(row);
-                      return (
-                      <tr
-                        key={row.key}
-                        onClick={() => setPreviewRow(row)}
-                        className="cursor-pointer hover:bg-cream-50"
-                      >
-                        <td className="px-3 py-2 font-mono text-xs font-semibold text-brand-800 break-all">
-                          {row.orderNumber}
-                          {row.jubelioOrder?.orderNumber && row.jubelioOrder.orderNumber !== row.orderNumber ? (
-                            <p className="font-normal text-[11px] text-brand-500 mt-0.5">
-                              Jubelio: {row.jubelioOrder.orderNumber}
-                            </p>
-                          ) : null}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-brand-700 whitespace-nowrap">
-                          {row.marketplace || "—"}
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${badge.className}`}>
-                            {badge.label}
-                          </span>
-                          <p className="text-[11px] text-brand-500 mt-0.5">{jubelioMenuHint(row)}</p>
-                        </td>
-                        <td className="px-3 py-2 text-xs text-brand-600 whitespace-nowrap">
-                          {formatDueLabel(row.marketplaceDue)}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-brand-500">{row.courier}</td>
+              <div className="flex-1 min-h-0 overflow-auto">
+                {panel.rows.length === 0 ? (
+                  <p className="px-4 py-8 text-sm text-brand-400 text-center">Tidak ada.</p>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-white border-b border-brand-100 text-[11px] text-brand-400">
+                      <tr>
+                        <th className="text-left font-medium px-3 py-2">No. pesanan</th>
+                        {panel.kind !== "jubelioOnly" ? (
+                          <th className="text-left font-medium px-3 py-2">Platform</th>
+                        ) : null}
+                        <th className="text-left font-medium px-3 py-2">
+                          {panel.kind === "jubelioOnly" ? "Tenggat Jubelio" : "Menu Jubelio"}
+                        </th>
+                        {panel.kind !== "jubelioOnly" ? (
+                          <th className="text-left font-medium px-3 py-2">Tenggat</th>
+                        ) : null}
+                        <th className="text-left font-medium px-3 py-2">Kurir</th>
                       </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </section>
-
-          <section className="bg-white rounded-xl shadow-sm border border-brand-200 flex flex-col min-h-0 overflow-hidden">
-            <div className="px-3 sm:px-4 py-2.5 border-b border-brand-100 bg-cream-50 flex flex-col sm:flex-row sm:items-start gap-2 sm:justify-between shrink-0">
-              <div>
-                <h2 className="text-sm font-semibold text-brand-800">
-                  Ada di Jubelio, tidak di Shopee / TikTok / Tokopedia
-                </h2>
-                <p className="text-[11px] text-brand-500 mt-0.5">
-                  {formatNumber(jubelioOnlyRows.length)}
-                  {query.trim() ? ` dari ${formatNumber(overview.jubelioOnlyRows.length)}` : ""} nomor — tidak masuk antrian / total kirim
-                </p>
+                    </thead>
+                    <tbody className="divide-y divide-brand-100">
+                      {panel.rows.map((row) => {
+                        const badge = jubelioMenuBadge(row);
+                        return (
+                          <tr
+                            key={row.key}
+                            onClick={() => setPreviewRow(row)}
+                            className="cursor-pointer hover:bg-cream-50"
+                          >
+                            <td className="px-3 py-2 font-mono text-xs font-semibold text-brand-800 break-all">
+                              {row.orderNumber}
+                              {row.jubelioOrder?.orderNumber &&
+                              row.jubelioOrder.orderNumber !== row.orderNumber ? (
+                                <p className="font-normal text-[11px] text-brand-500 mt-0.5">
+                                  Jubelio: {row.jubelioOrder.orderNumber}
+                                </p>
+                              ) : null}
+                            </td>
+                            {panel.kind !== "jubelioOnly" ? (
+                              <td className="px-3 py-2 text-xs text-brand-700 whitespace-nowrap">
+                                {row.marketplace || "—"}
+                              </td>
+                            ) : null}
+                            <td className="px-3 py-2">
+                              {panel.kind === "jubelioOnly" ? (
+                                <span className="text-xs text-brand-600 whitespace-nowrap">
+                                  {formatDueLabel(row.jubelioDue)}
+                                </span>
+                              ) : (
+                                <>
+                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${badge.className}`}>
+                                    {badge.label}
+                                  </span>
+                                  <p className="text-[11px] text-brand-500 mt-0.5">{jubelioMenuHint(row)}</p>
+                                </>
+                              )}
+                            </td>
+                            {panel.kind !== "jubelioOnly" ? (
+                              <td className="px-3 py-2 text-xs text-brand-600 whitespace-nowrap">
+                                {formatDueLabel(row.marketplaceDue)}
+                              </td>
+                            ) : null}
+                            <td className="px-3 py-2 text-xs text-brand-500">{row.courier}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
               </div>
-              <CopyButton
-                rows={jubelioOnlyRows}
-                listId="jubelioOnly"
-                copiedList={copiedList}
-                onCopied={setCopiedList}
-              />
-            </div>
-            <div className="flex-1 min-h-0 overflow-auto">
-              {jubelioOnlyRows.length === 0 ? (
-                <p className="px-4 py-8 text-sm text-brand-400 text-center">Tidak ada.</p>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-white border-b border-brand-100 text-[11px] text-brand-400">
-                    <tr>
-                      <th className="text-left font-medium px-3 py-2">No. pesanan</th>
-                      <th className="text-left font-medium px-3 py-2">Tenggat Jubelio</th>
-                      <th className="text-left font-medium px-3 py-2">Kurir</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-brand-100">
-                    {jubelioOnlyRows.map((row) => (
-                      <tr
-                        key={row.key}
-                        onClick={() => setPreviewRow(row)}
-                        className="cursor-pointer hover:bg-cream-50"
-                      >
-                        <td className="px-3 py-2 font-mono text-xs font-semibold text-brand-800 break-all">
-                          {row.orderNumber}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-brand-600 whitespace-nowrap">
-                          {formatDueLabel(row.jubelioDue)}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-brand-500">{row.courier}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </section>
+            </section>
+          ))}
         </div>
       </main>
 
