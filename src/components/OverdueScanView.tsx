@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import Link from "next/link";
 import {
   AlertTriangle,
+  Bell,
   CalendarClock,
   Check,
   FileDown,
@@ -11,6 +12,7 @@ import {
   LogOut,
   Package,
   ScanLine,
+  X,
   XCircle,
 } from "lucide-react";
 import * as XLSX from "xlsx";
@@ -53,6 +55,8 @@ import {
   type OverdueScanStatus,
 } from "@/lib/overdue-scan";
 import { indonesiaDateKey } from "@/lib/timezone";
+import { makeCancelAlert, type CancelAlert } from "@/lib/live-cancel";
+import type { LiveStatusPatch } from "@/lib/overview-merge";
 
 type FilterId = "pending" | "valid" | "overdue" | "cancelled" | "all";
 
@@ -61,8 +65,10 @@ interface OverdueScanViewProps {
   aheadOrders?: Order[];
   scans: OverdueScan[];
   onScansChange: (scans: OverdueScan[]) => void;
-  onOrdersChange: (orders: Order[]) => void;
-  onSkipShipping: (orders: Order[]) => void;
+  onKickCancelled: (orders: Order[]) => void;
+  cancelAlerts?: CancelAlert[];
+  onCancelAlert?: (alert: CancelAlert) => void;
+  onDismissCancelAlert?: (id: string) => void;
   onRefresh: () => void;
   onSignOut: () => void;
   workerName?: string;
@@ -203,7 +209,10 @@ function statusCopy(status: OverdueScanStatus, dueLabel?: string) {
     return { title: "Sudah discan sebelumnya", className: "bg-amber-50 border-amber-200 text-amber-900" };
   }
   if (status === "cancelled") {
-    return { title: "Dibatalkan — skip pengiriman", className: "bg-slate-100 border-slate-300 text-slate-800" };
+    return {
+      title: "CANCEL — dibuang dari pengiriman & order hari ini",
+      className: "bg-red-100 border-red-300 text-red-900",
+    };
   }
   return { title: "Tidak ketemu di kirim hari ini maupun packing cicil", className: "bg-red-50 border-red-200 text-red-800" };
 }
@@ -278,13 +287,28 @@ function downloadValidExcel(
   XLSX.writeFile(book, `valid-kirim-hari-ini-${dateKey}.xlsx`);
 }
 
+function collectKickOrders(
+  pool: Order[],
+  ids: Array<string | undefined>,
+  numbers: Array<string | undefined>
+) {
+  const idSet = new Set(ids.filter(Boolean) as string[]);
+  const numberSet = new Set(numbers.map((value) => String(value || "").trim()).filter(Boolean));
+  if (idSet.size === 0 && numberSet.size === 0) return [];
+  return pool.filter(
+    (order) => idSet.has(order.id) || numberSet.has(String(order.orderNumber || "").trim())
+  );
+}
+
 export default function OverdueScanView({
   orders,
   aheadOrders = [],
   scans,
   onScansChange,
-  onOrdersChange,
-  onSkipShipping,
+  onKickCancelled,
+  cancelAlerts = [],
+  onCancelAlert,
+  onDismissCancelAlert,
   onRefresh,
   onSignOut,
   workerName,
@@ -382,6 +406,14 @@ export default function OverdueScanView({
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [previewOpen]);
 
+  const seenAlertRef = useRef(new Set<string>());
+  useEffect(() => {
+    const fresh = cancelAlerts.filter((alert) => !seenAlertRef.current.has(alert.id));
+    if (fresh.length === 0) return;
+    for (const alert of fresh) seenAlertRef.current.add(alert.id);
+    if (fresh.some((alert) => alert.source === "live")) playBeep("cancelled");
+  }, [cancelAlerts]);
+
   const submitScan = (raw: string) => {
     const next = raw.trim();
     if (!next) return;
@@ -473,17 +505,13 @@ export default function OverdueScanView({
     onScansChange(nextScans);
 
     if (status === "cancelled") {
-      const kickIds = new Set(
-        [row?.marketplaceOrder?.id, row?.jubelioOrder?.id, todayOrder?.id, match?.orderId].filter(Boolean) as string[]
+      const kicked = collectKickOrders(
+        [...orders, ...aheadOrders],
+        [row?.marketplaceOrder?.id, row?.jubelioOrder?.id, todayOrder?.id, aheadOrder?.id, match?.orderId],
+        [match?.orderNumber, todayOrder?.orderNumber, aheadOrder?.orderNumber, row?.orderNumber]
       );
-      const kicked = orders
-        .filter((item) => kickIds.has(item.id))
-        .map((item) => ({ ...item, status: "cancelled" as const }));
-      if (kicked.length > 0) {
-        const kickedIds = new Set(kicked.map((item) => item.id));
-        onOrdersChange(orders.map((item) => (kickedIds.has(item.id) ? { ...item, status: "cancelled" } : item)));
-        onSkipShipping(kicked);
-      }
+      if (kicked.length > 0) onKickCancelled(kicked);
+      if (match?.orderNumber) onCancelAlert?.(makeCancelAlert(match.orderNumber, "scan"));
     }
 
     void (async () => {
@@ -514,14 +542,66 @@ export default function OverdueScanView({
         const merged = [saved, ...scansRef.current.filter((item) => item.id !== scan.id && item.id !== saved.id)];
         scansRef.current = merged;
         onScansChange(merged);
-        if (data.status !== status) {
+        const savedStatus = data.status;
+        if (savedStatus !== status) {
           setFlash({
-            status: data.status,
+            status: savedStatus,
             code: next,
             orderNumber: match?.orderNumber || saved.orderNumber,
-            dueLabel: data.status === "ahead" ? dueLabel : undefined,
+            dueLabel: savedStatus === "ahead" ? dueLabel : undefined,
           });
-          playBeep(data.status);
+          playBeep(savedStatus);
+        }
+        if (savedStatus === "cancelled" && match) {
+          const kicked = collectKickOrders(
+            [...orders, ...aheadOrders],
+            [match.orderId],
+            [match.orderNumber]
+          );
+          if (kicked.length > 0) onKickCancelled(kicked);
+          onCancelAlert?.(makeCancelAlert(match.orderNumber, "scan"));
+        }
+        if ((savedStatus === "valid" || savedStatus === "ahead") && match?.orderNumber) {
+          const liveRes = await fetch("/api/overview/check-live", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ numbers: [match.orderNumber], platform: match.platform }),
+          });
+          const liveData = (await liveRes.json().catch(() => ({}))) as { cancelled?: LiveStatusPatch[] };
+          if (!liveData.cancelled?.length) return;
+          const cancelledScan: OverdueScan = { ...saved, result: "cancelled", matched: true };
+          const withCancel = [
+            cancelledScan,
+            ...scansRef.current.filter((item) => item.id !== cancelledScan.id && item.id !== saved.id),
+          ];
+          scansRef.current = withCancel;
+          onScansChange(withCancel);
+          const kicked = collectKickOrders(
+            [...orders, ...aheadOrders],
+            [match.orderId, row?.marketplaceOrder?.id, row?.jubelioOrder?.id],
+            [match.orderNumber]
+          );
+          if (kicked.length > 0) onKickCancelled(kicked);
+          onCancelAlert?.(makeCancelAlert(match.orderNumber, "scan"));
+          setFlash({
+            status: "cancelled",
+            code: next,
+            orderNumber: match.orderNumber,
+          });
+          playBeep("cancelled");
+          await fetch("/api/overdue/scans", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: cancelledScan.id,
+              code: next,
+              scannedBy: workerName,
+              orderId: match.orderId,
+              orderNumber: match.orderNumber,
+              platform: match.platform,
+              result: "cancelled",
+            }),
+          });
         }
       } catch {
         setError("Gagal menyimpan scan");
@@ -648,13 +728,46 @@ export default function OverdueScanView({
                 {flash.orderNumber || flash.code}
               </p>
               {flash.status === "cancelled" ? (
-                <p className="text-[11px] mt-1">Klik untuk lihat detail · tidak masuk pengiriman</p>
+                <p className="text-[11px] mt-1">Sudah dibuang dari pengiriman dan order hari ini</p>
               ) : flash.status === "ahead" ? (
                 <p className="text-[11px] mt-1">Sudah valid packing, dipisah dari kirim hari ini</p>
               ) : null}
             </button>
           ) : null}
           {error ? <p className="text-xs text-red-600">{error}</p> : null}
+          {cancelAlerts.length > 0 ? (
+            <div className="space-y-1.5">
+              {cancelAlerts.slice(0, 6).map((alert) => (
+                <div
+                  key={alert.id}
+                  className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 flex items-start gap-2"
+                >
+                  <Bell className="w-4 h-4 mt-0.5 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold">
+                      {alert.source === "live"
+                        ? "CANCEL realtime — customer batal setelah discan"
+                        : "CANCEL — ketahuan pas scan"}
+                    </p>
+                    <p className="text-xs font-mono break-all mt-0.5">{alert.orderNumber}</p>
+                    <p className="text-[11px] mt-0.5">
+                      Dibuang dari pengiriman dan order hari ini · {formatScanTime(alert.at)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => onDismissCancelAlert?.(alert.id)}
+                    className="p-1 rounded-lg text-red-700 hover:bg-red-100"
+                    aria-label="Tutup alert"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </form>
       </div>
 
@@ -951,10 +1064,10 @@ export default function OverdueScanView({
               <div className="px-3 sm:px-4 py-2.5 border-b border-slate-200">
                 <h2 className="text-sm font-semibold text-slate-800 inline-flex items-center gap-1.5">
                   <XCircle className="w-4 h-4" />
-                  Cancel — skip pengiriman
+                  Cancel — dibuang dari pengiriman
                 </h2>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  Order ID hasil scan yang dibatalkan. Tidak masuk tahap pengiriman. Klik baris untuk lihat detail.
+                  Order yang cancel, termasuk batal customer setelah sudah valid. Sudah keluar dari antrian kirim dan order hari ini.
                 </p>
               </div>
               {cancelledScans.length === 0 ? (

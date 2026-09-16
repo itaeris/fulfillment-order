@@ -29,6 +29,7 @@ import {
 } from "@/lib/client-data";
 import { toIndonesianError } from "@/lib/errors";
 import { isShipTodayQueueOrder, mergeTodayQueueWithPickedUp } from "@/lib/due-date";
+import { dropCancelledOrders, takeNewlyCancelled } from "@/lib/live-cancel";
 import { indonesiaDateKey, indonesiaOrderCutoffKey } from "@/lib/timezone";
 import { fetchMarketplaceTokenStatus, isShopLinkedPayload } from "@/lib/shop-link-status";
 import { supabase } from "@/lib/supabase";
@@ -266,15 +267,23 @@ export default function OverviewDueDatePage() {
       const patches = data.patches || [];
       if (patches.length === 0) return current;
       const patched = applyLiveStatusPatches(current, patches);
-      const changed = patched
-        .filter((order, index) => order !== current[index])
-        .map(hydrateOrder);
-      if (changed.length === 0) return current;
       const next = patched.map((order, index) =>
         order === current[index] ? current[index] : hydrateOrder(order)
       );
-      await upsertOverviewOrders(changed);
-      return next;
+      const newlyCancelled = takeNewlyCancelled(current, next);
+      if (newlyCancelled.length > 0) {
+        const ids = newlyCancelled.map((order) => order.id);
+        const numbers = newlyCancelled.map((order) => order.orderNumber).filter(Boolean);
+        await fetch("/api/overview/kick-cancelled", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids, numbers }),
+        }).catch(() => undefined);
+      }
+      const kept = dropCancelledOrders(next);
+      const changed = kept.filter((order, index) => order !== current[index]);
+      if (changed.length > 0) await upsertOverviewOrders(changed);
+      return kept;
     } catch {
       return current;
     }

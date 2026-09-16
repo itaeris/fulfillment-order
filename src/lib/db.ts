@@ -606,6 +606,17 @@ export async function deleteOverviewOrdersByIds(ids: string[]) {
   }
 }
 
+export async function deleteOverviewOrdersByNumbers(numbers: string[]) {
+  const unique = Array.from(new Set(numbers.map((value) => String(value || "").trim()).filter(Boolean)));
+  if (unique.length === 0) return;
+  const CHUNK = 100;
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const chunk = unique.slice(i, i + CHUNK);
+    const { error } = await supabase.from("overview_orders").delete().in("order_number", chunk);
+    if (error) throw error;
+  }
+}
+
 export async function deleteAllOverviewOrders() {
   const { error } = await supabase.from("overview_orders").delete().neq("id", "");
   if (error) throw error;
@@ -927,4 +938,32 @@ export async function updateOverdueScanResult(
     .single();
   if (error) throw error;
   return rowToOverdueScan(data);
+}
+
+export async function markOverdueScansCancelled(input: {
+  scanDate: string;
+  ids?: string[];
+  numbers?: string[];
+}) {
+  const ids = Array.from(new Set((input.ids || []).map((value) => String(value || "").trim()).filter(Boolean)));
+  const numbers = Array.from(
+    new Set((input.numbers || []).map((value) => String(value || "").trim()).filter(Boolean))
+  );
+  if (ids.length === 0 && numbers.length === 0) return;
+  if (ids.length > 0) {
+    const { error } = await supabase
+      .from("overdue_scans")
+      .update({ result: "cancelled", matched: true })
+      .eq("scan_date", input.scanDate)
+      .in("order_id", ids);
+    if (error && !String(error.message || "").includes("result")) throw error;
+  }
+  if (numbers.length > 0) {
+    const { error } = await supabase
+      .from("overdue_scans")
+      .update({ result: "cancelled", matched: true })
+      .eq("scan_date", input.scanDate)
+      .in("order_number", numbers);
+    if (error && !String(error.message || "").includes("result")) throw error;
+  }
 }

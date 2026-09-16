@@ -6,12 +6,13 @@ import OverdueScanView from "@/components/OverdueScanView";
 import { OverviewSkeleton } from "@/components/Skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { getCachedOverview, hydrateOrder, loadOverviewData } from "@/lib/client-data";
-import { hydrateOverdueScan, type OverdueScan } from "@/lib/overdue-scan";
+import { hydrateOverdueScan, isCancelledStatus, scanResultOf, type OverdueScan } from "@/lib/overdue-scan";
 import {
   applyLiveStatusPatches,
   uniqueLookupNumbers,
   type LiveStatusPatch,
 } from "@/lib/overview-merge";
+import { dropCancelledOrders, makeCancelAlert, takeNewlyCancelled, type CancelAlert } from "@/lib/live-cancel";
 import { upsertOverviewOrders } from "@/lib/overview-store";
 import { supabase } from "@/lib/supabase";
 import { indonesiaDateKey, indonesiaOrderCutoffKey } from "@/lib/timezone";
@@ -35,10 +36,15 @@ export default function ScannerBarcodePage() {
   const [aheadOrders, setAheadOrders] = useState<Order[]>([]);
   const [scans, setScans] = useState<OverdueScan[]>([]);
   const [placedToday, setPlacedToday] = useState<{ total: number; shopee: number; tiktok: number }>();
+  const [cancelAlerts, setCancelAlerts] = useState<CancelAlert[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const loadLock = useRef(false);
   const ordersRef = useRef<Order[]>([]);
   ordersRef.current = orders;
+  const scansRef = useRef<OverdueScan[]>([]);
+  scansRef.current = scans;
+  const aheadRef = useRef<Order[]>([]);
+  aheadRef.current = aheadOrders;
   const dayKeyRef = useRef(indonesiaDateKey());
   const cutoffKeyRef = useRef(indonesiaOrderCutoffKey());
 
@@ -116,6 +122,58 @@ export default function ScannerBarcodePage() {
     }
   }, []);
 
+  const pushCancelAlerts = useCallback((kicked: Order[], source: CancelAlert["source"]) => {
+    if (kicked.length === 0) return;
+    setCancelAlerts((prev) => {
+      const next = [...kicked.map((order) => makeCancelAlert(order.orderNumber, source)), ...prev];
+      const seen = new Set<string>();
+      return next.filter((alert) => {
+        const key = `${alert.source}|${alert.orderNumber}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).slice(0, 12);
+    });
+  }, []);
+
+  const kickCancelled = useCallback(
+    async (kicked: Order[]) => {
+      if (kicked.length === 0) return;
+      const ids = Array.from(new Set(kicked.map((order) => order.id)));
+      const numbers = Array.from(
+        new Set(kicked.map((order) => String(order.orderNumber || "").trim()).filter(Boolean))
+      );
+      const idSet = new Set(ids);
+      const numberSet = new Set(numbers);
+      const drop = (list: Order[]) =>
+        list.filter((order) => !idSet.has(order.id) && !numberSet.has(String(order.orderNumber || "").trim()));
+      const nextOrders = drop(ordersRef.current);
+      ordersRef.current = nextOrders;
+      setOrders(nextOrders);
+      setAheadOrders((prev) => drop(prev));
+      setScans((prev) =>
+        prev.map((scan) => {
+          const hit =
+            (scan.orderId && idSet.has(scan.orderId)) ||
+            (scan.orderNumber && numberSet.has(scan.orderNumber));
+          if (!hit || scanResultOf(scan) === "cancelled") return scan;
+          return { ...scan, matched: true, result: "cancelled" };
+        })
+      );
+      try {
+        await fetch("/api/overview/kick-cancelled", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids, numbers }),
+        });
+      } catch {
+        // Antrian lokal sudah dibuang; sync server dicoba lagi di tick berikutnya.
+      }
+      void loadPlacedToday();
+    },
+    [loadPlacedToday]
+  );
+
   const applyLive = useCallback(async (current: Order[]) => {
     const numbers = uniqueLookupNumbers(current);
     if (numbers.length === 0) return current;
@@ -128,20 +186,22 @@ export default function ScannerBarcodePage() {
       const data = (await res.json()) as { patches?: LiveStatusPatch[] };
       const patches = data.patches || [];
       if (patches.length === 0) return current;
-      const patched = applyLiveStatusPatches(current, patches);
-      const changed = patched
-        .filter((order, index) => order !== current[index])
-        .map(hydrateOrder);
-      if (changed.length === 0) return current;
-      const next = patched.map((order, index) =>
+      const patched = applyLiveStatusPatches(current, patches).map((order, index) =>
         order === current[index] ? current[index] : hydrateOrder(order)
       );
-      await upsertOverviewOrders(changed);
-      return next;
+      const newlyCancelled = takeNewlyCancelled(current, patched);
+      if (newlyCancelled.length > 0) {
+        pushCancelAlerts(newlyCancelled, "live");
+        await kickCancelled(newlyCancelled);
+      }
+      const kept = dropCancelledOrders(patched);
+      const changed = kept.filter((order, index) => order !== current[index] && !isCancelledStatus(order.status));
+      if (changed.length > 0) await upsertOverviewOrders(changed);
+      return kept;
     } catch {
       return current;
     }
-  }, []);
+  }, [kickCancelled, pushCancelAlerts]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -200,6 +260,65 @@ export default function ScannerBarcodePage() {
 
   useEffect(() => {
     if (authLoading || !user) return;
+    const tick = async () => {
+      if (document.hidden) return;
+      const numbers = Array.from(
+        new Set(
+          scansRef.current
+            .filter((scan) => {
+              const result = scanResultOf(scan);
+              return result === "valid" || result === "ahead";
+            })
+            .map((scan) => String(scan.orderNumber || "").trim())
+            .filter(Boolean)
+        )
+      ).slice(0, 40);
+      if (numbers.length === 0) return;
+      try {
+        const res = await fetch("/api/overview/check-live", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ numbers }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { cancelled?: LiveStatusPatch[] };
+        const cancelled = data.cancelled || [];
+        if (cancelled.length === 0) return;
+        const keys = new Set(cancelled.map((patch) => String(patch.orderNumber || "").trim()).filter(Boolean));
+        const hit = [...ordersRef.current, ...aheadRef.current].filter((order) =>
+          keys.has(String(order.orderNumber || "").trim())
+        );
+        const fromScans = scansRef.current.filter(
+          (scan) => scan.orderNumber && keys.has(scan.orderNumber) && scanResultOf(scan) !== "cancelled"
+        );
+        const kicked =
+          hit.length > 0
+            ? hit
+            : fromScans.map((scan) => ({
+                id: scan.orderId || scan.orderNumber || scan.id,
+                orderNumber: scan.orderNumber || "",
+                platform: (scan.platform as Order["platform"]) || "shopee",
+                customerName: "",
+                productName: "",
+                quantity: 1,
+                price: 0,
+                totalAmount: 0,
+                status: "cancelled" as const,
+                orderDate: new Date(),
+              }));
+        if (kicked.length === 0) return;
+        pushCancelAlerts(kicked, "live");
+        await kickCancelled(kicked);
+      } catch {
+        // Tick berikutnya mengulang cek API.
+      }
+    };
+    void tick();
+    const timer = window.setInterval(tick, 20_000);
+    return () => window.clearInterval(timer);
+  }, [authLoading, user, kickCancelled, pushCancelAlerts]);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
     let debounce: number | undefined;
     const reloadOrders = () => {
       window.clearTimeout(debounce);
@@ -248,12 +367,15 @@ export default function ScannerBarcodePage() {
       aheadOrders={aheadOrders}
       scans={scans}
       onScansChange={setScans}
-      onOrdersChange={(next) => {
-        ordersRef.current = next;
-        setOrders(next);
+      onKickCancelled={(kicked) => {
+        void kickCancelled(kicked);
       }}
-      onSkipShipping={(kicked) => {
-        void upsertOverviewOrders(kicked);
+      cancelAlerts={cancelAlerts}
+      onCancelAlert={(alert) => {
+        setCancelAlerts((prev) => [alert, ...prev.filter((item) => item.id !== alert.id)].slice(0, 12));
+      }}
+      onDismissCancelAlert={(id) => {
+        setCancelAlerts((prev) => prev.filter((alert) => alert.id !== id));
       }}
       onRefresh={() => {
         void loadOrders("refresh");
