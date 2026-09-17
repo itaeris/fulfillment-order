@@ -33,6 +33,14 @@ import { Order } from "@/types/order";
 import { OrderDetailPreview } from "@/components/OrderDetailPreview";
 import { PlatformLogo } from "@/components/PlatformLogo";
 import {
+  StatListPreview,
+  dueDateRowsToPreviewItems,
+  placedTodayAsOrder,
+  placedTodayToPreviewItems,
+  type PlacedTodayPreviewOrder,
+  type StatPreviewItem,
+} from "@/components/StatListPreview";
+import {
   aheadScansOf,
   buildOrderScanIndex,
   buildOverdueScanIndex,
@@ -54,7 +62,7 @@ import {
   type OverdueScanMatch,
   type OverdueScanStatus,
 } from "@/lib/overdue-scan";
-import { indonesiaDateKey } from "@/lib/timezone";
+import { warehouseTodayKey } from "@/lib/timezone";
 import { makeCancelAlert, type CancelAlert } from "@/lib/live-cancel";
 import type { LiveStatusPatch } from "@/lib/overview-merge";
 
@@ -174,7 +182,7 @@ function StatCard({
 }) {
   const className = cn(
     "bg-white rounded-xl shadow-sm border border-brand-200 px-3 py-2.5 sm:px-4 sm:py-3 text-left",
-    onClick && "hover:border-brand-400"
+    onClick && "hover:border-brand-400 hover:bg-cream-50 cursor-pointer"
   );
   const body = (
     <>
@@ -187,7 +195,7 @@ function StatCard({
   );
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} className={className}>
+      <button type="button" onClick={onClick} className={className} title="Klik untuk lihat daftar">
         {body}
       </button>
     );
@@ -326,6 +334,14 @@ export default function OverdueScanView({
     row?: DueDateRow;
     kind?: "ahead" | "cancelled";
   } | null>(null);
+  const [listPreview, setListPreview] = useState<{
+    title: string;
+    subtitle?: string;
+    items: StatPreviewItem[];
+    loading?: boolean;
+    error?: string;
+  } | null>(null);
+  const listReq = useRef(0);
   const [flash, setFlash] = useState<{
     status: OverdueScanStatus;
     code: string;
@@ -333,7 +349,7 @@ export default function OverdueScanView({
     dueLabel?: string;
   } | null>(null);
   const [error, setError] = useState("");
-  const previewOpen = Boolean(preview);
+  const previewOpen = Boolean(preview) || Boolean(listPreview);
   previewOpenRef.current = previewOpen;
 
   const focusScanInput = () => {
@@ -377,6 +393,79 @@ export default function OverdueScanView({
   const pendingCount = rowsWithStatus.length - validCount;
   const overduePending = rowsWithStatus.filter((item) => item.row.overdue && !item.validated).length;
   const shippingCount = rowsWithStatus.length;
+  const pendingRows = useMemo(
+    () => rowsWithStatus.filter((item) => !item.validated).map((item) => item.row),
+    [rowsWithStatus]
+  );
+  const overduePendingRows = useMemo(
+    () => rowsWithStatus.filter((item) => item.row.overdue && !item.validated).map((item) => item.row),
+    [rowsWithStatus]
+  );
+  const queueRows = useMemo(
+    () =>
+      overview.processRows.filter(
+        (row) => row.marketplace === "Shopee" || row.marketplace === "TikTok" || row.marketplace === "Tokopedia"
+      ),
+    [overview.processRows]
+  );
+
+  const openRowList = (title: string, rows: DueDateRow[], subtitle?: string, filterId?: FilterId) => {
+    listReq.current += 1;
+    if (filterId) setFilter(filterId);
+    setListPreview({
+      title,
+      subtitle: subtitle || `${formatNumber(rows.length)} pesanan`,
+      items: dueDateRowsToPreviewItems(rows),
+    });
+  };
+
+  const openScanList = (title: string, scans: OverdueScan[], subtitle?: string, filterId?: FilterId) => {
+    listReq.current += 1;
+    if (filterId) setFilter(filterId);
+    setListPreview({
+      title,
+      subtitle: subtitle || `${formatNumber(scans.length)} pesanan`,
+      items: scans.map((scan) => ({
+        key: scan.id,
+        orderNumber: scan.orderNumber || scan.scannedCode,
+        platform: scan.platform,
+        meta: scanResultOf(scan) === "ahead" ? "Packing cicil" : "Cancel — skip pengiriman",
+      })),
+    });
+  };
+
+  const openPlacedTodayList = async () => {
+    const req = ++listReq.current;
+    setListPreview({
+      title: "Order hari ini",
+      subtitle: "Masuk cutoff proses gudang (bukan tenggat kirim)",
+      items: [],
+      loading: true,
+    });
+    try {
+      const response = await fetch("/api/orders/placed-today?list=1", { cache: "no-store" });
+      const data = (await response.json()) as {
+        orders?: PlacedTodayPreviewOrder[];
+        error?: string;
+        summary?: { total: number; shopee: number; tiktok: number };
+      };
+      if (req !== listReq.current) return;
+      if (!response.ok) throw new Error(data.error || "Gagal memuat");
+      const orders = data.orders || [];
+      setListPreview({
+        title: "Order hari ini",
+        subtitle: `${formatNumber(data.summary?.total ?? orders.length)} pesanan · Shopee ${formatNumber(data.summary?.shopee ?? 0)} · TikTok/Tokped ${formatNumber(data.summary?.tiktok ?? 0)}`,
+        items: placedTodayToPreviewItems(orders),
+      });
+    } catch {
+      if (req !== listReq.current) return;
+      setListPreview({
+        title: "Order hari ini",
+        items: [],
+        error: "Gagal memuat daftar order hari ini.",
+      });
+    }
+  };
 
   const visible = useMemo(() => {
     return rowsWithStatus.filter(({ row, validated }) => {
@@ -411,7 +500,7 @@ export default function OverdueScanView({
     const fresh = cancelAlerts.filter((alert) => !seenAlertRef.current.has(alert.id));
     if (fresh.length === 0) return;
     for (const alert of fresh) seenAlertRef.current.add(alert.id);
-    if (fresh.some((alert) => alert.source === "live")) playBeep("cancelled");
+    if (fresh.some((alert) => alert.source === "live" || alert.source === "queue")) playBeep("cancelled");
   }, [cancelAlerts]);
 
   const submitScan = (raw: string) => {
@@ -485,7 +574,7 @@ export default function OverdueScanView({
               : "not_in_queue",
       scannedAt: new Date(),
       scannedBy: workerName,
-      scanDate: indonesiaDateKey(),
+      scanDate: warehouseTodayKey(),
     };
 
     if (status === "cancelled" && match) {
@@ -635,6 +724,40 @@ export default function OverdueScanView({
     });
   };
 
+  const onListSelect = (item: StatPreviewItem) => {
+    if (item.row) {
+      openRowPreview(item.row);
+      return;
+    }
+    const scan = scans.find((entry) => entry.id === item.key);
+    if (scan) {
+      openScanPreview(scan);
+      return;
+    }
+    const number = item.orderNumber.trim().toUpperCase();
+    const match =
+      queueRows.find((row) => row.orderNumber.trim().toUpperCase() === number) ||
+      overview.rows.find((row) => row.orderNumber.trim().toUpperCase() === number);
+    if (match) {
+      openRowPreview(match);
+      return;
+    }
+    const related = ordersForScan(
+      { id: item.key, scannedCode: item.orderNumber, matched: false, scannedAt: new Date(), scanDate: "" },
+      lookupOrders
+    );
+    if (related.length > 0) {
+      setPreview({ title: item.orderNumber, orders: related });
+      return;
+    }
+    if (item.placed) {
+      setPreview({
+        title: item.placed.orderNumber,
+        orders: [placedTodayAsOrder(item.placed)],
+      });
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-cream-100 text-brand-800">
       <header className="bg-white border-b border-brand-200 px-3 sm:px-6 py-2.5 sm:py-3 shrink-0">
@@ -744,11 +867,7 @@ export default function OverdueScanView({
                 >
                   <Bell className="w-4 h-4 mt-0.5 shrink-0" />
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold">
-                      {alert.source === "live"
-                        ? "CANCEL realtime — customer batal setelah discan"
-                        : "CANCEL — ketahuan pas scan"}
-                    </p>
+                    <p className="font-semibold">CANCEL realtime — customer batal di channel</p>
                     <p className="text-xs font-mono break-all mt-0.5">{alert.orderNumber}</p>
                     <p className="text-[11px] mt-0.5">
                       Dibuang dari pengiriman dan order hari ini · {formatScanTime(alert.at)}
@@ -777,7 +896,8 @@ export default function OverdueScanView({
             <StatCard
               label="Order hari ini"
               value={formatNumber(placedToday?.total ?? 0)}
-              hint="Shopee + TikTok/Tokopedia · cutoff 15.00–15.00 WIB"
+              hint="Shopee 15.01 · TikTok/Tokped reguler 15.01 · instant 17.01"
+              onClick={() => void openPlacedTodayList()}
             />
             <StatCard
               label="Antrian kirim"
@@ -785,47 +905,56 @@ export default function OverdueScanView({
               hint={
                 overview.todayPickedUp > 0
                   ? `${formatNumber(overview.todayPickedUp)} sudah berangkat · total tetap`
-                  : "Tenggat hari ini, tidak turun setelah pickup"
+                  : "Tenggat gudang · 09.00–17.00 due 17.00"
+              }
+              onClick={() =>
+                openRowList(
+                  "Antrian kirim",
+                  queueRows,
+                  overview.todayPickedUp > 0
+                    ? `${formatNumber(queueRows.length)} pesanan · ${formatNumber(overview.todayPickedUp)} sudah berangkat`
+                    : `${formatNumber(queueRows.length)} pesanan tenggat hari ini`
+                )
               }
             />
             <StatCard
               label="Sisa di gudang"
               value={formatNumber(shippingCount)}
               hint="Belum pickup / instant belum dikirim"
-              onClick={() => setFilter("all")}
+              onClick={() => openRowList("Sisa di gudang", rowsWithStatus.map((item) => item.row), undefined, "all")}
             />
             <StatCard
               label="Sudah valid"
               value={formatNumber(validCount)}
               valueClass="text-green-700"
               hint="Kirim hari ini"
-              onClick={() => setFilter("valid")}
+              onClick={() => openRowList("Sudah valid", validRows, undefined, "valid")}
             />
             <StatCard
               label="Packing cicil"
               value={formatNumber(aheadScans.length)}
               valueClass={aheadScans.length > 0 ? "text-sky-800" : undefined}
               hint="Valid, bukan kirim hari ini"
-              onClick={() => document.getElementById("packing-cicil")?.scrollIntoView({ behavior: "smooth" })}
+              onClick={() => openScanList("Packing cicil", aheadScans)}
             />
             <StatCard
               label="Belum dicek"
               value={formatNumber(Math.max(0, pendingCount))}
               valueClass={pendingCount > 0 ? "text-amber-700" : undefined}
-              onClick={() => setFilter("pending")}
+              onClick={() => openRowList("Belum dicek", pendingRows, undefined, "pending")}
             />
             <StatCard
               label="Terlambat belum dicek"
               value={formatNumber(overduePending)}
               valueClass={overduePending > 0 ? "text-red-600" : undefined}
-              onClick={() => setFilter("overdue")}
+              onClick={() => openRowList("Terlambat belum dicek", overduePendingRows, undefined, "overdue")}
             />
             <StatCard
               label="Cancel"
               value={formatNumber(cancelledScans.length)}
               hint="Skip pengiriman"
               valueClass={cancelledScans.length > 0 ? "text-slate-800" : undefined}
-              onClick={() => setFilter("cancelled")}
+              onClick={() => openScanList("Cancel", cancelledScans, undefined, "cancelled")}
             />
           </div>
 
@@ -865,7 +994,7 @@ export default function OverdueScanView({
                   type="button"
                   disabled={validCount === 0}
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => downloadValidExcel(validRows, scans, indonesiaDateKey())}
+                  onClick={() => downloadValidExcel(validRows, scans, warehouseTodayKey())}
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium text-green-800 border border-green-200 bg-green-50 hover:bg-green-100 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <FileDown className="w-3.5 h-3.5" />
@@ -1125,6 +1254,20 @@ export default function OverdueScanView({
         </div>
       </main>
 
+      <StatListPreview
+        open={!!listPreview}
+        title={listPreview?.title || "Daftar pesanan"}
+        subtitle={listPreview?.subtitle}
+        items={listPreview?.items || []}
+        loading={listPreview?.loading}
+        error={listPreview?.error}
+        detailOpen={!!preview}
+        onClose={() => {
+          listReq.current += 1;
+          setListPreview(null);
+        }}
+        onSelect={onListSelect}
+      />
       <OrderDetailPreview
         open={!!preview}
         onClose={() => setPreview(null)}

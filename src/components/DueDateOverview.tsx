@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   Check,
@@ -32,6 +32,14 @@ import { Order } from "@/types/order";
 import { OrderDetailPreview } from "@/components/OrderDetailPreview";
 import { type ApiSyncSource } from "@/components/ApiSyncBar";
 import { PlatformLogo } from "@/components/PlatformLogo";
+import {
+  StatListPreview,
+  dueDateRowsToPreviewItems,
+  placedTodayAsOrder,
+  placedTodayToPreviewItems,
+  type PlacedTodayPreviewOrder,
+  type StatPreviewItem,
+} from "@/components/StatListPreview";
 
 export type OverviewSyncResult = {
   count: number;
@@ -94,23 +102,37 @@ function StatCard({
   hint,
   valueClass,
   shipping,
+  onClick,
 }: {
   label: string;
   value: string | number;
   hint?: string;
   valueClass?: string;
   shipping?: ShippingBreakdown;
+  onClick?: () => void;
 }) {
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-brand-200 px-3 py-2.5 sm:px-4 sm:py-3">
+  const className = cn(
+    "bg-white rounded-xl shadow-sm border border-brand-200 px-3 py-2.5 sm:px-4 sm:py-3 text-left",
+    onClick && "hover:border-brand-400 hover:bg-cream-50 cursor-pointer"
+  );
+  const body = (
+    <>
       <p className="text-[11px] sm:text-xs text-brand-400">{label}</p>
       <p className={cn("text-xl sm:text-2xl font-semibold tracking-tight mt-0.5", valueClass || "text-brand-800")}>
         {value}
       </p>
       {hint ? <p className="text-[11px] text-brand-400 mt-0.5">{hint}</p> : null}
       {shipping ? <ShippingLines shipping={shipping} /> : null}
-    </div>
+    </>
   );
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={className} title="Klik untuk lihat daftar">
+        {body}
+      </button>
+    );
+  }
+  return <div className={className}>{body}</div>;
 }
 
 function remainingClass(row: DueDateRow) {
@@ -364,8 +386,17 @@ export default function DueDateOverviewView({
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("instant");
   const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
   const [previewRow, setPreviewRow] = useState<DueDateRow | null>(null);
+  const [previewPlaced, setPreviewPlaced] = useState<PlacedTodayPreviewOrder | null>(null);
   const [copiedList, setCopiedList] = useState<string | null>(null);
   const [orderQuery, setOrderQuery] = useState("");
+  const [listPreview, setListPreview] = useState<{
+    title: string;
+    subtitle?: string;
+    items: StatPreviewItem[];
+    loading?: boolean;
+    error?: string;
+  } | null>(null);
+  const listReq = useRef(0);
 
   const overview = useMemo(() => buildDueDateOverview(orders), [orders]);
   const liveNow = useGoogleClock();
@@ -445,6 +476,77 @@ export default function DueDateOverviewView({
   const tiktokShare = overview.totalOrders
     ? Math.round((overview.tiktok / overview.totalOrders) * 100)
     : 0;
+  const queueRows = overview.processRows.filter(
+    (row) => row.marketplace === "Shopee" || row.marketplace === "TikTok" || row.marketplace === "Tokopedia"
+  );
+  const wajibRows =
+    mustSendNow > 0
+      ? overview.rows.filter((row) => row.overdue || row.dueSoon)
+      : overview.rows.filter((row) => row.critical);
+  const belumShippingRows = [...overview.missingJubelioRows, ...overview.penjualanOnlyRows];
+
+  const openRowList = (title: string, rows: DueDateRow[], subtitle?: string) => {
+    listReq.current += 1;
+    setListPreview({
+      title,
+      subtitle: subtitle || `${formatNumber(rows.length)} pesanan`,
+      items: dueDateRowsToPreviewItems(rows),
+    });
+  };
+
+  const openPlacedTodayList = async () => {
+    const req = ++listReq.current;
+    setListPreview({
+      title: "Order hari ini",
+      subtitle: "Masuk cutoff proses gudang (bukan tenggat kirim)",
+      items: [],
+      loading: true,
+    });
+    try {
+      const response = await fetch("/api/orders/placed-today?list=1", { cache: "no-store" });
+      const data = (await response.json()) as {
+        orders?: PlacedTodayPreviewOrder[];
+        error?: string;
+        summary?: { total: number; shopee: number; tiktok: number };
+      };
+      if (req !== listReq.current) return;
+      if (!response.ok) throw new Error(data.error || "Gagal memuat");
+      const orders = data.orders || [];
+      setListPreview({
+        title: "Order hari ini",
+        subtitle: `${formatNumber(data.summary?.total ?? orders.length)} pesanan · Shopee ${formatNumber(data.summary?.shopee ?? 0)} · TikTok/Tokped ${formatNumber(data.summary?.tiktok ?? 0)}`,
+        items: placedTodayToPreviewItems(orders),
+      });
+    } catch {
+      if (req !== listReq.current) return;
+      setListPreview({
+        title: "Order hari ini",
+        items: [],
+        error: "Gagal memuat daftar order hari ini.",
+      });
+    }
+  };
+
+  const onListSelect = (item: StatPreviewItem) => {
+    if (item.row) {
+      setPreviewPlaced(null);
+      setPreviewRow(item.row);
+      return;
+    }
+    const number = item.orderNumber.trim().toUpperCase();
+    const match =
+      queueRows.find((row) => row.orderNumber.trim().toUpperCase() === number) ||
+      overview.rows.find((row) => row.orderNumber.trim().toUpperCase() === number);
+    if (match) {
+      setPreviewPlaced(null);
+      setPreviewRow(match);
+      return;
+    }
+    if (item.placed) {
+      setPreviewRow(null);
+      setPreviewPlaced(item.placed);
+    }
+  };
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-cream-100 text-brand-800">
@@ -628,12 +730,22 @@ export default function DueDateOverviewView({
             <StatCard
               label="Order hari ini"
               value={formatNumber(placedToday?.total ?? 0)}
-              hint="Shopee + TikTok/Tokopedia · cutoff 15.00–15.00 WIB"
+              hint="Shopee 15.01 · TikTok/Tokped reguler 15.01 · instant 17.01"
+              onClick={() => void openPlacedTodayList()}
             />
             <StatCard
               label="Antrian kirim"
               value={formatNumber(overview.todayProcessCount)}
-              hint={`${formatNumber(overview.todayProcessItems)} item · tenggat hari ini, tidak turun setelah pickup`}
+              hint={`${formatNumber(overview.todayProcessItems)} item · 09.00–17.00 due 17.00 · 17.00–09.00 due besok 09.00`}
+              onClick={() =>
+                openRowList(
+                  "Antrian kirim",
+                  queueRows,
+                  overview.todayPickedUp > 0
+                    ? `${formatNumber(queueRows.length)} pesanan · ${formatNumber(overview.todayPickedUp)} sudah berangkat`
+                    : `${formatNumber(queueRows.length)} pesanan tenggat hari ini`
+                )
+              }
             />
             <StatCard
               label="Sisa di gudang"
@@ -643,12 +755,14 @@ export default function DueDateOverviewView({
                   ? `${formatNumber(overview.todayPickedUp)} sudah berangkat (pickup / instant dikirim)`
                   : "Belum pickup · instant masih diproses ikut di sini"
               }
+              onClick={() => openRowList("Sisa di gudang", overview.rows, `${formatNumber(overview.totalOrders)} masih di gudang`)}
             />
             <StatCard
               label="Wajib dikirim sekarang"
               value={formatNumber(wajibCount)}
               valueClass="text-red-600"
               hint="Terlambat / sisa ≤ 1 jam. Jangan ditunda."
+              onClick={() => openRowList("Wajib dikirim sekarang", wajibRows)}
             />
             <StatCard
               label="Shopee"
@@ -656,12 +770,24 @@ export default function DueDateOverviewView({
               valueClass="text-shopee-500"
               hint="Total pesanan, semua jenis pengiriman"
               shipping={overview.shopeeShipping}
+              onClick={() =>
+                openRowList(
+                  "Shopee — sisa di gudang",
+                  overview.rows.filter((row) => row.marketplace === "Shopee")
+                )
+              }
             />
             <StatCard
               label="TikTok / Tokopedia"
               value={formatNumber(overview.tiktok)}
               hint="Total pesanan, semua jenis pengiriman"
               shipping={overview.tiktokShipping}
+              onClick={() =>
+                openRowList(
+                  "TikTok / Tokopedia — sisa di gudang",
+                  overview.rows.filter((row) => row.marketplace === "TikTok" || row.marketplace === "Tokopedia")
+                )
+              }
             />
             <StatCard
               label="Belum di Shipping"
@@ -676,6 +802,7 @@ export default function DueDateOverviewView({
                   ? `${overview.penjualanOnlyRows.length} ketemu di Penjualan, ${overview.missingJubelioRows.length} belum ketemu`
                   : "Ada di Shopee/TikTok, belum di Jubelio Shipping"
               }
+              onClick={() => openRowList("Belum di Shipping", belumShippingRows)}
             />
           </div>
 
@@ -884,6 +1011,7 @@ export default function DueDateOverviewView({
               <h2 className="text-sm font-semibold text-brand-800">Pesanan per tenggat</h2>
               <p className="text-[11px] text-brand-400">
                 Total Shopee/TikTok dulu, lalu pecahan reguler, instan, dan same-day. Jubelio tidak dijumlahkan.
+                09.00–17.00 due hari ini jam 17.00. 17.00–09.00 besok due jam 09.00, semua channel.
               </p>
             </div>
             {overview.buckets.length === 0 ? (
@@ -1149,10 +1277,27 @@ export default function DueDateOverviewView({
           </div>
         </div>
       </main>
+      <StatListPreview
+        open={!!listPreview}
+        title={listPreview?.title || "Daftar pesanan"}
+        subtitle={listPreview?.subtitle}
+        items={listPreview?.items || []}
+        loading={listPreview?.loading}
+        error={listPreview?.error}
+        detailOpen={!!previewRow || !!previewPlaced}
+        onClose={() => {
+          listReq.current += 1;
+          setListPreview(null);
+        }}
+        onSelect={onListSelect}
+      />
       <OrderDetailPreview
-        open={!!previewRow}
-        onClose={() => setPreviewRow(null)}
-        title={previewRow?.orderNumber || "Detail pesanan"}
+        open={!!previewRow || !!previewPlaced}
+        onClose={() => {
+          setPreviewRow(null);
+          setPreviewPlaced(null);
+        }}
+        title={previewRow?.orderNumber || previewPlaced?.orderNumber || "Detail pesanan"}
         notes={
           previewRow
             ? [
@@ -1175,7 +1320,13 @@ export default function DueDateOverviewView({
                   : []),
                 ...(previewRow.preorder ? [{ label: "Tipe", value: "Preorder" }] : []),
               ]
-            : undefined
+            : previewPlaced
+              ? [
+                  { label: "Sumber", value: "Order hari ini — cutoff proses gudang" },
+                  { label: "Kurir", value: previewPlaced.courier || "-" },
+                  { label: "Pengiriman", value: previewPlaced.shippingOption || "-" },
+                ]
+              : undefined
         }
         sections={
           previewRow
@@ -1192,7 +1343,9 @@ export default function DueDateOverviewView({
                   ? [{ label: "Jubelio", order: previewRow.jubelioOrder }]
                   : []),
               ]
-            : []
+            : previewPlaced
+              ? [{ label: "Marketplace", order: placedTodayAsOrder(previewPlaced) }]
+              : []
         }
       />
     </div>

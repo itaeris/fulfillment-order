@@ -24,6 +24,8 @@ import { fetchMarketplaceTokenStatus, isShopLinkedPayload } from "@/lib/shop-lin
 import {
   getCachedDashboard,
   loadDashboardData,
+  readPersistedDashboard,
+  writePersistedDashboard,
   type DataSnapshot,
 } from "@/lib/client-data";
 
@@ -70,7 +72,7 @@ export default function Dashboard() {
   const dataGen = useRef(0);
   const handleSyncRef = useRef<(
     source: ApiSyncSource,
-    options?: { silent?: boolean }
+    options?: { silent?: boolean; skipReload?: boolean }
   ) => Promise<void>>();
   const shopeeLinkedRef = useRef<boolean | null>(null);
   const tiktokLinkedRef = useRef<boolean | null>(null);
@@ -148,10 +150,11 @@ export default function Dashboard() {
 
   const loadData = useCallback(async (mode: "init" | "refresh" | "quiet" = "refresh") => {
     const gen = ++dataGen.current;
-    const apply = (data: DataSnapshot) => {
+    const apply = (data: DataSnapshot, persist = true) => {
       if (gen !== dataGen.current) return;
       setOrders(data.orders);
       setUploadedFiles(data.files);
+      if (persist) writePersistedDashboard(data);
       const savedTab = localStorage.getItem(TAB_STORAGE_KEY) as TabId | null;
       if (data.orders.length > 0 && (!savedTab || !VALID_TABS.includes(savedTab))) {
         setActiveTab("dashboard");
@@ -160,16 +163,30 @@ export default function Dashboard() {
 
     try {
       if (mode === "init") {
-        const cached = getCachedDashboard();
+        const cached = getCachedDashboard() || readPersistedDashboard();
         if (cached) {
-          apply(cached);
+          apply(cached, false);
           hasLoaded.current = true;
           setIsLoading(false);
-          void loadDashboardData(true).then(apply).catch(() => {});
+          void loadDashboardData(true)
+            .then((data) => {
+              apply(data);
+            })
+            .catch(() => {});
           return;
         }
         setIsLoading(true);
-      } else if (hasLoaded.current && mode === "refresh") {
+        const data = await loadDashboardData(true, (partial) => {
+          if (gen !== dataGen.current) return;
+          apply(partial, false);
+          hasLoaded.current = true;
+          setIsLoading(false);
+        });
+        apply(data);
+        return;
+      }
+
+      if (hasLoaded.current && mode === "refresh") {
         setIsRefreshing(true);
       }
 
@@ -190,7 +207,7 @@ export default function Dashboard() {
   }, [authLoading, user, loadData]);
 
   const handleSync = useCallback(
-    async (source: ApiSyncSource, options?: { silent?: boolean }) => {
+    async (source: ApiSyncSource, options?: { silent?: boolean; skipReload?: boolean }) => {
       const silent = Boolean(options?.silent);
       if (syncLock.current) return;
       syncLock.current = true;
@@ -253,7 +270,9 @@ export default function Dashboard() {
         if (source === "shopee") {
           void fetch("/api/shopee/refresh-status", { method: "POST" });
         }
-        await loadData(silent ? "quiet" : "refresh");
+        if (!options?.skipReload) {
+          await loadData(silent ? "quiet" : "refresh");
+        }
       } catch (err: unknown) {
         if (!silent) {
           const message = err instanceof Error ? err.message : null;
@@ -306,14 +325,15 @@ export default function Dashboard() {
           if (cancelled) return;
         }
         if (shopeeLinkedRef.current !== false) {
-          await sync("shopee", { silent: true });
+          await sync("shopee", { silent: true, skipReload: true });
           if (cancelled) return;
         }
         if (tiktokLinkedRef.current !== false) {
-          await sync("tiktok", { silent: true });
+          await sync("tiktok", { silent: true, skipReload: true });
           if (cancelled) return;
         }
-        await sync("jubelio", { silent: true });
+        await sync("jubelio", { silent: true, skipReload: true });
+        if (!cancelled) await loadData("quiet");
       } finally {
         autoSyncLock.current = false;
         setAutoSyncing(false);
@@ -335,7 +355,7 @@ export default function Dashboard() {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [authLoading, user, isLoading]);
+  }, [authLoading, user, isLoading, loadData]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -377,14 +397,14 @@ export default function Dashboard() {
     return null;
   }
 
-  if (authLoading || isLoading) {
+  if (authLoading) {
     return <DashboardSkeleton />;
   }
 
   const pageTitles: Record<string, { title: string; subtitle: string }> = {
     dashboard: { title: "Dashboard", subtitle: "Ringkasan penjualan Shopee, TikTok, dan Tokopedia" },
     orders: { title: "Pesanan", subtitle: "Daftar pesanan marketplace. Tab Jubelio hanya untuk cermin WMS." },
-    compare: { title: "Komparasi", subtitle: "Cermin Jubelio vs Shopee / TikTok — cek yang miss atau belum realtime" },
+    compare: { title: "Komparasi", subtitle: "Cermin order: nomor pesanan Shopee/TikTok vs Jubelio — bukan sales atau harga" },
     settings: { title: "Settings", subtitle: "Kelola data, profil, password, dan user" },
   };
   const pageTitle = pageTitles[activeTab].title;
@@ -505,9 +525,11 @@ export default function Dashboard() {
                 transition={{ duration: 0.1 }}
                 className="space-y-3 sm:space-y-6"
               >
-                {orders.length === 0 && !syncing && !autoSyncing ? (
+                {isLoading && orders.length === 0 ? (
+                  <CardsSkeleton />
+                ) : orders.length === 0 && !syncing && !autoSyncing ? (
                   <EmptyDataState onImport={() => setActiveTab("settings")} />
-                ) : isRefreshing || !!syncing ? (
+                ) : isRefreshing && orders.length === 0 ? (
                   <CardsSkeleton />
                 ) : (
                   <>
@@ -534,7 +556,8 @@ export default function Dashboard() {
                   orders={orders}
                   userRole={userRole}
                   apiSync={apiSync}
-                  isRefreshing={isRefreshing}
+                  isLoading={isLoading && orders.length === 0}
+                  isRefreshing={isRefreshing && orders.length === 0}
                 />
               </motion.div>
             )}

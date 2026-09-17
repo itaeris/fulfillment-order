@@ -7,11 +7,11 @@ import {
   updateOverdueScanResult,
 } from "@/lib/db";
 import type { OverdueScanStatus } from "@/lib/overdue-scan";
-import { indonesiaDateKey } from "@/lib/timezone";
+import { warehouseTodayKey } from "@/lib/timezone";
 
 export async function GET(request: NextRequest) {
   try {
-    const scanDate = request.nextUrl.searchParams.get("date") || indonesiaDateKey();
+    const scanDate = request.nextUrl.searchParams.get("date") || warehouseTodayKey();
     const scans = await getOverdueScans(scanDate);
     return NextResponse.json({ scanDate, scans });
   } catch (error) {
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Kode scan kosong" }, { status: 400 });
     }
 
-    const scanDate = indonesiaDateKey();
+    const scanDate = warehouseTodayKey();
     const orderId = String(body.orderId || "").trim() || undefined;
     const result: Exclude<OverdueScanStatus, "duplicate"> =
       body.result === "cancelled"

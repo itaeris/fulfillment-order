@@ -1,6 +1,10 @@
 import { Order } from "@/types/order";
 import { orderNumberKeys, trackingKeys } from "@/lib/order-match";
-import { INDONESIA_TZ } from "@/lib/timezone";
+import {
+  INDONESIA_TZ,
+  warehouseDueSchedule,
+  warehouseTodayKey,
+} from "@/lib/timezone";
 
 const TZ = INDONESIA_TZ;
 const URGENT_MS = 60 * 60 * 1000;
@@ -91,6 +95,7 @@ export interface DueDateOverview {
   missingJubelioRows: DueDateRow[];
   penjualanOnlyRows: DueDateRow[];
   jubelioOnlyRows: DueDateRow[];
+  processRows: DueDateRow[];
   todayProcessCount: number;
   todayPickedUp: number;
   todayProcessItems: number;
@@ -113,6 +118,29 @@ export function dayKey(value?: Date | string | null): string | null {
 
 export function todayKey(now = new Date()): string {
   return dayKey(now)!;
+}
+
+function placedAt(order?: Order | null): Date | undefined {
+  return toDate(order?.paidTime) || toDate(order?.orderDate);
+}
+
+/** Tenggat gudang: 09.00–17.00 due hari itu 17.00; 17.00–09.00 due besok 09.00. Instant marketplace yang lebih awal tetap dipakai. */
+export function warehouseEffectiveDue(order?: Order | null): Date | undefined {
+  const market = toDate(order?.mustShipBefore);
+  const placed = placedAt(order);
+  if (!order || !placed) return market;
+  if (looksLikePreorder(order)) return market;
+  const warehouse = warehouseDueSchedule(placed).deadline;
+  if (market && market.getTime() <= warehouse.getTime()) return market;
+  return warehouse;
+}
+
+function orderDueDayKey(order?: Order | null): string | null {
+  const placed = placedAt(order);
+  if (placed && order && !looksLikePreorder(order)) {
+    return warehouseDueSchedule(placed).dueDay;
+  }
+  return dayKey(order?.mustShipBefore);
 }
 
 export function formatDueLabel(value?: Date | string | null): string {
@@ -218,7 +246,7 @@ function indexByKeys(orders: Order[], keysOf: (order: Order) => string[]) {
   return map;
 }
 
-function isInstant(order?: Order): boolean {
+function isInstant(order?: Pick<Order, "courier" | "shippingOption"> | null): boolean {
   if (!order) return false;
   const text = `${order.courier || ""} ${order.shippingOption || ""}`.toLowerCase();
   if (/standard|reguler(?!\s*instant)|regular(?!\s*instant)/.test(text) && !/instant|instan|same[\s-]?day/.test(text)) {
@@ -227,13 +255,13 @@ function isInstant(order?: Order): boolean {
   return /instant|instan|same[\s-]?day|sameday|gosend|grab\s*express|spx instant|anteraja instant|ninja instant/.test(text);
 }
 
-function isSameDayShip(order?: Order): boolean {
+function isSameDayShip(order?: Pick<Order, "courier" | "shippingOption"> | null): boolean {
   if (!order) return false;
   const text = `${order.courier || ""} ${order.shippingOption || ""}`.toLowerCase();
   return /same[\s-]?day|sameday|hari ini|same day/.test(text);
 }
 
-function classifyShipping(order?: Order): ShippingKind {
+export function classifyShipping(order?: Pick<Order, "courier" | "shippingOption"> | null): ShippingKind {
   if (isSameDayShip(order)) return "same_day";
   if (isInstant(order)) return "instant";
   return "regular";
@@ -337,21 +365,22 @@ function isMarketplaceRelevantToday(row: DueDateRow, today: string): boolean {
     return false;
   }
 
-  const mk = dayKey(row.marketplaceDue);
-  if (!mk) return false;
-  return mk === today || row.overdue;
+  const dueDay = orderDueDayKey(row.marketplaceOrder);
+  if (!dueDay) return false;
+  return dueDay <= today || row.overdue;
 }
 
 function isDueOnDate(order: Order, dateKey: string, now: Date): boolean {
-  const due = toDate(order.mustShipBefore);
-  const mk = dayKey(due);
-  if (!mk) return false;
-  const today = todayKey(now);
+  const dueDay = orderDueDayKey(order);
+  if (!dueDay) return false;
+  const today = warehouseTodayKey(now);
   if (dateKey === today) {
-    if (looksLikePreorder(order) && due && !isDueTodayOrPast(due, today)) return false;
-    return mk <= today;
+    if (looksLikePreorder(order) && order.mustShipBefore && !isDueTodayOrPast(toDate(order.mustShipBefore), today)) {
+      return false;
+    }
+    return dueDay <= today;
   }
-  return mk === dateKey;
+  return dueDay === dateKey;
 }
 
 function isDueOnQueueDate(order: Order, dateKey: string, now: Date): boolean {
@@ -361,7 +390,7 @@ function isDueOnQueueDate(order: Order, dateKey: string, now: Date): boolean {
 
 /** Pesanan terbuka yang tenggatnya hari ini atau sudah lewat (antrian Kirim hari ini). */
 export function isShipTodayQueueOrder(order: Order, now = new Date()): boolean {
-  return isDueOnQueueDate(order, todayKey(now), now);
+  return isDueOnQueueDate(order, warehouseTodayKey(now), now);
 }
 
 export function filterShipTodayQueue<T extends Order>(orders: T[], now = new Date()): T[] {
@@ -386,7 +415,7 @@ export function mergeTodayQueueWithPickedUp<T extends Order>(
     if (isPickedUpStatus(order.status)) {
       return isPickedUpTodayOrder(order, now) ? [order] : [];
     }
-    if (!isDueOnDate(order, todayKey(now), now)) return [];
+    if (!isDueOnDate(order, warehouseTodayKey(now), now)) return [];
     return [
       {
         ...order,
@@ -401,20 +430,22 @@ export function mergeTodayQueueWithPickedUp<T extends Order>(
 
 function movedOutToday(order: Order, now: Date): boolean {
   if (!isPickedUpStatus(order.status)) return false;
-  const today = todayKey(now);
-  return dayKey(order.pickupTime) === today || dayKey(order.shippedTime) === today;
+  return isPickedUpTodayOrder(order, now);
 }
 
 /** Tetap dihitung di total hari ini meski kurir sudah pickup. Reset tiap ganti hari WIB. */
 export function isPickedUpTodayOrder(order: Order, now = new Date()): boolean {
-  return movedOutToday(order, now);
+  const today = warehouseTodayKey(now);
+  const pickup = order.pickupTime ? warehouseTodayKey(new Date(order.pickupTime)) : null;
+  const shipped = order.shippedTime ? warehouseTodayKey(new Date(order.shippedTime)) : null;
+  return pickup === today || shipped === today;
 }
 
 export function isTodayProcessOrder(order: Order, now = new Date()): boolean {
   if (order.platform === "jubelio") return false;
   if (!isTodayProcessable(order)) return false;
   if (isPickedUpStatus(order.status)) return movedOutToday(order, now);
-  return isDueOnDate(order, todayKey(now), now);
+  return isDueOnDate(order, warehouseTodayKey(now), now);
 }
 
 /** Pesanan toko (bukan Jubelio) yang masih terbuka dan tenggatnya pada `dateKey` (YYYY-MM-DD, Asia/Jakarta). */
@@ -424,15 +455,15 @@ export function isMarketplaceShipOnDate(order: Order, dateKey: string, now = new
 }
 
 export function isMarketplaceShipToday(order: Order, now = new Date()): boolean {
-  return isMarketplaceShipOnDate(order, todayKey(now), now);
+  return isMarketplaceShipOnDate(order, warehouseTodayKey(now), now);
 }
 
 /** Order toko terbuka yang tenggatnya setelah hari ini — boleh packing cicil, bukan kirim hari ini. */
 export function isAheadPackOrder(order: Order, now = new Date()): boolean {
   if (order.platform === "jubelio") return false;
   if (!isOpen(order)) return false;
-  const due = dayKey(order.mustShipBefore);
-  return Boolean(due && due > todayKey(now));
+  const dueDay = orderDueDayKey(order);
+  return Boolean(dueDay && dueDay > warehouseTodayKey(now));
 }
 
 export function formatDayKeyLabel(dateKey: string): string {
@@ -526,7 +557,9 @@ function buildRow(args: {
   const marketplaceDue = toDate(marketplaceOrder?.mustShipBefore);
   const jubelioDue = toDate(jubelioOrder?.mustShipBefore);
   const queueOrder = marketplaceOrder || jubelioOrder;
-  const effectiveDue = marketplaceOrder ? marketplaceDue : jubelioDue;
+  const effectiveDue = marketplaceOrder
+    ? warehouseEffectiveDue(marketplaceOrder) || marketplaceDue
+    : jubelioDue;
   const remain = remaining(effectiveDue, now);
   const marketplace = marketplaceName(marketplaceOrder);
   const shippingKind = classifyShipping(queueOrder);
@@ -612,7 +645,7 @@ function bucketLabel(row: DueDateRow, now: Date): { key: string; label: string; 
 }
 
 export function buildDueDateOverview(orders: Order[], now = new Date()): DueDateOverview {
-  const today = todayKey(now);
+  const today = warehouseTodayKey(now);
   const open = orders.filter(isOpen);
   const openJubelio = open.filter((o) => o.platform === "jubelio");
   const matchableJubelio = orders.filter(isMatchableJubelio);
@@ -746,6 +779,7 @@ export function buildDueDateOverview(orders: Order[], now = new Date()): DueDate
     missingJubelioRows,
     penjualanOnlyRows,
     jubelioOnlyRows,
+    processRows: todayProcessRows,
     todayProcessCount: todayProcessRows.filter(
       (row) => row.marketplace === "Shopee" || row.marketplace === "TikTok" || row.marketplace === "Tokopedia"
     ).length,

@@ -1,5 +1,7 @@
 import { supabase } from "./supabase";
-import { addCalendarDays, INDONESIA_OFFSET, indonesiaDateKey, indonesiaOrderCutoffRange } from "./timezone";
+import { addCalendarDays, INDONESIA_OFFSET, indonesiaDateKey, indonesiaOrderCutoffKey, inProcessCutoffWindow, processCutoffQuerySpan } from "./timezone";
+import { classifyShipping, isAheadPackOrder } from "./due-date";
+import type { Order } from "@/types/order";
 
 const PAGE_SIZE = 1000;
 
@@ -25,6 +27,63 @@ function applyPagedFilters(
   return query;
 }
 
+async function fetchPage(
+  table: string,
+  select: string,
+  from: number,
+  options?: {
+    eq?: { column: string; value: string };
+    ins?: { column: string; values: string[] }[];
+    orderColumn?: string | null;
+  }
+) {
+  const { data, error } = await applyPagedFilters(
+    supabase.from(table).select(select),
+    options
+  ).range(from, from + PAGE_SIZE - 1);
+  if (error) throw error;
+  return data ?? [];
+}
+
+async function fetchPagedRowsProgressive(
+  table: string,
+  select = "*",
+  options?: {
+    eq?: { column: string; value: string };
+    ins?: { column: string; values: string[] }[];
+    orderColumn?: string | null;
+  },
+  onChunk?: (rows: any[], done: boolean) => void
+) {
+  const rows: any[] = [];
+  const first = await fetchPage(table, select, 0, options);
+  rows.push(...first);
+  if (first.length < PAGE_SIZE) {
+    onChunk?.(rows, true);
+    return rows;
+  }
+  onChunk?.(rows, false);
+
+  let from = PAGE_SIZE;
+  while (true) {
+    const starts = [from, from + PAGE_SIZE, from + PAGE_SIZE * 2];
+    const wave = await Promise.all(
+      starts.map((start) => fetchPage(table, select, start, options))
+    );
+    let done = false;
+    for (const page of wave) {
+      rows.push(...page);
+      if (page.length < PAGE_SIZE) {
+        done = true;
+        break;
+      }
+    }
+    onChunk?.(rows, done);
+    if (done) return rows;
+    from += PAGE_SIZE * 3;
+  }
+}
+
 async function fetchPagedRows(
   table: string,
   select = "*",
@@ -34,34 +93,7 @@ async function fetchPagedRows(
     orderColumn?: string | null;
   }
 ) {
-  const firstQuery = applyPagedFilters(
-    supabase.from(table).select(select, { count: "exact" }),
-    options
-  );
-  const { data: first, error, count } = await firstQuery.range(0, PAGE_SIZE - 1);
-  if (error) throw error;
-
-  const rows = [...(first ?? [])];
-  const total = count ?? rows.length;
-  if (total <= rows.length) return rows;
-
-  const starts: number[] = [];
-  for (let from = PAGE_SIZE; from < total; from += PAGE_SIZE) starts.push(from);
-
-  const pages = await Promise.all(
-    starts.map((from) =>
-      applyPagedFilters(supabase.from(table).select(select), options).range(
-        from,
-        from + PAGE_SIZE - 1
-      )
-    )
-  );
-
-  for (const page of pages) {
-    if (page.error) throw page.error;
-    rows.push(...(page.data ?? []));
-  }
-  return rows;
+  return fetchPagedRowsProgressive(table, select, options);
 }
 
 // ── Order operations ──
@@ -69,6 +101,32 @@ async function fetchPagedRows(
 export async function getAllOrders() {
   const allRows = await fetchPagedRows("orders", "*", { orderColumn: "order_date" });
   return allRows.map(rowToOrder);
+}
+
+export async function getAllOrdersProgressive(
+  onChunk: (orders: Order[], done: boolean) => void
+) {
+  let last: Order[] = [];
+  await fetchPagedRowsProgressive("orders", "*", { orderColumn: "order_date" }, (rows, done) => {
+    last = rows.map(rowToOrder);
+    onChunk(last, done);
+  });
+  return last;
+}
+
+export async function searchOrdersByNumber(query: string) {
+  const raw = String(query || "").trim();
+  if (!raw) return [];
+  const compact = raw.replace(/[\s\-_.#]+/g, "");
+  const safe = compact.replace(/[%_(),]/g, "").slice(0, 40);
+  if (safe.length < 4) return [];
+  const { data, error } = await supabase
+    .from("orders")
+    .select("*")
+    .ilike("order_number", `%${safe}%`)
+    .limit(50);
+  if (error) throw error;
+  return (data ?? []).map(rowToOrder);
 }
 
 export async function getMarketplaceOrdersMovedOn(dateKey: string) {
@@ -125,35 +183,25 @@ export type MarketplacePlacedToday = {
   cancelled: number;
 };
 
-export async function getOpenMarketplaceAheadOrders(now = new Date()) {
-  const from = `${addCalendarDays(indonesiaDateKey(now), 1)}T00:00:00${INDONESIA_OFFSET}`;
-  const rows: any[] = [];
-  for (let fromIdx = 0; ; fromIdx += PAGE_SIZE) {
-    const page = await supabase
-      .from("orders")
-      .select("*")
-      .in("platform", ["shopee", "tiktok", "tokopedia"])
-      .not("status", "in", "(cancelled,returned,shipped,delivered)")
-      .gte("must_ship_before", from)
-      .order("must_ship_before", { ascending: true })
-      .order("id", { ascending: true })
-      .range(fromIdx, fromIdx + PAGE_SIZE - 1);
-    if (page.error) throw page.error;
-    const chunk = page.data ?? [];
-    rows.push(...chunk);
-    if (chunk.length < PAGE_SIZE) break;
-  }
-  return rows.map(rowToOrder);
-}
+export type MarketplacePlacedTodayOrder = {
+  orderNumber: string;
+  platform: string;
+  status: string;
+  orderDate?: string;
+  paidTime?: string;
+  courier?: string;
+  shippingOption?: string;
+};
 
-export async function countMarketplacePlacedToday(
-  now = new Date()
-): Promise<MarketplacePlacedToday> {
-  const { from, to, key } = indonesiaOrderCutoffRange(now);
+async function collectMarketplacePlacedToday(now = new Date()): Promise<{
+  summary: MarketplacePlacedToday;
+  orders: MarketplacePlacedTodayOrder[];
+}> {
+  const { from, to } = processCutoffQuerySpan(now);
   const fromIso = from.toISOString();
   const toIso = to.toISOString();
   const platforms = ["shopee", "tiktok", "tokopedia"];
-  const select = "order_number, platform, status, order_date, paid_time";
+  const select = "order_number, platform, status, order_date, paid_time, courier, shipping_option";
 
   const byOrderDate = await supabase
     .from("orders")
@@ -175,14 +223,7 @@ export async function countMarketplacePlacedToday(
   let shopee = 0;
   let tiktok = 0;
   let cancelled = 0;
-  const fromMs = from.getTime();
-  const toMs = to.getTime();
-
-  const inWindow = (value?: string) => {
-    if (!value) return false;
-    const ms = new Date(value).getTime();
-    return Number.isFinite(ms) && ms >= fromMs && ms < toMs;
-  };
+  const orders: MarketplacePlacedTodayOrder[] = [];
 
   const consider = (row: {
     order_number?: string;
@@ -190,11 +231,20 @@ export async function countMarketplacePlacedToday(
     status?: string;
     order_date?: string;
     paid_time?: string;
+    courier?: string;
+    shipping_option?: string;
   }) => {
-    if (!inWindow(row.order_date) && !inWindow(row.paid_time)) return;
+    const platform = String(row.platform || "");
+    const kind = classifyShipping({
+      courier: row.courier,
+      shippingOption: row.shipping_option,
+    });
+    const inWindow =
+      inProcessCutoffWindow(platform, kind, row.order_date, now) ||
+      inProcessCutoffWindow(platform, kind, row.paid_time, now);
+    if (!inWindow) return;
     const number = String(row.order_number || "").trim().toUpperCase();
     if (!number) return;
-    const platform = String(row.platform || "");
     const seenKey = `${platform}|${number}`;
     if (seen.has(seenKey)) return;
     seen.add(seenKey);
@@ -205,18 +255,67 @@ export async function countMarketplacePlacedToday(
     }
     if (platform === "shopee") shopee += 1;
     else tiktok += 1;
+    orders.push({
+      orderNumber: String(row.order_number || "").trim(),
+      platform,
+      status,
+      orderDate: row.order_date,
+      paidTime: row.paid_time,
+      courier: row.courier,
+      shippingOption: row.shipping_option,
+    });
   };
 
   for (const row of byOrderDate.data ?? []) consider(row);
   for (const row of byPaidTime.data ?? []) consider(row);
 
+  orders.sort((a, b) => {
+    if (a.platform !== b.platform) return a.platform.localeCompare(b.platform);
+    return a.orderNumber.localeCompare(b.orderNumber);
+  });
+
   return {
-    dateKey: key,
-    total: shopee + tiktok,
-    shopee,
-    tiktok,
-    cancelled,
+    summary: {
+      dateKey: indonesiaOrderCutoffKey(now),
+      total: shopee + tiktok,
+      shopee,
+      tiktok,
+      cancelled,
+    },
+    orders,
   };
+}
+
+export async function countMarketplacePlacedToday(
+  now = new Date()
+): Promise<MarketplacePlacedToday> {
+  const { summary } = await collectMarketplacePlacedToday(now);
+  return summary;
+}
+
+export async function listMarketplacePlacedToday(now = new Date()) {
+  return collectMarketplacePlacedToday(now);
+}
+
+export async function getOpenMarketplaceAheadOrders(now = new Date()) {
+  const from = `${addCalendarDays(indonesiaDateKey(now), 1)}T00:00:00${INDONESIA_OFFSET}`;
+  const rows: any[] = [];
+  for (let fromIdx = 0; ; fromIdx += PAGE_SIZE) {
+    const page = await supabase
+      .from("orders")
+      .select("*")
+      .in("platform", ["shopee", "tiktok", "tokopedia"])
+      .not("status", "in", "(cancelled,returned,shipped,delivered)")
+      .gte("must_ship_before", from)
+      .order("must_ship_before", { ascending: true })
+      .order("id", { ascending: true })
+      .range(fromIdx, fromIdx + PAGE_SIZE - 1);
+    if (page.error) throw page.error;
+    const chunk = page.data ?? [];
+    rows.push(...chunk);
+    if (chunk.length < PAGE_SIZE) break;
+  }
+  return rows.map(rowToOrder).filter((order) => isAheadPackOrder(order, now));
 }
 
 export async function countOrdersByPlatform(platform: string) {
@@ -262,19 +361,24 @@ export async function findExistingOrderIds(ids: string[]) {
 }
 
 export async function findExistingOrderNumbers(platforms: string[], orderNumbers: string[]) {
-  const found = new Set<string>();
+  const statuses = await findExistingOrderStatuses(platforms, orderNumbers);
+  return new Set(Array.from(statuses.keys()));
+}
+
+export async function findExistingOrderStatuses(platforms: string[], orderNumbers: string[]) {
+  const found = new Map<string, string>();
   if (orderNumbers.length === 0 || platforms.length === 0) return found;
   const CHUNK = 100;
   for (let i = 0; i < orderNumbers.length; i += CHUNK) {
     const chunk = orderNumbers.slice(i, i + CHUNK);
     const { data, error } = await supabase
       .from("orders")
-      .select("order_number")
+      .select("order_number, status")
       .in("platform", platforms)
       .in("order_number", chunk);
     if (error) throw error;
     for (const row of data ?? []) {
-      if (row.order_number) found.add(row.order_number);
+      if (row.order_number) found.set(row.order_number, String(row.status || ""));
     }
   }
   return found;

@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import {
   CheckCircle,
-  XCircle,
   AlertTriangle,
   Search,
   ChevronLeft,
@@ -16,13 +15,22 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Order } from "@/types/order";
-import { cn, formatCurrency, formatNumber } from "@/lib/utils";
+import { cn, formatNumber, getStatusLabel } from "@/lib/utils";
 import type { UserRole } from "@/contexts/AuthContext";
 import { CardsSkeleton, TableSkeleton } from "@/components/Skeleton";
 import ApiSyncBar, { type ApiSyncState } from "@/components/ApiSyncBar";
 import { OrderDetailPreview } from "@/components/OrderDetailPreview";
 import { DayPicker } from "@/components/DayPicker";
-import { formatDayKeyLabel, isMarketplaceShipOnDate, todayKey } from "@/lib/due-date";
+import {
+  formatDayKeyLabel,
+  formatDueLabel,
+  isMarketplaceShipOnDate,
+  jubelioMenuBadge,
+  parseJubelioMenu,
+  todayKey,
+  warehouseEffectiveDue,
+  type JubelioMenu,
+} from "@/lib/due-date";
 import { orderNumberKeys, trackingKeys } from "@/lib/order-match";
 
 interface ComparisonViewProps {
@@ -32,9 +40,9 @@ interface ComparisonViewProps {
   isRefreshing?: boolean;
 }
 
-type MatchStatus = "matched" | "jubelio_only" | "platform_only" | "mismatch";
-type FilterTab = "all" | "matched" | "mismatch" | "jubelio_only" | "platform_only" | "ship_today";
-type CompSortField = "status" | "orderNumber" | "matchedBy" | "customer" | "jubelioAmount" | "platformAmount" | "amountDiff" | "statusOrder";
+type MatchStatus = "matched" | "penjualan" | "jubelio_only" | "platform_only";
+type FilterTab = "all" | "matched" | "penjualan" | "jubelio_only" | "platform_only" | "ship_today";
+type CompSortField = "status" | "orderNumber" | "matchedBy" | "customer" | "qty" | "courier" | "due" | "menu";
 type CompSortDir = "asc" | "desc";
 
 interface ComparisonRow {
@@ -43,8 +51,8 @@ interface ComparisonRow {
   status: MatchStatus;
   jubelioOrder?: Order;
   platformOrder?: Order;
-  amountDiff?: number;
-  statusMatch: boolean;
+  jubelioMenu: JubelioMenu | null;
+  qty: number;
 }
 
 const ITEMS_PER_PAGE = 20;
@@ -62,16 +70,15 @@ function indexOrdersByKeys(orders: Order[], keysOf: (order: Order) => string[]) 
 }
 
 function comparisonOf(jOrder: Order, pOrder: Order, matchedBy: string): ComparisonRow {
-  const amountDiff = Math.abs(jOrder.totalAmount - pOrder.totalAmount);
-  const statusMatch = jOrder.status === pOrder.status;
+  const menu = parseJubelioMenu(jOrder);
   return {
-    orderNumber: pOrder.orderNumber,
+    orderNumber: pOrder.orderNumber || jOrder.refNo || jOrder.orderNumber,
     matchedBy,
-    status: amountDiff > 1 || !statusMatch ? "mismatch" : "matched",
+    status: menu === "penjualan" ? "penjualan" : "matched",
     jubelioOrder: jOrder,
     platformOrder: pOrder,
-    amountDiff,
-    statusMatch,
+    jubelioMenu: menu,
+    qty: pOrder.quantity || jOrder.quantity || 1,
   };
 }
 
@@ -99,13 +106,7 @@ function marketplaceOf(order?: Order): Exclude<MarketplaceFilter, "all"> {
 function ttsChannelOf(order?: Order): Exclude<TtsChannelFilter, "all"> {
   if (!order) return "tts";
   if (order.platform === "tokopedia") return "tokopedia";
-
-  const hint = [order.channelName, order.storeName]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  if (hint.includes("tiktok")) return "tts";
+  const hint = [order.channelName, order.storeName].filter(Boolean).join(" ").toLowerCase();
   if (hint.includes("tokopedia") || hint.includes("tokped")) return "tokopedia";
   return "tts";
 }
@@ -116,8 +117,14 @@ function marketplaceLabel(order?: Order): string {
   return ttsChannelOf(order) === "tokopedia" ? "Tokopedia" : "TikTok Shop by Tokopedia";
 }
 
+function rowDue(row: ComparisonRow) {
+  const order = row.platformOrder || row.jubelioOrder;
+  return order ? warehouseEffectiveDue(order) || order.mustShipBefore : undefined;
+}
+
 export default function ComparisonView({ orders, userRole, apiSync, isRefreshing = false }: ComparisonViewProps) {
-  const hideMoney = userRole === "warehouse";
+  const hideMoney = true;
+  void userRole;
   const [filterTab, setFilterTab] = useState<FilterTab>("all");
   const [marketplaceFilter, setMarketplaceFilter] = useState<MarketplaceFilter>("all");
   const [ttsChannelFilter, setTtsChannelFilter] = useState<TtsChannelFilter>("all");
@@ -180,11 +187,12 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
       if (matchedJubelioIds.has(jOrder.id)) continue;
       jubelioOnlyCount += 1;
       comparisonRows.push({
-        orderNumber: jOrder.orderNumber,
+        orderNumber: jOrder.refNo || jOrder.orderNumber,
         matchedBy: "-",
         status: "jubelio_only",
         jubelioOrder: jOrder,
-        statusMatch: false,
+        jubelioMenu: parseJubelioMenu(jOrder),
+        qty: jOrder.quantity || 1,
       });
     }
 
@@ -196,26 +204,27 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
         matchedBy: "-",
         status: "platform_only",
         platformOrder: pOrder,
-        statusMatch: false,
+        jubelioMenu: null,
+        qty: pOrder.quantity || 1,
       });
     }
 
-    const statusOrder: MatchStatus[] = ["mismatch", "platform_only", "jubelio_only", "matched"];
+    const statusOrder: MatchStatus[] = ["platform_only", "penjualan", "jubelio_only", "matched"];
     comparisonRows.sort((a, b) => statusOrder.indexOf(a.status) - statusOrder.indexOf(b.status));
 
-    let matchedCount = 0;
-    let mismatchCount = 0;
+    let mirroredCount = 0;
+    let penjualanCount = 0;
     for (const row of comparisonRows) {
-      if (row.status === "matched") matchedCount += 1;
-      else if (row.status === "mismatch") mismatchCount += 1;
+      if (row.status === "matched") mirroredCount += 1;
+      else if (row.status === "penjualan") penjualanCount += 1;
     }
 
     return {
       rows: comparisonRows,
       summary: {
         total: comparisonRows.length,
-        matched: matchedCount,
-        mismatch: mismatchCount,
+        matched: mirroredCount,
+        penjualan: penjualanCount,
         jubelioOnly: jubelioOnlyCount,
         platformOnly: platformOnlyCount,
         jubelioCount: jubelioOrders.length,
@@ -245,15 +254,11 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
       );
     }
 
-    if ((filterTab === "platform_only" || filterTab === "ship_today") && marketplaceFilter !== "all") {
-      result = result.filter((r) => marketplaceOf(r.platformOrder) === marketplaceFilter);
+    if (marketplaceFilter !== "all") {
+      result = result.filter((r) => r.platformOrder && marketplaceOf(r.platformOrder) === marketplaceFilter);
     }
 
-    if (
-      (filterTab === "platform_only" || filterTab === "ship_today") &&
-      marketplaceFilter === "tiktok" &&
-      ttsChannelFilter !== "all"
-    ) {
+    if (marketplaceFilter === "tiktok" && ttsChannelFilter !== "all") {
       result = result.filter((r) => ttsChannelOf(r.platformOrder) === ttsChannelFilter);
     }
 
@@ -262,23 +267,32 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
     }
 
     if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (r) =>
-          r.orderNumber.toLowerCase().includes(q) ||
-          r.jubelioOrder?.customerName?.toLowerCase().includes(q) ||
-          r.platformOrder?.customerName?.toLowerCase().includes(q) ||
-          r.jubelioOrder?.trackingNumber?.toLowerCase().includes(q) ||
-          r.platformOrder?.trackingNumber?.toLowerCase().includes(q) ||
-          r.jubelioOrder?.refNo?.toLowerCase().includes(q)
-      );
+      const q = searchQuery.replace(/[\s\-_.#]+/g, "").toLowerCase();
+      result = result.filter((r) => {
+        const hay = [
+          r.orderNumber,
+          r.jubelioOrder?.orderNumber,
+          r.jubelioOrder?.refNo,
+          r.platformOrder?.orderNumber,
+          r.jubelioOrder?.customerName,
+          r.platformOrder?.customerName,
+          r.jubelioOrder?.trackingNumber,
+          r.platformOrder?.trackingNumber,
+          r.platformOrder?.courier,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .replace(/[\s\-_.#]+/g, "")
+          .toLowerCase();
+        return hay.includes(q);
+      });
     }
 
     result.sort((a, b) => {
       let cmp = 0;
       switch (sortField) {
         case "status": {
-          const order: MatchStatus[] = ["mismatch", "platform_only", "jubelio_only", "matched"];
+          const order: MatchStatus[] = ["platform_only", "penjualan", "jubelio_only", "matched"];
           cmp = order.indexOf(a.status) - order.indexOf(b.status);
           break;
         }
@@ -294,17 +308,22 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
           cmp = aCust.localeCompare(bCust);
           break;
         }
-        case "jubelioAmount":
-          cmp = (a.jubelioOrder?.totalAmount || 0) - (b.jubelioOrder?.totalAmount || 0);
+        case "qty":
+          cmp = a.qty - b.qty;
           break;
-        case "platformAmount":
-          cmp = (a.platformOrder?.totalAmount || 0) - (b.platformOrder?.totalAmount || 0);
+        case "courier":
+          cmp = (a.platformOrder?.courier || a.jubelioOrder?.courier || "").localeCompare(
+            b.platformOrder?.courier || b.jubelioOrder?.courier || ""
+          );
           break;
-        case "amountDiff":
-          cmp = (a.amountDiff || 0) - (b.amountDiff || 0);
+        case "due": {
+          const aDue = rowDue(a)?.valueOf() || 0;
+          const bDue = rowDue(b)?.valueOf() || 0;
+          cmp = aDue - bDue;
           break;
-        case "statusOrder":
-          cmp = (a.statusMatch ? 1 : 0) - (b.statusMatch ? 1 : 0);
+        }
+        case "menu":
+          cmp = (a.jubelioMenu || "").localeCompare(b.jubelioMenu || "");
           break;
       }
       return sortDir === "asc" ? cmp : -cmp;
@@ -340,64 +359,15 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
     );
   };
 
-  const jubelioOrders = orders.filter((o) => o.platform === "jubelio");
-  const platformOrders = orders.filter(
-    (o) => o.platform === "shopee" || o.platform === "tiktok" || o.platform === "tokopedia"
-  );
-
-  if (jubelioOrders.length === 0 && platformOrders.length === 0) {
-    return (
-      <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-8 sm:p-12 text-center">
-        <div className="w-16 sm:w-20 h-16 sm:h-20 bg-cream-200 rounded-full flex items-center justify-center mx-auto mb-4">
-          <ArrowRightLeft className="w-8 sm:w-10 h-8 sm:h-10 text-brand-300" />
-        </div>
-        <h3 className="text-lg sm:text-xl font-semibold text-brand-700 mb-2">
-          Belum Ada Data untuk Komparasi
-        </h3>
-        <p className="text-brand-400 text-sm sm:text-base">
-          Ambil data Jubelio dan Shopee / TikTok dulu. Jubelio dipakai sebagai cermin, bukan saluran penjualan.
-        </p>
-      </div>
-    );
-  }
-
-  if (jubelioOrders.length === 0 || platformOrders.length === 0) {
-    const missing = jubelioOrders.length === 0 ? "Jubelio" : "Shopee / TikTok";
-    return (
-      <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-8 sm:p-12 text-center">
-        <div className="w-16 sm:w-20 h-16 sm:h-20 bg-cream-200 rounded-full flex items-center justify-center mx-auto mb-4">
-          <AlertTriangle className="w-8 sm:w-10 h-8 sm:h-10 text-orange-400" />
-        </div>
-        <h3 className="text-lg sm:text-xl font-semibold text-brand-700 mb-2">
-          Data {missing} Belum Ada
-        </h3>
-        <p className="text-brand-400 text-sm sm:text-base">
-          Komparasi menandai yang miss atau belum realtime. Jubelio adalah cermin omnichannel, bukan saluran penjualan tambahan.
-        </p>
-      </div>
-    );
-  }
-
-  const getStatusBadge = (status: MatchStatus) => {
-    switch (status) {
-      case "matched":
-        return { label: "Cocok", color: "bg-green-100 text-green-700", icon: CheckCircle };
-      case "mismatch":
-        return { label: "Beda", color: "bg-red-100 text-red-700", icon: AlertTriangle };
-      case "jubelio_only":
-        return { label: "Ada di Jubelio, tidak di Shopee / TikTok", color: "bg-amber-100 text-amber-700", icon: Package };
-      case "platform_only":
-        return { label: "Ada di Shopee / TikTok, belum di Jubelio", color: "bg-blue-100 text-blue-700", icon: ShoppingBag };
-    }
-  };
-
   const marketplaceSourceRows = useMemo(() => {
     if (filterTab === "ship_today") {
       return rows.filter(
         (r) => r.platformOrder && isMarketplaceShipOnDate(r.platformOrder, shipDate)
       );
     }
-    return rows.filter((r) => r.status === "platform_only");
+    if (filterTab === "jubelio_only") return [];
+    if (filterTab === "all") return rows.filter((r) => Boolean(r.platformOrder));
+    return rows.filter((r) => r.status === filterTab && r.platformOrder);
   }, [rows, filterTab, shipDate]);
 
   const marketplaceCounts = useMemo(() => {
@@ -436,24 +406,83 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
     };
   }, [shippingSourceRows]);
 
+  const jubelioOrders = orders.filter((o) => o.platform === "jubelio");
+  const platformOrders = orders.filter(
+    (o) => o.platform === "shopee" || o.platform === "tiktok" || o.platform === "tokopedia"
+  );
+
+  if (jubelioOrders.length === 0 && platformOrders.length === 0) {
+    return (
+      <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-8 sm:p-12 text-center">
+        <div className="w-16 sm:w-20 h-16 sm:h-20 bg-cream-200 rounded-full flex items-center justify-center mx-auto mb-4">
+          <ArrowRightLeft className="w-8 sm:w-10 h-8 sm:h-10 text-brand-300" />
+        </div>
+        <h3 className="text-lg sm:text-xl font-semibold text-brand-700 mb-2">
+          Belum Ada Data untuk Komparasi
+        </h3>
+        <p className="text-brand-400 text-sm sm:text-base">
+          Ambil data Jubelio dan Shopee / TikTok dulu. Komparasi mencocokkan nomor pesanan, bukan harga.
+        </p>
+      </div>
+    );
+  }
+
+  if (jubelioOrders.length === 0 || platformOrders.length === 0) {
+    const missing = jubelioOrders.length === 0 ? "Jubelio" : "Shopee / TikTok";
+    return (
+      <div className="bg-white rounded-xl shadow-sm border border-brand-200 p-8 sm:p-12 text-center">
+        <div className="w-16 sm:w-20 h-16 sm:h-20 bg-cream-200 rounded-full flex items-center justify-center mx-auto mb-4">
+          <AlertTriangle className="w-8 sm:w-10 h-8 sm:h-10 text-orange-400" />
+        </div>
+        <h3 className="text-lg sm:text-xl font-semibold text-brand-700 mb-2">
+          Data {missing} Belum Ada
+        </h3>
+        <p className="text-brand-400 text-sm sm:text-base">
+          Komparasi cermin order: nomor pesanan Shopee/TikTok vs Jubelio. Bukan selisih sales atau harga.
+        </p>
+      </div>
+    );
+  }
+
+  const getStatusBadge = (status: MatchStatus) => {
+    switch (status) {
+      case "matched":
+        return { label: "Tercermin · Shipping", color: "bg-green-100 text-green-700", icon: CheckCircle };
+      case "penjualan":
+        return { label: "Ketemu di Penjualan", color: "bg-orange-100 text-orange-800", icon: AlertTriangle };
+      case "jubelio_only":
+        return { label: "Ada di Jubelio, tidak di channel", color: "bg-amber-100 text-amber-700", icon: Package };
+      case "platform_only":
+        return { label: "Tidak ketemu di Jubelio", color: "bg-blue-100 text-blue-700", icon: ShoppingBag };
+    }
+  };
+
   const filterTabs: { value: FilterTab; label: string; count: number; color: string }[] = [
     { value: "all", label: "Semua", count: summary.total, color: "text-brand-700" },
-    { value: "ship_today", label: shipDateIsToday ? "Dikirim hari ini" : `Dikirim ${formatDayKeyLabel(shipDate)}`, count: shipTodayCount, color: "text-orange-600" },
-    { value: "matched", label: "Cocok", count: summary.matched, color: "text-green-600" },
-    { value: "mismatch", label: "Beda", count: summary.mismatch, color: "text-red-600" },
-    { value: "jubelio_only", label: "Ada di Jubelio, tidak di Shopee / TikTok", count: summary.jubelioOnly, color: "text-amber-600" },
-    { value: "platform_only", label: "Ada di Shopee / TikTok, belum di Jubelio", count: summary.platformOnly, color: "text-blue-600" },
+    { value: "ship_today", label: shipDateIsToday ? "Kirim hari ini" : `Kirim ${formatDayKeyLabel(shipDate)}`, count: shipTodayCount, color: "text-orange-600" },
+    { value: "matched", label: "Tercermin", count: summary.matched, color: "text-green-600" },
+    { value: "penjualan", label: "Penjualan", count: summary.penjualan, color: "text-orange-700" },
+    { value: "platform_only", label: "Belum di Jubelio", count: summary.platformOnly, color: "text-blue-600" },
+    { value: "jubelio_only", label: "Hanya di Jubelio", count: summary.jubelioOnly, color: "text-amber-600" },
   ];
 
-  const matchRate =
-    summary.total > 0 ? (((summary.matched + summary.mismatch) / summary.total) * 100) : 0;
+  const foundInJubelio = summary.matched + summary.penjualan;
+  const mirrorRate = summary.platformCount > 0 ? (foundInJubelio / summary.platformCount) * 100 : 0;
+  const missingRate = Math.max(0, 100 - mirrorRate);
+
+  const selectStatusTab = (tab: FilterTab) => {
+    setFilterTab(tab);
+    setMarketplaceFilter("all");
+    setTtsChannelFilter("all");
+    setShippingFilter("all");
+    setCurrentPage(1);
+  };
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Header + Sync */}
       <ApiSyncBar
         {...apiSync}
-        hint="Cermin omnichannel: cek yang miss atau belum realtime. Jubelio tidak menambah jumlah penjualan Shopee/TikTok."
+        hint="Cermin order: nomor pesanan Shopee/TikTok vs Jubelio. Bukan sales atau selisih harga."
       />
 
       {!!apiSync.syncing || isRefreshing ? (
@@ -463,11 +492,10 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
         </>
       ) : (
       <>
-      {/* Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         {[
+          { label: "Order channel", value: formatNumber(summary.platformCount), sub: "Shopee + TikTok/Tokped", border: "border-brand-200", valueColor: "text-brand-800", labelColor: "text-brand-400", subColor: "text-brand-300" },
           { label: "Jubelio", value: formatNumber(summary.jubelioCount), sub: "cermin WMS", border: "border-brand-200", valueColor: "text-brand-800", labelColor: "text-brand-400", subColor: "text-brand-300" },
-          { label: "Platform", value: formatNumber(summary.platformCount), sub: "Shopee + TikTok", border: "border-brand-200", valueColor: "text-brand-800", labelColor: "text-brand-400", subColor: "text-brand-300" },
         ].map((card, i) => (
           <motion.div
             key={card.label}
@@ -503,13 +531,13 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
             className="w-full text-left"
           >
             <p className="text-xs font-medium text-orange-600">
-              {shipDateIsToday ? "Dikirim hari ini" : "Dikirim"}
+              {shipDateIsToday ? "Kirim hari ini" : "Kirim"}
             </p>
             <p className="text-xl sm:text-2xl font-bold mt-1 text-orange-700">
               {formatNumber(shipTodayCount)}
             </p>
             <p className="text-[10px] sm:text-xs mt-1 text-orange-500">
-              Shopee + TikTok
+              Order channel
               {shipDateIsToday ? " · termasuk terlambat" : ` · ${formatDayKeyLabel(shipDate)}`}
             </p>
           </button>
@@ -526,39 +554,40 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
         </motion.div>
 
         {[
-          { label: "Tercermin", value: formatNumber(summary.matched + summary.mismatch), sub: `${matchRate.toFixed(1)}% match rate`, border: "border-green-200", valueColor: "text-green-700", labelColor: "text-green-600", subColor: "text-green-500" },
-          { label: "Miss / delay", value: formatNumber(summary.jubelioOnly + summary.platformOnly), sub: "perlu dicek", border: "border-red-200", valueColor: "text-red-700", labelColor: "text-red-600", subColor: "text-red-400" },
+          { tab: "matched" as FilterTab, label: "Tercermin", value: formatNumber(summary.matched), sub: "di Jubelio Shipping", border: "border-green-200", valueColor: "text-green-700", labelColor: "text-green-600", subColor: "text-green-500", ring: "ring-green-300" },
+          { tab: "platform_only" as FilterTab, label: "Belum di Jubelio", value: formatNumber(summary.platformOnly), sub: `${missingRate.toFixed(0)}% channel belum ketemu`, border: "border-red-200", valueColor: "text-red-700", labelColor: "text-red-600", subColor: "text-red-400", ring: "ring-red-300" },
         ].map((card, i) => (
-          <motion.div
+          <motion.button
+            type="button"
             key={card.label}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.09 + 0.03 * i, duration: 0.18, ease: "easeOut" }}
-            className={cn("bg-white rounded-xl shadow-sm border p-4", card.border)}
+            onClick={() => selectStatusTab(filterTab === card.tab ? "all" : card.tab)}
+            className={cn(
+              "bg-white rounded-xl shadow-sm border p-4 text-left",
+              card.border,
+              filterTab === card.tab && `ring-2 ${card.ring}`
+            )}
           >
             <p className={cn("text-xs font-medium", card.labelColor)}>{card.label}</p>
             <p className={cn("text-xl sm:text-2xl font-bold mt-1", card.valueColor)}>{card.value}</p>
             <p className={cn("text-[10px] sm:text-xs mt-1", card.subColor)}>{card.sub}</p>
-          </motion.div>
+          </motion.button>
         ))}
       </div>
 
-      {/* Matching info */}
-      {summary.matched + summary.mismatch > 0 && (
-        <div className="bg-brand-50 border border-brand-200 rounded-xl p-3 sm:p-4 text-xs sm:text-sm text-brand-600">
-          Matching dilakukan via: <strong>Ref No</strong> (nomor order platform di Jubelio), <strong>Order Number</strong>, dan <strong>No. Resi</strong>.
-          {summary.matched + summary.mismatch === 0 && " Untuk hasil lebih baik, re-import data Jubelio agar ref_no tersimpan."}
-        </div>
-      )}
+      <div className="bg-brand-50 border border-brand-200 rounded-xl p-3 sm:p-4 text-xs sm:text-sm text-brand-600">
+        Komparasi pakai <strong>nomor pesanan</strong>, <strong>ref no</strong>, dan <strong>resi</strong>.
+        Kartu = ketemu atau tidak di Jubelio. Harga dan sales tidak dipakai. Klik kartu untuk buka daftar.
+      </div>
 
-      {/* Comparison Table */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.08, duration: 0.2, ease: "easeOut" }}
         className="bg-white rounded-xl shadow-sm border border-brand-200"
       >
-        {/* Filter Tabs */}
         <div className="px-3 sm:px-4 border-b border-brand-200">
           <div className="flex gap-0.5 sm:gap-1 overflow-x-auto scrollbar-hide min-w-0">
             {filterTabs.map((tab) => {
@@ -613,7 +642,7 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
           </div>
         )}
 
-        {(filterTab === "platform_only" || filterTab === "ship_today") && (
+        {filterTab !== "jubelio_only" && (
           <div className="px-3 sm:px-4 py-2 sm:py-2.5 border-b border-brand-100 flex flex-wrap items-center gap-1.5 sm:gap-2">
             <span className="text-[10px] sm:text-xs font-medium text-brand-400 mr-0.5 sm:mr-1">Marketplace:</span>
             {([
@@ -654,7 +683,7 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
           </div>
         )}
 
-        {(filterTab === "platform_only" || filterTab === "ship_today") && marketplaceFilter === "tiktok" && (
+        {filterTab !== "jubelio_only" && marketplaceFilter === "tiktok" && (
           <div className="px-3 sm:px-4 py-2 sm:py-2.5 border-b border-brand-100 flex flex-wrap items-center gap-1.5 sm:gap-2">
             <span className="text-[10px] sm:text-xs font-medium text-brand-400 mr-0.5 sm:mr-1">Platform:</span>
             {([
@@ -733,10 +762,9 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
           </div>
         )}
 
-        {/* Search */}
         <div className="p-3 sm:p-4 border-b border-brand-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
           <p className="text-xs sm:text-sm text-brand-400">
-            <span className="font-semibold text-brand-700">{filteredRows.length}</span> hasil
+            <span className="font-semibold text-brand-700">{filteredRows.length}</span> pesanan
           </p>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-300" />
@@ -753,14 +781,13 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
           </div>
         </div>
 
-        {/* Table */}
         <div>
           {filteredRows.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 px-4">
               <div className="w-16 h-16 bg-cream-200 rounded-full flex items-center justify-center mb-4">
                 <Search className="w-8 h-8 text-brand-300" />
               </div>
-              <p className="text-brand-400 text-center">Tidak ada data yang cocok dengan filter.</p>
+              <p className="text-brand-400 text-center">Tidak ada pesanan yang cocok dengan filter.</p>
             </div>
           ) : (
             <>
@@ -768,10 +795,8 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
               {paginatedRows.map((row, idx) => {
                 const badge = getStatusBadge(row.status);
                 const BadgeIcon = badge.icon;
-                const name =
-                  row.jubelioOrder?.customerName ||
-                  row.platformOrder?.customerName ||
-                  "-";
+                const menu = jubelioMenuBadge(row);
+                const due = rowDue(row);
                 return (
                   <article
                     key={`${row.orderNumber}-${idx}`}
@@ -793,107 +818,60 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
                         <BadgeIcon className="w-3 h-3" />
                         {badge.label}
                       </span>
-                      <span className="text-[10px] text-brand-400 bg-cream-200 px-1.5 py-0.5 rounded">
-                        {row.matchedBy}
+                      <span className={cn("text-[10px] px-1.5 py-0.5 rounded", menu.className)}>
+                        {menu.label}
                       </span>
                     </div>
                     <p className="text-sm font-semibold text-brand-800 font-mono break-all">
                       {row.orderNumber}
                     </p>
-                    <p className="text-xs text-brand-500">{name}</p>
-                    {row.platformOrder && (
-                      <p className="text-[11px] text-brand-400">
-                        {marketplaceLabel(row.platformOrder)}
-                      </p>
-                    )}
-                    {!hideMoney && row.jubelioOrder && row.platformOrder ? (
-                      <p className="text-xs text-brand-600">
-                        J {formatCurrency(row.jubelioOrder.totalAmount)} · P{" "}
-                        {formatCurrency(row.platformOrder.totalAmount)}
-                      </p>
-                    ) : null}
+                    <p className="text-xs text-brand-500">
+                      Qty {row.qty}
+                      {row.platformOrder ? ` · ${marketplaceLabel(row.platformOrder)}` : ""}
+                      {(row.platformOrder?.courier || row.jubelioOrder?.courier)
+                        ? ` · ${row.platformOrder?.courier || row.jubelioOrder?.courier}`
+                        : ""}
+                    </p>
+                    <p className="text-[11px] text-brand-400">{formatDueLabel(due)}</p>
                   </article>
                 );
               })}
             </div>
             <div className="hidden md:block overflow-x-auto">
-            <table className="w-full min-w-[950px]">
+            <table className="w-full min-w-[880px]">
               <thead className="bg-cream-100">
                 <tr>
-                  <th
-                    className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
-                    onClick={() => handleCompSort("status")}
-                  >
-                    <div className="flex items-center gap-1">
-                      Status <CompSortIcon field="status" />
-                    </div>
-                  </th>
-                  <th
-                    className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
-                    onClick={() => handleCompSort("orderNumber")}
-                  >
-                    <div className="flex items-center gap-1">
-                      No. Pesanan <CompSortIcon field="orderNumber" />
-                    </div>
-                  </th>
-                  <th
-                    className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
-                    onClick={() => handleCompSort("matchedBy")}
-                  >
-                    <div className="flex items-center gap-1">
-                      Match Via <CompSortIcon field="matchedBy" />
-                    </div>
-                  </th>
-                  <th
-                    className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
-                    onClick={() => handleCompSort("customer")}
-                  >
-                    <div className="flex items-center gap-1">
-                      Customer <CompSortIcon field="customer" />
-                    </div>
-                  </th>
-                  {!hideMoney && (
-                    <>
-                      <th
-                        className="px-3 sm:px-4 py-2.5 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
-                        onClick={() => handleCompSort("jubelioAmount")}
-                      >
-                        <div className="flex items-center justify-end gap-1">
-                          Jubelio (Rp) <CompSortIcon field="jubelioAmount" />
-                        </div>
-                      </th>
-                      <th
-                        className="px-3 sm:px-4 py-2.5 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
-                        onClick={() => handleCompSort("platformAmount")}
-                      >
-                        <div className="flex items-center justify-end gap-1">
-                          Platform (Rp) <CompSortIcon field="platformAmount" />
-                        </div>
-                      </th>
-                      <th
-                        className="px-3 sm:px-4 py-2.5 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
-                        onClick={() => handleCompSort("amountDiff")}
-                      >
-                        <div className="flex items-center justify-end gap-1">
-                          Beda Rp <CompSortIcon field="amountDiff" />
-                        </div>
-                      </th>
-                    </>
-                  )}
-                  <th
-                    className="px-3 sm:px-4 py-2.5 sm:py-3 text-center text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
-                    onClick={() => handleCompSort("statusOrder")}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      Status Order <CompSortIcon field="statusOrder" />
-                    </div>
-                  </th>
+                  {([
+                    { field: "status" as const, label: "Status", align: "left" },
+                    { field: "orderNumber" as const, label: "No. Pesanan", align: "left" },
+                    { field: "qty" as const, label: "Qty", align: "right" },
+                    { field: "courier" as const, label: "Kurir", align: "left" },
+                    { field: "menu" as const, label: "Menu Jubelio", align: "left" },
+                    { field: "due" as const, label: "Tenggat", align: "left" },
+                    { field: "matchedBy" as const, label: "Match via", align: "left" },
+                  ]).map((col) => (
+                    <th
+                      key={col.field}
+                      className={cn(
+                        "px-3 sm:px-4 py-2.5 sm:py-3 text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none",
+                        col.align === "right" ? "text-right" : "text-left"
+                      )}
+                      onClick={() => handleCompSort(col.field)}
+                    >
+                      <div className={cn("flex items-center gap-1", col.align === "right" && "justify-end")}>
+                        {col.label} <CompSortIcon field={col.field} />
+                      </div>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-cream-200">
                 {paginatedRows.map((row, idx) => {
                   const badge = getStatusBadge(row.status);
                   const BadgeIcon = badge.icon;
+                  const menu = jubelioMenuBadge(row);
+                  const due = rowDue(row);
+                  const order = row.platformOrder || row.jubelioOrder;
 
                   return (
                     <tr
@@ -901,7 +879,8 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
                       onClick={() => setPreviewRow(row)}
                       className={cn(
                         "hover:bg-cream-50 transition-colors cursor-pointer",
-                        row.status === "mismatch" && "bg-red-50/40",
+                        row.status === "platform_only" && "bg-amber-50/40",
+                        row.status === "penjualan" && "bg-orange-50/40",
                         previewRow?.orderNumber === row.orderNumber &&
                           previewRow?.matchedBy === row.matchedBy &&
                           "bg-brand-50"
@@ -922,98 +901,33 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
                         <p className="text-xs sm:text-sm font-medium text-brand-800 font-mono">
                           {row.orderNumber}
                         </p>
-                        {row.jubelioOrder && row.platformOrder && (
-                          <p className="text-[10px] text-brand-300 mt-0.5 font-mono">
-                            J: {row.jubelioOrder.orderNumber}
-                          </p>
-                        )}
-                        {row.platformOrder && (
+                        {row.platformOrder ? (
                           <p className="text-[10px] text-brand-300 mt-0.5">
                             {marketplaceLabel(row.platformOrder)}
                           </p>
-                        )}
+                        ) : null}
+                        {order?.status ? (
+                          <p className="text-[10px] text-brand-400 mt-0.5">{getStatusLabel(order.status)}</p>
+                        ) : null}
+                      </td>
+                      <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-right text-xs sm:text-sm font-medium text-brand-800">
+                        {row.qty}
+                      </td>
+                      <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-xs text-brand-700">
+                        {row.platformOrder?.courier || row.jubelioOrder?.courier || "—"}
+                      </td>
+                      <td className="px-3 sm:px-4 py-2.5 sm:py-3">
+                        <span className={cn("inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium", menu.className)}>
+                          {menu.label}
+                        </span>
+                      </td>
+                      <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-xs text-brand-700 whitespace-nowrap">
+                        {formatDueLabel(due)}
                       </td>
                       <td className="px-3 sm:px-4 py-2.5 sm:py-3">
                         <span className="text-[10px] sm:text-xs text-brand-400 bg-cream-200 px-1.5 py-0.5 rounded">
                           {row.matchedBy}
                         </span>
-                      </td>
-                      <td className="px-3 sm:px-4 py-2.5 sm:py-3">
-                        <p className="text-xs sm:text-sm text-brand-700 truncate max-w-[130px]">
-                          {row.jubelioOrder?.customerName ||
-                            row.platformOrder?.customerName ||
-                            "-"}
-                        </p>
-                      </td>
-                      {!hideMoney && (
-                        <>
-                          <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-right">
-                            {row.jubelioOrder ? (
-                              <p className="text-xs sm:text-sm font-medium text-brand-800">
-                                {formatCurrency(row.jubelioOrder.totalAmount)}
-                              </p>
-                            ) : (
-                              <p className="text-xs text-brand-300">-</p>
-                            )}
-                          </td>
-                          <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-right">
-                            {row.platformOrder ? (
-                              <p className="text-xs sm:text-sm font-medium text-brand-800">
-                                {formatCurrency(row.platformOrder.totalAmount)}
-                              </p>
-                            ) : (
-                              <p className="text-xs text-brand-300">-</p>
-                            )}
-                          </td>
-                          <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-right">
-                            {row.jubelioOrder && row.platformOrder ? (
-                              <p
-                                className={cn(
-                                  "text-xs sm:text-sm font-semibold",
-                                  (row.amountDiff ?? 0) > 1
-                                    ? "text-red-600"
-                                    : "text-green-600"
-                                )}
-                              >
-                                {(row.amountDiff ?? 0) > 1
-                                  ? formatCurrency(row.amountDiff!)
-                                  : "0"}
-                              </p>
-                            ) : (
-                              <p className="text-xs text-brand-300">-</p>
-                            )}
-                          </td>
-                        </>
-                      )}
-                      <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-center">
-                        {row.jubelioOrder && row.platformOrder ? (
-                          <div className="flex flex-col items-center gap-0.5">
-                            <div className="flex items-center gap-1 text-[10px]">
-                              <span className="text-brand-400">J:</span>
-                              <span className="text-brand-700">
-                                {row.jubelioOrder.status}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1 text-[10px]">
-                              <span className="text-brand-400">P:</span>
-                              <span
-                                className={cn(
-                                  "font-medium",
-                                  row.statusMatch
-                                    ? "text-brand-700"
-                                    : "text-red-600"
-                                )}
-                              >
-                                {row.platformOrder.status}
-                              </span>
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="text-[10px] text-brand-700">
-                            {(row.jubelioOrder || row.platformOrder)?.status ||
-                              "-"}
-                          </p>
-                        )}
                       </td>
                     </tr>
                   );
@@ -1025,16 +939,11 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
           )}
         </div>
 
-        {/* Pagination */}
         {totalPages > 1 && (
           <div className="px-3 sm:px-5 py-3 sm:py-4 border-t border-brand-200 flex flex-col sm:flex-row items-center justify-between gap-3">
             <p className="text-xs sm:text-sm text-brand-400 order-2 sm:order-1">
               {(currentPage - 1) * ITEMS_PER_PAGE + 1} -{" "}
-              {Math.min(
-                currentPage * ITEMS_PER_PAGE,
-                filteredRows.length
-              )}{" "}
-              dari {filteredRows.length}
+              {Math.min(currentPage * ITEMS_PER_PAGE, filteredRows.length)} dari {filteredRows.length}
             </p>
             <div className="flex items-center gap-1.5 sm:gap-2 order-1 sm:order-2">
               <button
@@ -1045,32 +954,27 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
                 <ChevronLeft className="w-4 h-4 text-brand-400" />
               </button>
               <div className="flex items-center gap-0.5 sm:gap-1">
-                {Array.from(
-                  { length: Math.min(5, totalPages) },
-                  (_, i) => {
-                    let pageNum;
-                    if (totalPages <= 5) pageNum = i + 1;
-                    else if (currentPage <= 3) pageNum = i + 1;
-                    else if (currentPage >= totalPages - 2)
-                      pageNum = totalPages - 4 + i;
-                    else pageNum = currentPage - 2 + i;
-
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => setCurrentPage(pageNum)}
-                        className={cn(
-                          "w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-xs sm:text-sm font-medium transition-colors",
-                          currentPage === pageNum
-                            ? "bg-brand-500 text-white"
-                            : "hover:bg-cream-200 text-brand-400"
-                        )}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  }
-                )}
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) pageNum = i + 1;
+                  else if (currentPage <= 3) pageNum = i + 1;
+                  else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
+                  else pageNum = currentPage - 2 + i;
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={cn(
+                        "w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-xs sm:text-sm font-medium transition-colors",
+                        currentPage === pageNum
+                          ? "bg-brand-500 text-white"
+                          : "hover:bg-cream-200 text-brand-400"
+                      )}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
               </div>
               <button
                 onClick={() => setCurrentPage(currentPage + 1)}
@@ -1094,16 +998,16 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
           previewRow
             ? [
                 { label: "Status komparasi", value: getStatusBadge(previewRow.status).label },
+                { label: "Menu Jubelio", value: jubelioMenuBadge(previewRow).label },
                 { label: "Match via", value: previewRow.matchedBy },
+                { label: "Qty", value: String(previewRow.qty) },
+                { label: "Tenggat", value: formatDueLabel(rowDue(previewRow)) },
               ]
             : undefined
         }
         sections={
           previewRow
             ? [
-                ...(previewRow.jubelioOrder
-                  ? [{ label: "Jubelio", order: previewRow.jubelioOrder }]
-                  : []),
                 ...(previewRow.platformOrder
                   ? [
                       {
@@ -1111,6 +1015,9 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
                         order: previewRow.platformOrder,
                       },
                     ]
+                  : []),
+                ...(previewRow.jubelioOrder
+                  ? [{ label: "Jubelio", order: previewRow.jubelioOrder }]
                   : []),
               ]
             : []

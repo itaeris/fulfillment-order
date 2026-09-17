@@ -93,7 +93,7 @@ interface ShopeeApiResponse<T> {
   response?: T;
 }
 
-export type ShopeeSyncPhase = "rts" | "processed" | "completed";
+export type ShopeeSyncPhase = "rts" | "processed" | "completed" | "cancelled";
 
 export interface ShopeeSyncCursor {
   phase: ShopeeSyncPhase;
@@ -108,6 +108,10 @@ export function emptyProcessedCursor(): ShopeeSyncCursor {
 
 export function emptyCompletedCursor(): ShopeeSyncCursor {
   return { phase: "completed", listCursor: "", windowIndex: 0, pagesFetched: 0 };
+}
+
+export function emptyCancelledCursor(): ShopeeSyncCursor {
+  return { phase: "cancelled", listCursor: "", windowIndex: 0, pagesFetched: 0 };
 }
 
 function toDate(unix?: number): Date | undefined {
@@ -332,10 +336,10 @@ export async function fetchShopeeReadyToShipBatch(
 
 export async function fetchShopeeStatusBatch(
   config: ShopeeConfig,
-  status: "PROCESSED" | "COMPLETED",
+  status: "PROCESSED" | "COMPLETED" | "CANCELLED" | "IN_CANCEL",
   cursor?: ShopeeSyncCursor
 ): Promise<{ listed: string[]; nextCursor: ShopeeSyncCursor | null; done: boolean }> {
-  const days = status === "COMPLETED" ? 30 : 15;
+  const days = status === "PROCESSED" ? 15 : 30;
   const windows = timeWindows(days);
   const windowIndex = cursor?.windowIndex || 0;
   const window = windows[windowIndex];
@@ -360,8 +364,10 @@ export async function fetchShopeeStatusBatch(
       done = true;
     }
   }
+  const phase: ShopeeSyncPhase =
+    status === "COMPLETED" ? "completed" : status === "PROCESSED" ? "processed" : "cancelled";
   const next: ShopeeSyncCursor = {
-    phase: status === "COMPLETED" ? "completed" : "processed",
+    phase,
     listCursor: nextList,
     windowIndex: nextWindow,
     pagesFetched: (cursor?.pagesFetched || 0) + 1,

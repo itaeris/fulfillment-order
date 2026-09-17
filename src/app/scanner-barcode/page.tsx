@@ -12,10 +12,11 @@ import {
   uniqueLookupNumbers,
   type LiveStatusPatch,
 } from "@/lib/overview-merge";
-import { dropCancelledOrders, makeCancelAlert, takeNewlyCancelled, type CancelAlert } from "@/lib/live-cancel";
+import { dropCancelledOrders, makeCancelAlert, orderMatchesScanKeys, takeNewlyCancelled, cancelAlertMatchKey, type CancelAlert } from "@/lib/live-cancel";
+import { expandMatchKeys } from "@/lib/order-match";
 import { upsertOverviewOrders } from "@/lib/overview-store";
 import { supabase } from "@/lib/supabase";
-import { indonesiaDateKey, indonesiaOrderCutoffKey } from "@/lib/timezone";
+import { indonesiaOrderCutoffKey, warehouseTodayKey } from "@/lib/timezone";
 import { Order } from "@/types/order";
 
 async function fetchTodayScans(): Promise<OverdueScan[]> {
@@ -45,7 +46,7 @@ export default function ScannerBarcodePage() {
   scansRef.current = scans;
   const aheadRef = useRef<Order[]>([]);
   aheadRef.current = aheadOrders;
-  const dayKeyRef = useRef(indonesiaDateKey());
+  const dayKeyRef = useRef(warehouseTodayKey());
   const cutoffKeyRef = useRef(indonesiaOrderCutoffKey());
 
   useEffect(() => {
@@ -122,14 +123,24 @@ export default function ScannerBarcodePage() {
     }
   }, []);
 
+  const validScanKeys = useCallback(() => {
+    const keys = new Set<string>();
+    for (const scan of scansRef.current) {
+      const result = scanResultOf(scan);
+      if (result !== "valid" && result !== "ahead") continue;
+      for (const key of expandMatchKeys(scan.orderNumber || scan.scannedCode)) keys.add(key);
+    }
+    return keys;
+  }, []);
+
   const pushCancelAlerts = useCallback((kicked: Order[], source: CancelAlert["source"]) => {
     if (kicked.length === 0) return;
     setCancelAlerts((prev) => {
       const next = [...kicked.map((order) => makeCancelAlert(order.orderNumber, source)), ...prev];
       const seen = new Set<string>();
       return next.filter((alert) => {
-        const key = `${alert.source}|${alert.orderNumber}`;
-        if (seen.has(key)) return false;
+        const key = cancelAlertMatchKey(alert.orderNumber);
+        if (!key || seen.has(key)) return false;
         seen.add(key);
         return true;
       }).slice(0, 12);
@@ -191,7 +202,15 @@ export default function ScannerBarcodePage() {
       );
       const newlyCancelled = takeNewlyCancelled(current, patched);
       if (newlyCancelled.length > 0) {
-        pushCancelAlerts(newlyCancelled, "live");
+        const scanned = validScanKeys();
+        const afterScan = newlyCancelled.filter((order) =>
+          orderMatchesScanKeys(order.orderNumber, scanned)
+        );
+        const queueOnly = newlyCancelled.filter(
+          (order) => !orderMatchesScanKeys(order.orderNumber, scanned)
+        );
+        pushCancelAlerts(afterScan, "live");
+        pushCancelAlerts(queueOnly, "queue");
         await kickCancelled(newlyCancelled);
       }
       const kept = dropCancelledOrders(patched);
@@ -201,7 +220,7 @@ export default function ScannerBarcodePage() {
     } catch {
       return current;
     }
-  }, [kickCancelled, pushCancelAlerts]);
+  }, [kickCancelled, pushCancelAlerts, validScanKeys]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -221,7 +240,7 @@ export default function ScannerBarcodePage() {
         cutoffKeyRef.current = cutoff;
         void loadPlacedToday();
       }
-      const today = indonesiaDateKey();
+      const today = warehouseTodayKey();
       if (dayKeyRef.current === today) return;
       dayKeyRef.current = today;
       setScans([]);
@@ -372,7 +391,13 @@ export default function ScannerBarcodePage() {
       }}
       cancelAlerts={cancelAlerts}
       onCancelAlert={(alert) => {
-        setCancelAlerts((prev) => [alert, ...prev.filter((item) => item.id !== alert.id)].slice(0, 12));
+        setCancelAlerts((prev) => {
+          const key = cancelAlertMatchKey(alert.orderNumber);
+          return [alert, ...prev.filter((item) => cancelAlertMatchKey(item.orderNumber) !== key)].slice(
+            0,
+            12
+          );
+        });
       }}
       onDismissCancelAlert={(id) => {
         setCancelAlerts((prev) => prev.filter((alert) => alert.id !== id));

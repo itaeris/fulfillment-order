@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search,
+  Loader2,
   ChevronUp,
   ChevronDown,
   ChevronLeft,
@@ -29,6 +30,7 @@ import type { UserRole } from "@/contexts/AuthContext";
 import { TableSkeleton } from "@/components/Skeleton";
 import ApiSyncBar, { type ApiSyncState } from "@/components/ApiSyncBar";
 import { OrderDetailPreview } from "@/components/OrderDetailPreview";
+import { hydrateOrders } from "@/lib/client-data";
 
 interface OrderTableProps {
   orders: Order[];
@@ -79,6 +81,30 @@ function ttsChannelOf(order: Order): Exclude<TtsChannelFilter, "all"> {
   return "tts";
 }
 
+function looksLikeOrderNumber(value: string) {
+  const compact = value.replace(/[\s\-_.#]+/g, "");
+  return compact.length >= 8 && /^[A-Za-z0-9]+$/.test(compact);
+}
+
+function matchesSearch(order: Order, rawQuery: string) {
+  const q = rawQuery.replace(/[\s\-_.#]+/g, "").toLowerCase();
+  if (!q) return true;
+  const hay = [
+    order.orderNumber,
+    order.customerName,
+    order.productName,
+    order.recipientName,
+    order.sku,
+    order.trackingNumber,
+    order.refNo,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/[\s\-_.#]+/g, "")
+    .toLowerCase();
+  return hay.includes(q);
+}
+
 function matchesPlatform(
   order: Order,
   selectedPlatform: Platform | "all",
@@ -111,6 +137,51 @@ export default function OrderTable({
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [currentPage, setCurrentPage] = useState(1);
   const [previewOrder, setPreviewOrder] = useState<Order | null>(null);
+  const [lookedUp, setLookedUp] = useState<Order[]>([]);
+  const [lookingUp, setLookingUp] = useState(false);
+  const lookupReq = useRef(0);
+
+  const catalog = useMemo(() => {
+    if (lookedUp.length === 0) return orders;
+    const lookedKeys = new Set(
+      lookedUp.map((order) => `${order.platform}:${String(order.orderNumber || "").toUpperCase()}`)
+    );
+    const kept = orders.filter(
+      (order) => !lookedKeys.has(`${order.platform}:${String(order.orderNumber || "").toUpperCase()}`)
+    );
+    return [...kept, ...lookedUp];
+  }, [orders, lookedUp]);
+
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!looksLikeOrderNumber(q)) {
+      lookupReq.current += 1;
+      setLookedUp([]);
+      setLookingUp(false);
+      return;
+    }
+
+    const compact = q.replace(/[\s\-_.#]+/g, "");
+    const req = ++lookupReq.current;
+    const timer = window.setTimeout(async () => {
+      setLookingUp(true);
+      try {
+        const res = await fetch(`/api/orders/lookup?q=${encodeURIComponent(compact)}`, {
+          cache: "no-store",
+        });
+        const data = (await res.json().catch(() => ({ orders: [] }))) as { orders?: Order[] };
+        if (req !== lookupReq.current) return;
+        setLookedUp(hydrateOrders(Array.isArray(data.orders) ? data.orders : []));
+      } catch {
+        if (req !== lookupReq.current) return;
+        setLookedUp([]);
+      } finally {
+        if (req === lookupReq.current) setLookingUp(false);
+      }
+    }, 280);
+
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
 
   const statusCounts = useMemo(() => {
     const counts = {
@@ -123,7 +194,7 @@ export default function OrderTable({
       returned: 0,
     };
 
-    const filteredByPlatform = orders.filter((o) =>
+    const filteredByPlatform = catalog.filter((o) =>
       matchesPlatform(o, selectedPlatform, ttsChannelFilter)
     );
 
@@ -135,12 +206,12 @@ export default function OrderTable({
     counts.cancelled = counts.cancelled + counts.returned;
 
     return counts;
-  }, [orders, selectedPlatform, ttsChannelFilter]);
+  }, [catalog, selectedPlatform, ttsChannelFilter]);
 
   // Shipping type counts (for "processing" and "shipped" tabs)
   const shippingCounts = useMemo(() => {
     const targetStatus = selectedStatusTab === "shipped" ? "shipped" : "processing";
-    const baseOrders = orders
+    const baseOrders = catalog
       .filter((o) => matchesPlatform(o, selectedPlatform, ttsChannelFilter))
       .filter((o) => o.status === targetStatus);
 
@@ -149,11 +220,11 @@ export default function OrderTable({
       instant: baseOrders.filter((o) => classifyShipping(o) === "instant").length,
       reguler: baseOrders.filter((o) => classifyShipping(o) === "reguler").length,
     };
-  }, [orders, selectedPlatform, selectedStatusTab, ttsChannelFilter]);
+  }, [catalog, selectedPlatform, selectedStatusTab, ttsChannelFilter]);
 
   const pickupStageCounts = useMemo(() => {
     const targetStatus = selectedStatusTab === "shipped" ? "shipped" : "processing";
-    const baseOrders = orders
+    const baseOrders = catalog
       .filter((o) => matchesPlatform(o, selectedPlatform, ttsChannelFilter))
       .filter((o) => o.status === targetStatus);
 
@@ -165,7 +236,7 @@ export default function OrderTable({
       after_pickup: regulerOrders.filter(o => classifyPickupStage(o) === "after_pickup").length,
       ready_to_ship: regulerOrders.filter(o => classifyPickupStage(o) === "ready_to_ship").length,
     };
-  }, [orders, selectedPlatform, selectedStatusTab, ttsChannelFilter]);
+  }, [catalog, selectedPlatform, selectedStatusTab, ttsChannelFilter]);
 
   const platformCounts: Record<string, number> = useMemo(() => {
     return {
@@ -186,45 +257,41 @@ export default function OrderTable({
   }, [orders]);
 
   const filteredAndSortedOrders = useMemo(() => {
-    let filtered = orders;
+    let filtered = catalog;
+    const querying = Boolean(searchQuery.trim());
+    const snQuery = looksLikeOrderNumber(searchQuery);
 
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (order) =>
-          order.orderNumber.toLowerCase().includes(query) ||
-          order.customerName.toLowerCase().includes(query) ||
-          order.productName.toLowerCase().includes(query) ||
-          order.recipientName?.toLowerCase().includes(query) ||
-          order.sku?.toLowerCase().includes(query) ||
-          order.trackingNumber?.toLowerCase().includes(query)
-      );
-    }
-
-    filtered = filtered.filter((order) =>
-      matchesPlatform(order, selectedPlatform, ttsChannelFilter)
-    );
-
-    if (selectedStatusTab !== "all") {
-      if (selectedStatusTab === "cancelled") {
-        filtered = filtered.filter((order) => order.status === "cancelled" || order.status === "returned");
-      } else {
-        filtered = filtered.filter((order) => order.status === selectedStatusTab);
+    if (querying) {
+      filtered = filtered.filter((order) => matchesSearch(order, searchQuery));
+      if (!snQuery) {
+        filtered = filtered.filter((order) =>
+          matchesPlatform(order, selectedPlatform, ttsChannelFilter)
+        );
       }
-    }
+    } else {
+      filtered = filtered.filter((order) =>
+        matchesPlatform(order, selectedPlatform, ttsChannelFilter)
+      );
 
-    // Shipping type filter (applies on "Perlu Dikirim" and "Dikirim")
-    if ((selectedStatusTab === "processing" || selectedStatusTab === "shipped") && shippingFilter !== "all") {
-      filtered = filtered.filter((order) => classifyShipping(order) === shippingFilter);
-    }
+      if (selectedStatusTab !== "all") {
+        if (selectedStatusTab === "cancelled") {
+          filtered = filtered.filter((order) => order.status === "cancelled" || order.status === "returned");
+        } else {
+          filtered = filtered.filter((order) => order.status === selectedStatusTab);
+        }
+      }
 
-    // Pickup stage filter — hanya untuk Reguler
-    if (
-      (selectedStatusTab === "processing" || selectedStatusTab === "shipped") &&
-      shippingFilter === "reguler" &&
-      pickupStage !== "all"
-    ) {
-      filtered = filtered.filter((order) => classifyPickupStage(order) === pickupStage);
+      if ((selectedStatusTab === "processing" || selectedStatusTab === "shipped") && shippingFilter !== "all") {
+        filtered = filtered.filter((order) => classifyShipping(order) === shippingFilter);
+      }
+
+      if (
+        (selectedStatusTab === "processing" || selectedStatusTab === "shipped") &&
+        shippingFilter === "reguler" &&
+        pickupStage !== "all"
+      ) {
+        filtered = filtered.filter((order) => classifyPickupStage(order) === pickupStage);
+      }
     }
 
     filtered.sort((a, b) => {
@@ -276,7 +343,7 @@ export default function OrderTable({
     });
 
     return filtered;
-  }, [orders, searchQuery, selectedPlatform, ttsChannelFilter, selectedStatusTab, shippingFilter, pickupStage, sortField, sortDirection]);
+  }, [catalog, searchQuery, selectedPlatform, ttsChannelFilter, selectedStatusTab, shippingFilter, pickupStage, sortField, sortDirection]);
 
   const totalPages = Math.ceil(filteredAndSortedOrders.length / ITEMS_PER_PAGE);
   const paginatedOrders = filteredAndSortedOrders.slice(
@@ -348,7 +415,7 @@ export default function OrderTable({
     { value: "jubelio", label: "Jubelio (cermin)", color: "bg-brand-500" },
   ];
 
-  const showSyncSkeleton = isLoading || !!apiSync.syncing || isRefreshing;
+  const showSyncSkeleton = (isLoading || isRefreshing) && orders.length === 0;
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-brand-200">
@@ -578,21 +645,24 @@ export default function OrderTable({
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-300" />
           <input
             type="text"
-            placeholder="Cari order, customer, SKU..."
+            placeholder="Cari nomor order, customer, SKU..."
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
               setCurrentPage(1);
             }}
-            className="pl-10 pr-4 py-2 border border-brand-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent w-full sm:w-80 bg-cream-50 text-brand-700 placeholder:text-brand-300"
+            className="pl-10 pr-10 py-2 border border-brand-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent w-full sm:w-80 bg-cream-50 text-brand-700 placeholder:text-brand-300"
           />
+          {lookingUp && (
+            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-400 animate-spin" />
+          )}
         </div>
       </div>
 
       {/* Table (desktop) / Cards (mobile) */}
       <div>
         <AnimatePresence mode="wait">
-        {orders.length === 0 ? (
+        {catalog.length === 0 && !lookingUp ? (
           <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center justify-center py-16 px-4">
             <div className="w-16 h-16 bg-cream-200 rounded-full flex items-center justify-center mb-4">
               <Package className="w-8 h-8 text-brand-300" />
@@ -606,12 +676,28 @@ export default function OrderTable({
         ) : filteredAndSortedOrders.length === 0 ? (
           <motion.div key="no-results" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center justify-center py-16 px-4">
             <div className="w-16 h-16 bg-cream-200 rounded-full flex items-center justify-center mb-4">
-              <Search className="w-8 h-8 text-brand-300" />
+              {lookingUp ? (
+                <Loader2 className="w-8 h-8 text-brand-300 animate-spin" />
+              ) : (
+                <Search className="w-8 h-8 text-brand-300" />
+              )}
             </div>
             <p className="text-brand-400 text-center">
-              Tidak ada pesanan yang ditemukan.
-              <br />
-              Coba ubah filter atau kata kunci pencarian.
+              {lookingUp ? (
+                <>
+                  Mencari pesanan di Shopee...
+                  <br />
+                  Order batal ikut dicek dari nomor order.
+                </>
+              ) : (
+                <>
+                  Tidak ada pesanan yang ditemukan.
+                  <br />
+                  {searchQuery.trim()
+                    ? "Tempel nomor order lengkap. Order batal ikut dicari, tidak tergantung tab status."
+                    : "Coba ubah filter atau kata kunci pencarian."}
+                </>
+              )}
             </p>
           </motion.div>
         ) : (

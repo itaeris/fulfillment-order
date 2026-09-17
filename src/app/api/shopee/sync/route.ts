@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  emptyCancelledCursor,
   emptyCompletedCursor,
   emptyProcessedCursor,
   fetchShopeeReadyToShipBatch,
@@ -12,6 +13,7 @@ import {
   countOrdersByPlatforms,
   deleteUploadedFilesByPlatform,
   findExistingOrderNumbers,
+  findExistingOrderStatuses,
   insertOrders,
   insertUploadedFile,
 } from "@/lib/db";
@@ -24,6 +26,7 @@ export const maxDuration = 60;
 const SHOPEE_PLATFORMS = ["shopee"];
 const MAX_INCREMENTAL_PAGES = 4;
 const MAX_COMPLETED_PAGES = 6;
+const MAX_CANCELLED_PAGES = 12;
 
 function publicShopeeError(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
@@ -76,6 +79,7 @@ export async function POST(request: Request) {
     const fetchBatch = async () => {
       if (phase === "processed") return fetchShopeeStatusBatch(config, "PROCESSED", body.cursor);
       if (phase === "completed") return fetchShopeeStatusBatch(config, "COMPLETED", body.cursor);
+      if (phase === "cancelled") return fetchShopeeStatusBatch(config, "CANCELLED", body.cursor);
       return fetchShopeeReadyToShipBatch(config, body.cursor);
     };
 
@@ -101,10 +105,27 @@ export async function POST(request: Request) {
     const dbCount = await countOrdersByPlatforms(SHOPEE_PLATFORMS);
     const hasCache = dbCount > 0;
     const batch = await fetchBatch();
-    const existing = await findExistingOrderNumbers(SHOPEE_PLATFORMS, batch.listed);
-    const newListed = batch.listed.filter((sn) => !existing.has(sn));
-    const allKnown = batch.listed.length > 0 && batch.listed.every((sn) => existing.has(sn));
-    const toMap = hasCache && isFirstRts && allKnown ? [] : hasCache ? newListed : batch.listed;
+    const existingStatuses =
+      phase === "cancelled"
+        ? await findExistingOrderStatuses(SHOPEE_PLATFORMS, batch.listed)
+        : null;
+    const existing =
+      existingStatuses || (await findExistingOrderNumbers(SHOPEE_PLATFORMS, batch.listed));
+    const existingSet =
+      existing instanceof Map ? new Set(existing.keys()) : existing;
+    const newListed = batch.listed.filter((sn) => !existingSet.has(sn));
+    const allKnown = batch.listed.length > 0 && batch.listed.every((sn) => existingSet.has(sn));
+    const toMap =
+      phase === "cancelled"
+        ? batch.listed.filter((sn) => {
+            const status = existingStatuses?.get(sn);
+            return !status || (status !== "cancelled" && status !== "returned");
+          })
+        : hasCache && isFirstRts && allKnown
+          ? []
+          : hasCache
+            ? newListed
+            : batch.listed;
     const orders = toMap.length > 0 ? await mapShopeeListedOrders(config, toMap) : [];
     if (orders.length > 0) {
       await insertOrders(orders.map(orderToInput));
@@ -155,17 +176,34 @@ export async function POST(request: Request) {
       (body.cursor?.pagesFetched || 0) + 1 >= MAX_COMPLETED_PAGES ||
       (newListed.length === 0 && (body.cursor?.pagesFetched || 0) >= 2);
 
-    if (completedDone) {
+    if (phase === "completed") {
+      return NextResponse.json({
+        success: true,
+        done: false,
+        count,
+        added,
+        nextPage: 1,
+        cursor: completedDone ? emptyCancelledCursor() : batch.nextCursor,
+        syncedAt: new Date().toISOString(),
+      });
+    }
+
+    const cancelledDone =
+      batch.done ||
+      (body.cursor?.pagesFetched || 0) + 1 >= MAX_CANCELLED_PAGES ||
+      (batch.listed.length === 0 && (body.cursor?.pagesFetched || 0) >= 2);
+
+    if (cancelledDone) {
       await markSynced(count);
     }
 
     return NextResponse.json({
       success: true,
-      done: completedDone,
+      done: cancelledDone,
       count,
       added,
-      nextPage: completedDone ? null : 1,
-      cursor: completedDone ? null : batch.nextCursor,
+      nextPage: cancelledDone ? null : 1,
+      cursor: cancelledDone ? null : batch.nextCursor,
       syncedAt: new Date().toISOString(),
     });
   } catch (error) {

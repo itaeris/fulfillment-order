@@ -2,6 +2,7 @@ import {
   getAllOverviewFiles,
   getAllOverviewOrders,
   getAllOrders,
+  getAllOrdersProgressive,
   getAllUploadedFiles,
 } from "@/lib/db";
 import { sanitizeOrderMetrics } from "@/lib/utils";
@@ -50,6 +51,40 @@ export function getCachedDashboard(): DataSnapshot | null {
   return dashboardCache;
 }
 
+const PERSIST_KEY = "fti-dashboard-v1";
+
+export function readPersistedDashboard(): DataSnapshot | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(PERSIST_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { orders?: Order[]; files?: UploadedFile[] };
+    if (!Array.isArray(parsed.orders)) return null;
+    return snapshot(parsed.orders, parsed.files || []);
+  } catch {
+    return null;
+  }
+}
+
+export function writePersistedDashboard(data: DataSnapshot) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(
+      PERSIST_KEY,
+      JSON.stringify({
+        orders: data.orders,
+        files: data.files,
+      })
+    );
+  } catch {
+    try {
+      sessionStorage.removeItem(PERSIST_KEY);
+    } catch {
+      /* quota */
+    }
+  }
+}
+
 export function setDashboardCache(next: DataSnapshot) {
   dashboardCache = next;
 }
@@ -59,12 +94,28 @@ export function clearDashboardCache() {
   dashboardInflight = null;
 }
 
-export async function loadDashboardData(force = false): Promise<DataSnapshot> {
+export async function loadDashboardData(
+  force = false,
+  onPartial?: (data: DataSnapshot) => void
+): Promise<DataSnapshot> {
   if (!force && dashboardCache) return dashboardCache;
   if (dashboardInflight) return dashboardInflight;
 
   dashboardInflight = (async () => {
-    const [orders, files] = await Promise.all([getAllOrders(), getAllUploadedFiles()]);
+    const filesPromise = getAllUploadedFiles();
+    if (!onPartial) {
+      const [orders, files] = await Promise.all([getAllOrders(), filesPromise]);
+      const next = snapshot(orders, files);
+      dashboardCache = next;
+      return next;
+    }
+
+    const files = await filesPromise;
+    const orders = await getAllOrdersProgressive((chunk) => {
+      const next = snapshot(chunk, files);
+      dashboardCache = next;
+      onPartial(next);
+    });
     const next = snapshot(orders, files);
     dashboardCache = next;
     return next;

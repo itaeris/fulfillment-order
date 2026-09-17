@@ -4,7 +4,7 @@ import {
   markOverdueScansCancelled,
   updateOrdersFulfillment,
 } from "@/lib/db";
-import { indonesiaDateKey } from "@/lib/timezone";
+import { warehouseTodayKey } from "@/lib/timezone";
 
 const KICK_PLATFORMS = ["shopee", "tiktok", "tokopedia", "jubelio"];
 
@@ -27,7 +27,7 @@ export async function kickCancelledOrders(input: { ids?: string[]; numbers?: str
   if (ids.length > 0) await deleteOverviewOrdersByIds(ids);
   if (numbers.length > 0) await deleteOverviewOrdersByNumbers(numbers);
   await markOverdueScansCancelled({
-    scanDate: indonesiaDateKey(),
+    scanDate: warehouseTodayKey(),
     ids,
     numbers,
   });

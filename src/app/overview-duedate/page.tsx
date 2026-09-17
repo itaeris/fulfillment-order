@@ -30,7 +30,7 @@ import {
 import { toIndonesianError } from "@/lib/errors";
 import { isShipTodayQueueOrder, mergeTodayQueueWithPickedUp } from "@/lib/due-date";
 import { dropCancelledOrders, takeNewlyCancelled } from "@/lib/live-cancel";
-import { indonesiaDateKey, indonesiaOrderCutoffKey } from "@/lib/timezone";
+import { indonesiaOrderCutoffKey, warehouseTodayKey } from "@/lib/timezone";
 import { fetchMarketplaceTokenStatus, isShopLinkedPayload } from "@/lib/shop-link-status";
 import { supabase } from "@/lib/supabase";
 import { Order, Platform, UploadedFile } from "@/types/order";
@@ -93,7 +93,7 @@ export default function OverviewDueDatePage() {
   ordersRef.current = orders;
   shopeeLinkedRef.current = shopeeLinked;
   tiktokLinkedRef.current = tiktokLinked;
-  const dayKeyRef = useRef(indonesiaDateKey());
+  const dayKeyRef = useRef(warehouseTodayKey());
   const cutoffKeyRef = useRef(indonesiaOrderCutoffKey());
 
   useEffect(() => {
@@ -232,7 +232,7 @@ export default function OverviewDueDatePage() {
         cutoffKeyRef.current = cutoff;
         void loadPlacedToday();
       }
-      const today = indonesiaDateKey();
+      const today = warehouseTodayKey();
       if (dayKeyRef.current === today) return;
       dayKeyRef.current = today;
       void loadData("refresh");
