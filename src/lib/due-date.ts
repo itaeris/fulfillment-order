@@ -160,7 +160,8 @@ export function warehouseEffectiveDue(order?: Order | null): Date | undefined {
 }
 
 function orderDueDayKey(order?: Order | null): string | null {
-  if (looksLikePreorder(order)) return dayKey(order?.mustShipBefore);
+  if (!order) return null;
+  if (looksLikePreorder(order)) return dayKey(order.mustShipBefore);
   if (order && usesShopeeStandardSla(order)) {
     const placed = placedAt(order);
     if (placed) return channelDueSchedule(order, placed).dueDay;
@@ -374,7 +375,7 @@ function daysBetweenKeys(fromKey: string, toKey: string): number {
   return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86400000);
 }
 
-function looksLikePreorder(order?: Order): boolean {
+function looksLikePreorder(order?: Order | null): boolean {
   if (!order) return false;
   if (order.isPreorder) return true;
   const type = (order.orderType || "").trim().toLowerCase();
