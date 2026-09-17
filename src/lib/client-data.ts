@@ -47,6 +47,24 @@ function snapshot(orders: Order[], files: UploadedFile[]): DataSnapshot {
   };
 }
 
+function apiBaseUrl() {
+  return String(process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+}
+
+async function loadDashboardFromNest(): Promise<DataSnapshot | null> {
+  const base = apiBaseUrl();
+  const url = base ? `${base}/v1/dashboard` : "/api/v1/dashboard";
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { orders?: Order[]; files?: UploadedFile[] };
+    if (!Array.isArray(data.orders)) return null;
+    return snapshot(data.orders, data.files || []);
+  } catch {
+    return null;
+  }
+}
+
 export function getCachedDashboard(): DataSnapshot | null {
   return dashboardCache;
 }
@@ -102,20 +120,40 @@ export async function loadDashboardData(
   if (dashboardInflight) return dashboardInflight;
 
   dashboardInflight = (async () => {
-    const filesPromise = getAllUploadedFiles();
+    const nestPromise = loadDashboardFromNest();
+
     if (!onPartial) {
-      const [orders, files] = await Promise.all([getAllOrders(), filesPromise]);
+      const fromApi = await nestPromise;
+      if (fromApi) {
+        dashboardCache = fromApi;
+        return fromApi;
+      }
+      const [orders, files] = await Promise.all([getAllOrders(), getAllUploadedFiles()]);
       const next = snapshot(orders, files);
       dashboardCache = next;
       return next;
     }
 
-    const files = await filesPromise;
+    let nestWon = false;
+    const nestSide = nestPromise.then((fromApi) => {
+      if (!fromApi) return null;
+      nestWon = true;
+      dashboardCache = fromApi;
+      onPartial(fromApi);
+      return fromApi;
+    });
+
+    const files = await getAllUploadedFiles();
     const orders = await getAllOrdersProgressive((chunk) => {
+      if (nestWon) return;
       const next = snapshot(chunk, files);
       dashboardCache = next;
       onPartial(next);
     });
+
+    const fromApi = await nestSide;
+    if (fromApi) return fromApi;
+
     const next = snapshot(orders, files);
     dashboardCache = next;
     return next;

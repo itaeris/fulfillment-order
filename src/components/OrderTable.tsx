@@ -42,7 +42,7 @@ interface OrderTableProps {
 
 type SortField = "platform" | "orderNumber" | "status" | "productName" | "quantity" | "totalAmount" | "customerName" | "trackingNumber" | "pickupTime" | "mustShipBefore" | "orderDate";
 type SortDirection = "asc" | "desc";
-type StatusTab = "all" | "pending" | "processing" | "shipped" | "delivered" | "cancelled";
+type StatusTab = "all" | "pending" | "processing" | "shipped" | "delivered" | "cancelled" | "returned";
 
 type ShippingFilter = "all" | "instant" | "reguler";
 type PickupStage = "all" | "before_pickup" | "after_pickup" | "ready_to_ship";
@@ -203,8 +203,6 @@ export default function OrderTable({
       counts[order.status]++;
     });
 
-    counts.cancelled = counts.cancelled + counts.returned;
-
     return counts;
   }, [catalog, selectedPlatform, ttsChannelFilter]);
 
@@ -274,11 +272,7 @@ export default function OrderTable({
       );
 
       if (selectedStatusTab !== "all") {
-        if (selectedStatusTab === "cancelled") {
-          filtered = filtered.filter((order) => order.status === "cancelled" || order.status === "returned");
-        } else {
-          filtered = filtered.filter((order) => order.status === selectedStatusTab);
-        }
+        filtered = filtered.filter((order) => order.status === selectedStatusTab);
       }
 
       if ((selectedStatusTab === "processing" || selectedStatusTab === "shipped") && shippingFilter !== "all") {
@@ -405,7 +399,8 @@ export default function OrderTable({
     { value: "processing", label: "Perlu Dikirim", icon: Clock, color: "text-orange-600" },
     { value: "shipped", label: "Dikirim", icon: Truck, color: "text-blue-600" },
     { value: "delivered", label: "Selesai", icon: CheckCircle, color: "text-green-600" },
-    { value: "cancelled", label: "Batal/Retur", icon: XCircle, color: "text-red-600" },
+    { value: "cancelled", label: "Batal", icon: XCircle, color: "text-red-600" },
+    { value: "returned", label: "Retur", icon: RotateCcw, color: "text-stone-600" },
   ];
 
   const platformTabs: { value: Platform | "all"; label: string; color: string }[] = [

@@ -200,7 +200,8 @@ Timezone tenggat: `Asia/Jakarta`. Tombol **Hapus data halaman ini** hanya mengos
 
 ## Tech Stack
 
-- **Framework**: Next.js 14 (App Router)
+- **Frontend**: Next.js 14 (App Router) — tetap di root repo
+- **Backend**: NestJS 10 (Express) di `apps/api` — `GET /v1/dashboard` satu JSON
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS
 - **Animasi**: Framer Motion
@@ -209,7 +210,10 @@ Timezone tenggat: `Asia/Jakarta`. Tombol **Hapus data halaman ini** hanya mengos
 - **Excel Parser**: xlsx (SheetJS)
 - **Icons**: Lucide React
 - **Date Utils**: date-fns
-- **Hosting**: Vercel (cron status tiap 15 menit)
+- **Cache**: Upstash Redis (local + Vercel) — `GET /v1/dashboard`
+- **Hosting**: Vercel — dua project dari monorepo yang sama (web + API)
+
+Pesanan load lewat Nest (`NEXT_PUBLIC_API_URL`) supaya browser tidak paging Supabase berkali-kali. Kalau Nest down, `/api/v1/dashboard` di Next tetap ambil data. Fastify / Prisma / BullMQ / Socket.IO belum dipakai.
 
 ## Getting Started
 
@@ -295,16 +299,26 @@ Token Jubelio disimpan di `jubelio_tokens` (production) supaya login 12 jam tida
 npm run dev
 ```
 
-Buka [http://localhost:3000](http://localhost:3000).
+Web di [http://localhost:3000](http://localhost:3000), Nest di [http://localhost:4000/v1/health](http://localhost:4000/v1/health).
+
+Hanya frontend: `npm run dev:web`. Hanya API: `npm run dev:api`.
+
+Pastikan `.env` punya `NEXT_PUBLIC_API_URL=http://localhost:4000` plus `UPSTASH_REDIS_REST_URL` dan `UPSTASH_REDIS_REST_TOKEN` (cache dashboard, local dan production sama).
 
 ### Build & Deploy
 
 ```bash
 npm run build
+npm run build:api
 npm start
 ```
 
-Untuk Vercel: push ke GitHub, import di Vercel, set environment variables di Settings. Cron di `vercel.json` memanggil `/api/refresh-status` setiap 15 menit.
+Monorepo, dua project Vercel dari repo yang sama:
+
+1. **Web** (dashboard yang sudah ada) — Root Directory kosong. Build `npm run build`. Cron di `vercel.json` tetap jalan (`/api/refresh-status`, sync). Tambah env `NEXT_PUBLIC_API_URL` = URL project API (contoh `https://fti-api.vercel.app`). Opsional `API_URL` sama, untuk proxy server-side `/api/v1/dashboard`.
+2. **API** — Root Directory `apps/api`. Build `npm run build` (Nest). Env: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (atau anon key), plus `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`. CORS sudah allow `localhost:3000` dan `https://fulfillment-fti.aerisbeaute.com`. Origin lain: `API_CORS_ORIGIN`.
+
+Jangan pindahkan Next ke `apps/web` di langkah ini — Root Directory web tetap root repo.
 
 **Cloudflare Turnstile** wajib di production (login + request reset password). Di Vercel → project yang serve `fulfillment-fti.aerisbeaute.com` → Settings → Environment Variables, tambah:
 
@@ -357,6 +371,10 @@ Token Jubelio kadaluarsa 12 jam dan di-login ulang otomatis ([docs WMS](https://
 ## Struktur Project
 
 ```
+apps/api/                         # NestJS (Vercel Root Directory: apps/api)
+├── api/index.js                  # Serverless catch-all
+├── src/dashboard/                # GET /v1/health, GET /v1/dashboard
+└── vercel.json
 src/
 ├── app/
 │   ├── api/
@@ -367,7 +385,9 @@ src/
 │   │   ├── overview/orders/      # CRUD pesanan Kirim hari ini
 │   │   ├── overview/files/       # Riwayat unggah Kirim hari ini
 │   │   ├── overview/live-status/ # Status live webhook untuk overlay
+│   │   ├── v1/dashboard/         # Proxy Next → Nest, fallback Supabase
 │   │   ├── refresh-status/       # Cron 15 menit (Shopee + TikTok + Jubelio)
+│   │   ├── v1/dashboard/         # Proxy Next → Nest, fallback Supabase
 │   │   ├── time/                 # Jam Asia/Jakarta
 │   │   ├── turnstile/verify/     # Verifikasi Cloudflare Turnstile
 │   │   ├── jubelio/sync/         # Tarik order Siap Kirim
@@ -410,7 +430,7 @@ src/
 ├── contexts/
 │   └── AuthContext.tsx
 ├── lib/
-│   ├── client-data.ts            # Cache memori + load paralel dari Supabase
+│   ├── client-data.ts            # Cache + Nest /v1/dashboard, fallback Supabase
 │   ├── db.ts
 │   ├── due-date.ts               # Tenggat, Instant/same-day, mismatch tanggal kirim
 │   ├── excel-parser.ts           # Import Excel + normalisasi angka qty/harga
