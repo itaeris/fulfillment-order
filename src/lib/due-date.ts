@@ -138,23 +138,38 @@ function channelDueSchedule(order: Order, placed: Date): { dueDay: string; deadl
   return warehouseDueSchedule(placed);
 }
 
-/** Tenggat gudang: Shopee Regular/Hemat/Next Day 12.00 → 23.59; channel lain 09.00–17.00 / 17.00–09.00. Instant yang lebih awal tetap dipakai. */
+/**
+ * Tenggat kirim yang dipakai antrian + scan.
+ * Shopee Regular/Hemat/Next Day: SLA 12.00 → 23.59 hari kerja.
+ * TikTok/Tokped dan opsi lain: tanggal batas kirim marketplace.
+ * Jangan tarik ke hari ini hanya karena paid sebelum jam 17.00 gudang.
+ */
 export function warehouseEffectiveDue(order?: Order | null): Date | undefined {
   const market = toDate(order?.mustShipBefore);
   const placed = placedAt(order);
-  if (!order || !placed) return market;
+  if (!order) return market;
   if (looksLikePreorder(order)) return market;
-  const warehouse = channelDueSchedule(order, placed).deadline;
-  if (market && market.getTime() <= warehouse.getTime()) return market;
-  return warehouse;
+  if (usesShopeeStandardSla(order) && placed) {
+    const warehouse = channelDueSchedule(order, placed).deadline;
+    if (market && market.getTime() <= warehouse.getTime()) return market;
+    return warehouse;
+  }
+  if (market) return market;
+  if (placed) return channelDueSchedule(order, placed).deadline;
+  return market;
 }
 
 function orderDueDayKey(order?: Order | null): string | null {
-  const placed = placedAt(order);
-  if (placed && order && !looksLikePreorder(order)) {
-    return channelDueSchedule(order, placed).dueDay;
+  if (looksLikePreorder(order)) return dayKey(order?.mustShipBefore);
+  if (order && usesShopeeStandardSla(order)) {
+    const placed = placedAt(order);
+    if (placed) return channelDueSchedule(order, placed).dueDay;
   }
-  return dayKey(order?.mustShipBefore);
+  const marketDay = dayKey(order?.mustShipBefore);
+  if (marketDay) return marketDay;
+  const placed = placedAt(order);
+  if (placed && order) return channelDueSchedule(order, placed).dueDay;
+  return null;
 }
 
 export function formatDueLabel(value?: Date | string | null): string {
