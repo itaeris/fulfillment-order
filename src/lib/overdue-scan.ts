@@ -1,4 +1,4 @@
-import { expandMatchKeys, identityKeys, normalizeMatchKey } from "@/lib/order-match";
+import { expandMatchKeys, identityKeys, isTrackingLikeCode, normalizeMatchKey } from "@/lib/order-match";
 import type { DueDateRow } from "@/lib/due-date";
 import type { Order } from "@/types/order";
 
@@ -111,11 +111,15 @@ export function isMarketplaceScanPlatform(platform?: string | null) {
 
 export function preferMarketplaceOrder(orders: Array<Order | undefined | null>): Order | undefined {
   const list = orders.filter((order): order is Order => Boolean(order));
-  return list.find((order) => isMarketplaceScanPlatform(order.platform)) || list[0];
+  const market = list.filter((order) => isMarketplaceScanPlatform(order.platform));
+  const real = market.filter((order) => !isTrackingLikeCode(order.orderNumber));
+  return real[0] || market[0] || list[0];
 }
 
 export function buildOrderScanIndex(orders: Order[]): Map<string, Order> {
   const ranked = [...orders].sort((a, b) => {
+    const track = Number(isTrackingLikeCode(a.orderNumber)) - Number(isTrackingLikeCode(b.orderNumber));
+    if (track !== 0) return track;
     return Number(a.platform === "jubelio") - Number(b.platform === "jubelio");
   });
   const index = new Map<string, Order>();
@@ -164,8 +168,14 @@ export function resolveMarketplaceScanOrder(
   if (scan?.scannedCode && scan.scannedCode !== code) push(matchOrderFromIndex(scan.scannedCode, index));
   if (scan?.orderId) push(orders.find((order) => order.id === scan.orderId));
 
-  const direct = preferMarketplaceOrder(hits);
-  if (direct && isMarketplaceScanPlatform(direct.platform)) return direct;
+  const directHits = hits.filter((order) => isMarketplaceScanPlatform(order.platform) && !isTrackingLikeCode(order.orderNumber));
+  const direct = preferMarketplaceOrder(directHits);
+  if (direct) return direct;
+
+  const fallback = preferMarketplaceOrder(hits);
+  if (fallback && isMarketplaceScanPlatform(fallback.platform) && !isTrackingLikeCode(fallback.orderNumber)) {
+    return fallback;
+  }
 
   const keys = new Set<string>();
   for (const order of hits) {
@@ -179,7 +189,10 @@ export function resolveMarketplaceScanOrder(
   if (keys.size === 0) return undefined;
   return preferMarketplaceOrder(
     orders.filter(
-      (order) => isMarketplaceScanPlatform(order.platform) && identityKeys(order).some((key) => keys.has(key))
+      (order) =>
+        isMarketplaceScanPlatform(order.platform) &&
+        !isTrackingLikeCode(order.orderNumber) &&
+        identityKeys(order).some((key) => keys.has(key))
     )
   );
 }
@@ -220,7 +233,9 @@ export function uniqueAheadScans(scans: OverdueScan[], orders: Order[] = []): Ov
   const seen = new Set<string>();
   for (const { scan, order } of scored) {
     if (order && !isMarketplaceScanPlatform(order.platform)) continue;
+    if (order && isTrackingLikeCode(order.orderNumber)) continue;
     if (!order && !isMarketplaceScanPlatform(scan.platform)) continue;
+    if (!order && isTrackingLikeCode(scan.orderNumber || scan.scannedCode)) continue;
     const keys = order ? identityKeys(order) : scanIdentityKeys(scan);
     if (keys.length === 0 || keys.some((key) => seen.has(key))) continue;
     for (const key of keys) seen.add(key);
@@ -235,12 +250,25 @@ export function uniqueAheadScans(scans: OverdueScan[], orders: Order[] = []): Ov
 
 export function isAlreadyScanned(
   scans: OverdueScan[],
-  match: { orderId?: string; orderNumber?: string; trackingNumber?: string },
+  match: { orderId?: string; orderNumber?: string; trackingNumber?: string; scannedCode?: string },
   orders: Order[] = []
 ): boolean {
   const keys = new Set(
-    [match.orderId, ...expandMatchKeys(match.orderNumber), ...expandMatchKeys(match.trackingNumber)].filter(Boolean)
+    [
+      match.orderId,
+      ...expandMatchKeys(match.orderNumber),
+      ...expandMatchKeys(match.trackingNumber),
+      ...expandMatchKeys(match.scannedCode),
+    ].filter(Boolean)
   );
+  const resolved = resolveMarketplaceScanOrder(
+    match.orderNumber || match.trackingNumber || match.scannedCode || "",
+    orders,
+    { orderId: match.orderId, orderNumber: match.orderNumber, scannedCode: match.scannedCode || "" }
+  );
+  if (resolved) {
+    for (const key of identityKeys(resolved)) keys.add(key);
+  }
   if (orders.length > 0) {
     const related = orders.filter(
       (order) =>

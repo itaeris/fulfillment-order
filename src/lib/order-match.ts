@@ -6,6 +6,15 @@ export function normalizeMatchKey(value?: string | null): string {
     .toUpperCase();
 }
 
+/** Resi/AWB: leading zero atau 8–14 digit. Bukan nomor TikTok (~18 digit) / Shopee SN (ada huruf). */
+export function isTrackingLikeCode(value?: string | null): boolean {
+  const n = normalizeMatchKey(value);
+  if (n.length < 8) return false;
+  if (/[A-Z]/.test(n) && !/^0+/.test(n)) return false;
+  if (/^0\d{7,}$/.test(n)) return true;
+  return /^\d{8,14}$/.test(n);
+}
+
 const PREFIX_RULES: { prefix: string; restMustStartWithDigit?: boolean; minRest: number }[] = [
   { prefix: "SHOPEE", minRest: 8 },
   { prefix: "TOKOPEDIA", minRest: 8 },

@@ -16,7 +16,7 @@ import {
   XCircle,
 } from "lucide-react";
 import * as XLSX from "xlsx";
-import { cn, formatNumber } from "@/lib/utils";
+import { cn, formatNumber, getPlatformName } from "@/lib/utils";
 import {
   buildDueDateOverview,
   classifyWarehouseScan,
@@ -68,7 +68,7 @@ import {
   type OverdueScanMatch,
   type OverdueScanStatus,
 } from "@/lib/overdue-scan";
-import { expandMatchKeys, identityKeys } from "@/lib/order-match";
+import { expandMatchKeys, identityKeys, isTrackingLikeCode } from "@/lib/order-match";
 import { hydrateOrder } from "@/lib/client-data";
 import {
   addCalendarDays,
@@ -76,7 +76,7 @@ import {
   ORDER_TODAY_CUTOFF_SUBTITLE,
   warehouseTodayKey,
 } from "@/lib/timezone";
-import { makeCancelAlert, type CancelAlert } from "@/lib/live-cancel";
+import { cancelAlertMatchKey, makeCancelAlert, type CancelAlert } from "@/lib/live-cancel";
 import type { LiveStatusPatch } from "@/lib/overview-merge";
 
 type FilterId = "pending" | "valid" | "overdue" | "cancelled" | "all";
@@ -89,7 +89,7 @@ interface OverdueScanViewProps {
   onKickCancelled: (orders: Order[]) => void;
   cancelAlerts?: CancelAlert[];
   onCancelAlert?: (alert: CancelAlert) => void;
-  onDismissCancelAlert?: (id: string) => void;
+  onDismissCancelAlert?: (id: string, orderNumber?: string) => void;
   onRefresh: () => void;
   onAdoptOrder?: (order: Order) => void;
   onSignOut: () => void;
@@ -421,6 +421,8 @@ export default function OverdueScanView({
     return groupOrdersByNumber(
       aheadOrders.filter((order) => {
         if (!isMarketplaceScanPlatform(order.platform)) return false;
+        if (!String(order.orderNumber || "").trim()) return false;
+        if (isTrackingLikeCode(order.orderNumber)) return false;
         if (identityKeys(order).some((key) => scannedKeys.has(key))) return false;
         const due = dayKey(warehouseEffectiveDue(order) || order.mustShipBefore);
         return Boolean(due && due > today && due <= until);
@@ -501,7 +503,9 @@ export default function OverdueScanView({
       meta: "Sudah discan · Packing cicil",
       status: "Sudah discan",
     }));
-    const unscannedItems = packingCicilUnscanned.map((order) => ({
+    const unscannedItems = packingCicilUnscanned
+      .filter((order) => String(order.orderNumber || "").trim().length >= 8)
+      .map((order) => ({
       key: order.id,
       orderNumber: order.orderNumber,
       platform: order.platform,
@@ -579,9 +583,12 @@ export default function OverdueScanView({
 
   const seenAlertRef = useRef(new Set<string>());
   useEffect(() => {
-    const fresh = cancelAlerts.filter((alert) => !seenAlertRef.current.has(alert.id));
+    const fresh = cancelAlerts.filter((alert) => {
+      const key = cancelAlertMatchKey(alert.orderNumber) || alert.id;
+      return !seenAlertRef.current.has(key);
+    });
     if (fresh.length === 0) return;
-    for (const alert of fresh) seenAlertRef.current.add(alert.id);
+    for (const alert of fresh) seenAlertRef.current.add(cancelAlertMatchKey(alert.orderNumber) || alert.id);
     if (fresh.some((alert) => alert.source === "live" || alert.source === "queue")) playBeep("cancelled");
   }, [cancelAlerts]);
 
@@ -612,7 +619,7 @@ export default function OverdueScanView({
       : order
         ? overdueScanMatchFromOrder(order)
         : null;
-    let dueLabel = dueLabelOf(aheadOrder || todayOrder);
+    let dueLabel = dueLabelOf(order || sibling || aheadOrder || todayOrder);
     const kickIds = [
       row?.marketplaceOrder?.id,
       row?.jubelioOrder?.id,
@@ -632,16 +639,22 @@ export default function OverdueScanView({
     else if (row && match) {
       status = rowIsValidated(row, todayValidatedIds(scansRef.current)) ? "duplicate" : "valid";
     } else if (aheadOrder && match && isAheadPackOrder(aheadOrder)) {
-      status = isAlreadyScanned(scansRef.current, match, lookupOrders) ? "duplicate" : "ahead";
+      status = isAlreadyScanned(scansRef.current, { ...match, scannedCode: next }, lookupOrders)
+        ? "duplicate"
+        : "ahead";
     } else if (order && match) {
       const classified = classifyWarehouseScan(order);
       if (classified === "cancelled") status = "cancelled";
       else if (classified === "valid") {
-        status = isAlreadyScanned(scansRef.current, match, lookupOrders) ? "duplicate" : "valid";
+        status = isAlreadyScanned(scansRef.current, { ...match, scannedCode: next }, lookupOrders)
+          ? "duplicate"
+          : "valid";
       } else if (classified === "ahead") {
-        status = isAlreadyScanned(scansRef.current, match, lookupOrders) ? "duplicate" : "ahead";
+        status = isAlreadyScanned(scansRef.current, { ...match, scannedCode: next }, lookupOrders)
+          ? "duplicate"
+          : "ahead";
       }
-    } else if (match && isAlreadyScanned(scansRef.current, match, lookupOrders)) {
+    } else if (match && isAlreadyScanned(scansRef.current, { ...match, scannedCode: next }, lookupOrders)) {
       status = "duplicate";
     }
 
@@ -668,7 +681,9 @@ export default function OverdueScanView({
           resolveMarketplaceScanOrder(next, [...lookupOrders, adopted].filter(Boolean) as Order[]);
         if (market) nextMatch = overdueScanMatchFromOrder(market);
         else if (nextStatus === "ahead" || nextStatus === "valid") {
-          nextStatus = isAlreadyScanned(scansRef.current, nextMatch, lookupOrders) ? "duplicate" : nextStatus;
+          nextStatus = isAlreadyScanned(scansRef.current, { ...nextMatch, scannedCode: next }, lookupOrders)
+            ? "duplicate"
+            : nextStatus;
           nextMatch = null;
           if (nextStatus !== "duplicate") nextStatus = "not_in_queue";
         }
@@ -685,7 +700,7 @@ export default function OverdueScanView({
       if (
         (nextStatus === "valid" || nextStatus === "ahead") &&
         nextMatch &&
-        isAlreadyScanned(scansRef.current, nextMatch, lookupOrders)
+        isAlreadyScanned(scansRef.current, { ...nextMatch, scannedCode: next }, lookupOrders)
       ) {
         nextStatus = "duplicate";
       }
@@ -854,11 +869,12 @@ export default function OverdueScanView({
         const data = (await res.json().catch(() => ({}))) as { orders?: Order[] };
         if (seq !== lookupSeq.current) return;
         const found = (data.orders || []).map(hydrateOrder);
-        const keys = new Set(expandMatchKeys(next));
+        const pool = [...lookupOrders, ...found];
         const hit =
-          preferMarketplaceOrder(found.filter((item) => identityKeys(item).some((key) => keys.has(key)))) ||
-          preferMarketplaceOrder(found);
-        if (!hit) {
+          resolveMarketplaceScanOrder(next, pool) ||
+          preferMarketplaceOrder(found.filter((item) => identityKeys(item).some((key) => expandMatchKeys(next).includes(key)))) ||
+          preferMarketplaceOrder(found.filter((item) => !isTrackingLikeCode(item.orderNumber)));
+        if (!hit || isTrackingLikeCode(hit.orderNumber)) {
           commit("not_in_queue", null);
           return;
         }
@@ -887,16 +903,17 @@ export default function OverdueScanView({
   const openScanPreview = (scan: OverdueScan) => {
     const related = ordersForScan(scan, lookupOrders);
     const market = resolveMarketplaceScanOrder(scan.orderNumber || scan.scannedCode, lookupOrders, scan);
-    const orders = market
+    const raw = market
       ? [market, ...related.filter((item) => item.id !== market.id)]
       : related;
+    const orders = groupOrdersByNumber(raw);
     const ids = new Set(orders.map((item) => item.id));
     const row = overview.rows.find((item) => rowHasId(item, ids));
     const result = scanResultOf(scan);
     setPreview({
-      title: market?.orderNumber || scan.orderNumber || scan.scannedCode,
+      title: orders[0]?.orderNumber || market?.orderNumber || scan.orderNumber || scan.scannedCode,
       orders,
-      row,
+      row: undefined,
       kind: result === "ahead" ? "ahead" : result === "cancelled" ? "cancelled" : undefined,
     });
   };
@@ -924,7 +941,7 @@ export default function OverdueScanView({
       lookupOrders
     );
     if (related.length > 0) {
-      setPreview({ title: item.orderNumber, orders: related });
+      setPreview({ title: item.orderNumber, orders: groupOrdersByNumber(related) });
       return;
     }
     if (item.placed) {
@@ -1057,7 +1074,7 @@ export default function OverdueScanView({
                     type="button"
                     tabIndex={-1}
                     onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => onDismissCancelAlert?.(alert.id)}
+                    onClick={() => onDismissCancelAlert?.(alert.id, alert.orderNumber)}
                     className="p-1 rounded-lg text-red-700 hover:bg-red-100"
                     aria-label="Tutup alert"
                   >
@@ -1568,8 +1585,8 @@ export default function OverdueScanView({
                   ? [{ label: "Jubelio", order: preview.row.jubelioOrder }]
                   : []),
               ]
-            : (preview?.orders || []).map((order) => ({
-                label: order.platform === "jubelio" ? "Jubelio" : order.platform,
+            : groupOrdersByNumber(preview?.orders || []).map((order) => ({
+                label: order.platform === "jubelio" ? "Jubelio" : getPlatformName(order.platform),
                 order,
               }))
         }

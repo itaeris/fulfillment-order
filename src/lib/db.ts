@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
-import { addCalendarDays, INDONESIA_OFFSET, indonesiaDateKey, indonesiaOrderCutoffKey, inProcessCutoffWindow, processCutoffQuerySpan } from "./timezone";
+import { addCalendarDays, INDONESIA_OFFSET, indonesiaDateKey, indonesiaOrderCutoffKey, inProcessCutoffWindow, processCutoffQuerySpan, warehouseTodayKey } from "./timezone";
 import { lookupMatchKeys } from "./order-match";
+import { cancelAlertMatchKey } from "./live-cancel";
 import { hydrateOverdueScan, uniqueAheadScans } from "./overdue-scan";
 import { classifyShipping, isAheadPackOrder } from "./due-date";
 import type { Order } from "@/types/order";
@@ -127,7 +128,11 @@ export async function searchOrdersByNumber(query: string) {
     )
   ).slice(0, 8);
   if (keys.length === 0) return [];
-  const clauses = keys.flatMap((key) => [`order_number.ilike.%${key}%`, `tracking_number.ilike.%${key}%`]);
+  const clauses = keys.flatMap((key) => [
+    `order_number.ilike.%${key}%`,
+    `tracking_number.ilike.%${key}%`,
+    `ref_no.ilike.%${key}%`,
+  ]);
   const { data, error } = await supabase.from("orders").select("*").or(clauses.join(",")).limit(50);
   if (error) throw error;
   return (data ?? []).map(rowToOrder);
@@ -1147,7 +1152,7 @@ export async function getCancelAlerts(scanDate: string): Promise<CancelAlertRow[
   return (data ?? []).map(rowToCancelAlert);
 }
 
-export async function upsertCancelAlert(input: {
+function cancelAlertPayload(input: {
   id?: string;
   orderNumber: string;
   platform?: string;
@@ -1156,8 +1161,8 @@ export async function upsertCancelAlert(input: {
   reasonCode?: string;
   matchKey: string;
   scanDate: string;
-}): Promise<CancelAlertRow> {
-  const payload = {
+}) {
+  return {
     id: input.id || `${input.scanDate}:${input.matchKey}`,
     order_number: input.orderNumber,
     platform: input.platform || null,
@@ -1169,20 +1174,62 @@ export async function upsertCancelAlert(input: {
     cancelled_at: new Date().toISOString(),
     dismissed_at: null,
   };
+}
+
+export async function upsertCancelAlert(input: {
+  id?: string;
+  orderNumber: string;
+  platform?: string;
+  source: string;
+  reason?: string;
+  reasonCode?: string;
+  matchKey: string;
+  scanDate: string;
+}): Promise<CancelAlertRow> {
   const { data, error } = await supabase
     .from("cancel_alerts")
-    .upsert(payload, { onConflict: "scan_date,match_key" })
+    .upsert(cancelAlertPayload(input), { onConflict: "scan_date,match_key" })
     .select()
     .single();
   if (error) throw error;
   return rowToCancelAlert(data);
 }
 
-export async function dismissCancelAlert(id: string): Promise<CancelAlertRow | null> {
+export async function insertCancelAlertIfMissing(input: {
+  id?: string;
+  orderNumber: string;
+  platform?: string;
+  source: string;
+  reason?: string;
+  reasonCode?: string;
+  matchKey: string;
+  scanDate: string;
+}): Promise<void> {
+  const { error } = await supabase
+    .from("cancel_alerts")
+    .upsert(cancelAlertPayload(input), { onConflict: "scan_date,match_key", ignoreDuplicates: true });
+  if (error) throw error;
+}
+
+export async function dismissCancelAlert(id: string, orderNumber?: string): Promise<CancelAlertRow | null> {
+  const dismissedAt = new Date().toISOString();
+  if (id) {
+    const { data, error } = await supabase
+      .from("cancel_alerts")
+      .update({ dismissed_at: dismissedAt })
+      .eq("id", id)
+      .select()
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return rowToCancelAlert(data);
+  }
+  const number = String(orderNumber || "").trim();
+  if (!number) return null;
   const { data, error } = await supabase
     .from("cancel_alerts")
-    .update({ dismissed_at: new Date().toISOString() })
-    .eq("id", id)
+    .update({ dismissed_at: dismissedAt })
+    .eq("scan_date", warehouseTodayKey())
+    .eq("match_key", cancelAlertMatchKey(number))
     .select()
     .maybeSingle();
   if (error) throw error;

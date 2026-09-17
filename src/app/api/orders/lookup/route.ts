@@ -3,7 +3,7 @@ import { insertOrders, searchOrdersByNumber, updateOrdersFulfillment } from "@/l
 import { hydrateOrders } from "@/lib/client-data";
 import { fetchShopeeOrdersByNumbers, getShopeeConfig } from "@/lib/shopee-api";
 import { fetchTikTokOrdersByNumbers, getTikTokConfig } from "@/lib/tiktok-api";
-import { lookupMatchKeys } from "@/lib/order-match";
+import { lookupMatchKeys, isTrackingLikeCode } from "@/lib/order-match";
 import { Order } from "@/types/order";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
       remote = [];
     }
 
-    if (remote.length === 0) {
+    if (remote.length === 0 && !isTrackingLikeCode(q)) {
       try {
         const config = await getTikTokConfig();
         remote = await fetchTikTokOrdersByNumbers(config, [number]);

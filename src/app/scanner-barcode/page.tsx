@@ -13,7 +13,7 @@ import {
   type LiveStatusPatch,
 } from "@/lib/overview-merge";
 import { dropCancelledOrders, makeCancelAlert, orderMatchesScanKeys, takeNewlyCancelled, cancelAlertMatchKey, type CancelAlert } from "@/lib/live-cancel";
-import { expandMatchKeys } from "@/lib/order-match";
+import { expandMatchKeys, isTrackingLikeCode } from "@/lib/order-match";
 import { upsertOverviewOrders } from "@/lib/overview-store";
 import { supabase } from "@/lib/supabase";
 import { classifyWarehouseScan, isAheadPackOrder, isShipTodayQueueOrder } from "@/lib/due-date";
@@ -46,14 +46,27 @@ function hydrateCancelAlert(raw: any): CancelAlert {
 }
 
 function mergeCancelAlerts(prev: CancelAlert[], incoming: CancelAlert[]) {
-  const next = [...incoming, ...prev];
-  const seen = new Set<string>();
-  return next.filter((alert) => {
+  const seen = new Map<string, CancelAlert>();
+  for (const alert of [...prev, ...incoming]) {
     const key = cancelAlertMatchKey(alert.orderNumber) || alert.id;
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+    if (!key) continue;
+    const existing = seen.get(key);
+    if (!existing) {
+      seen.set(key, alert);
+      continue;
+    }
+    const serverId = [alert.id, existing.id].find((id) => /^\d{4}-\d{2}-\d{2}:/.test(id));
+    seen.set(key, {
+      ...existing,
+      ...alert,
+      id: serverId || alert.id || existing.id,
+      reason: alert.reason || existing.reason,
+      reasonCode: alert.reasonCode || existing.reasonCode,
+      dismissed: Boolean(existing.dismissed || alert.dismissed),
+      at: new Date(existing.at).getTime() <= new Date(alert.at).getTime() ? existing.at : alert.at,
+    });
+  }
+  return Array.from(seen.values());
 }
 
 async function fetchTodayCancels(): Promise<CancelAlert[]> {
@@ -158,7 +171,15 @@ export default function ScannerBarcodePage() {
 
   const loadCancels = useCallback(async () => {
     try {
-      setCancelAlerts(await fetchTodayCancels());
+      const fetched = await fetchTodayCancels();
+      setCancelAlerts((prev) => {
+        const optimistic = prev.filter((alert) => {
+          if (alert.dismissed) return false;
+          if (/^\d{4}-\d{2}-\d{2}:/.test(alert.id)) return false;
+          return Date.now() - new Date(alert.at).getTime() < 90_000;
+        });
+        return mergeCancelAlerts(fetched, optimistic).slice(0, 40);
+      });
     } catch (error) {
       console.error("Error loading cancel alerts:", error);
     }
@@ -292,6 +313,25 @@ export default function ScannerBarcodePage() {
   useEffect(() => {
     if (authLoading || !user) return;
     const tick = () => {
+      void loadCancels();
+    };
+    tick();
+    const timer = window.setInterval(tick, 8000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [authLoading, user, loadCancels]);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    const tick = () => {
       const cutoff = indonesiaOrderCutoffKey();
       if (cutoffKeyRef.current !== cutoff) {
         cutoffKeyRef.current = cutoff;
@@ -320,7 +360,7 @@ export default function ScannerBarcodePage() {
     if (authLoading || !user) return;
     let cancelled = false;
     const tick = async () => {
-      if (document.hidden || ordersRef.current.length === 0) return;
+      if (ordersRef.current.length === 0) return;
       const next = await applyLive(ordersRef.current);
       if (!cancelled) {
         ordersRef.current = next;
@@ -338,7 +378,6 @@ export default function ScannerBarcodePage() {
   useEffect(() => {
     if (authLoading || !user) return;
     const tick = async () => {
-      if (document.hidden) return;
       const numbers = Array.from(
         new Set(
           scansRef.current
@@ -404,7 +443,7 @@ export default function ScannerBarcodePage() {
       }, 600);
     };
     const channel = supabase
-      .channel("overdue-live")
+      .channel(`overdue-live-${user.id}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "overdue_scans" },
@@ -433,6 +472,9 @@ export default function ScannerBarcodePage() {
         { event: "*", schema: "public", table: "cancel_alerts" },
         (payload) => {
           if (!payload.new) return;
+          const row = payload.new as { scan_date?: string };
+          const scanDate = String(row.scan_date || "").slice(0, 10);
+          if (scanDate && scanDate !== warehouseTodayKey()) return;
           setCancelAlerts((prev) => mergeCancelAlerts(prev, [hydrateCancelAlert(payload.new)]).slice(0, 40));
         }
       )
@@ -476,14 +518,18 @@ export default function ScannerBarcodePage() {
           })
           .catch(() => {});
       }}
-      onDismissCancelAlert={(id) => {
+      onDismissCancelAlert={(id: string, orderNumber?: string) => {
         setCancelAlerts((prev) =>
-          prev.map((alert) => (alert.id === id ? { ...alert, dismissed: true } : alert))
+          prev.map((alert) =>
+            alert.id === id || (orderNumber && cancelAlertMatchKey(alert.orderNumber) === cancelAlertMatchKey(orderNumber))
+              ? { ...alert, dismissed: true }
+              : alert
+          )
         );
         void fetch("/api/overdue/cancels", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id }),
+          body: JSON.stringify({ id, orderNumber }),
         }).catch(() => {});
       }}
       onRefresh={() => {
@@ -495,6 +541,7 @@ export default function ScannerBarcodePage() {
       }}
       onAdoptOrder={(order) => {
         if (order.platform === "jubelio") return;
+        if (isTrackingLikeCode(order.orderNumber)) return;
         const result = classifyWarehouseScan(order);
         if (result === "ahead") {
           setAheadOrders((prev) =>

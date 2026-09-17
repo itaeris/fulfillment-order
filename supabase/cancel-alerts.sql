@@ -1,5 +1,7 @@
 -- Run this in Supabase Dashboard > SQL Editor
 -- Notifikasi cancel scanner (persist + alasan batal)
+-- Jika table sudah ada, tetap jalankan file ini: REPLICA IDENTITY FULL
+-- wajib biar laptop lain menerima INSERT/UPDATE realtime.
 
 CREATE TABLE IF NOT EXISTS cancel_alerts (
   id TEXT PRIMARY KEY,
@@ -20,6 +22,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_cancel_alerts_unique_day
   ON cancel_alerts (scan_date, match_key);
 
 ALTER TABLE cancel_alerts ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE cancel_alerts REPLICA IDENTITY FULL;
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow all access to cancel_alerts') THEN
