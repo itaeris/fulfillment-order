@@ -19,6 +19,7 @@ import * as XLSX from "xlsx";
 import { cn, formatNumber } from "@/lib/utils";
 import {
   buildDueDateOverview,
+  classifyWarehouseScan,
   dayKey,
   formatAnalyzedAt,
   formatDayKeyLabel,
@@ -27,6 +28,7 @@ import {
   jubelioMenuBadge,
   jubelioMenuHint,
   jubelioMenuLabel,
+  warehouseEffectiveDue,
   type DueDateRow,
 } from "@/lib/due-date";
 import { Order } from "@/types/order";
@@ -62,7 +64,7 @@ import {
   type OverdueScanMatch,
   type OverdueScanStatus,
 } from "@/lib/overdue-scan";
-import { warehouseTodayKey } from "@/lib/timezone";
+import { expandMatchKeys, identityKeys } from "@/lib/order-match";
 import { makeCancelAlert, type CancelAlert } from "@/lib/live-cancel";
 import type { LiveStatusPatch } from "@/lib/overview-merge";
 
@@ -78,6 +80,7 @@ interface OverdueScanViewProps {
   onCancelAlert?: (alert: CancelAlert) => void;
   onDismissCancelAlert?: (id: string) => void;
   onRefresh: () => void;
+  onAdoptOrder?: (order: Order) => void;
   onSignOut: () => void;
   workerName?: string;
   placedToday?: {
@@ -89,6 +92,28 @@ interface OverdueScanViewProps {
 
 let scanBeepCtx: AudioContext | null = null;
 
+function playTone(
+  ctx: AudioContext,
+  freq: number,
+  start: number,
+  duration: number,
+  type: OscillatorType,
+  volume: number
+) {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  const t0 = ctx.currentTime + start;
+  gain.gain.setValueAtTime(0.0001, t0);
+  gain.gain.exponentialRampToValueAtTime(volume, t0 + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(t0);
+  osc.stop(t0 + duration + 0.02);
+}
+
 function playBeep(status: OverdueScanStatus) {
   try {
     const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -96,28 +121,24 @@ function playBeep(status: OverdueScanStatus) {
     if (!scanBeepCtx) scanBeepCtx = new AudioCtx();
     const ctx = scanBeepCtx;
     if (ctx.state === "suspended") void ctx.resume();
-    const beep = (freq: number, start: number, duration: number) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.value = freq;
-      gain.gain.value = 0.07;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(ctx.currentTime + start);
-      osc.stop(ctx.currentTime + start + duration);
-    };
-    if (status === "valid") beep(880, 0, 0.12);
-    else if (status === "ahead") {
-      beep(700, 0, 0.1);
-      beep(880, 0.12, 0.12);
-    } else if (status === "duplicate") beep(520, 0, 0.16);
-    else if (status === "cancelled") {
-      beep(360, 0, 0.1);
-      beep(280, 0.12, 0.14);
+    const tone = (freq: number, start: number, duration: number, type: OscillatorType = "sine", volume = 0.09) =>
+      playTone(ctx, freq, start, duration, type, volume);
+
+    if (status === "valid") {
+      // Chime sukses: ding-ding naik, jelas beda dari error.
+      tone(988, 0, 0.1, "triangle", 0.1);
+      tone(1319, 0.11, 0.18, "triangle", 0.12);
+    } else if (status === "ahead") {
+      tone(740, 0, 0.12, "sine", 0.08);
+      tone(880, 0.14, 0.14, "sine", 0.08);
+    } else if (status === "duplicate") {
+      tone(494, 0, 0.18, "sine", 0.07);
+    } else if (status === "cancelled") {
+      tone(330, 0, 0.11, "square", 0.05);
+      tone(247, 0.13, 0.16, "square", 0.05);
     } else {
-      beep(220, 0, 0.12);
-      beep(180, 0.16, 0.16);
+      tone(196, 0, 0.14, "square", 0.045);
+      tone(147, 0.17, 0.2, "square", 0.045);
     }
   } catch {
     // Scanner tetap jalan tanpa suara.
@@ -318,6 +339,7 @@ export default function OverdueScanView({
   onCancelAlert,
   onDismissCancelAlert,
   onRefresh,
+  onAdoptOrder,
   onSignOut,
   workerName,
   placedToday,
@@ -326,6 +348,7 @@ export default function OverdueScanView({
   const previewOpenRef = useRef(false);
   const scansRef = useRef(scans);
   scansRef.current = scans;
+  const lookupSeq = useRef(0);
   const [code, setCode] = useState("");
   const [filter, setFilter] = useState<FilterId>("pending");
   const [preview, setPreview] = useState<{
@@ -503,6 +526,12 @@ export default function OverdueScanView({
     if (fresh.some((alert) => alert.source === "live" || alert.source === "queue")) playBeep("cancelled");
   }, [cancelAlerts]);
 
+  const dueLabelOf = (order?: Order) => {
+    if (!order) return undefined;
+    const key = dayKey(warehouseEffectiveDue(order) || order.mustShipBefore);
+    return key ? formatDayKeyLabel(key) : undefined;
+  };
+
   const submitScan = (raw: string) => {
     const next = raw.trim();
     if (!next) return;
@@ -518,20 +547,40 @@ export default function OverdueScanView({
     const cancelled = Boolean(
       (row && rowIsCancelled(row)) || (order && isCancelledStatus(order.status))
     );
-    const match: OverdueScanMatch | null = row
+    let match: OverdueScanMatch | null = row
       ? overdueScanMatchFromRow(row)
       : order
         ? overdueScanMatchFromOrder(order)
         : null;
-    const dueKey = aheadOrder ? dayKey(aheadOrder.mustShipBefore) : null;
-    const dueLabel = dueKey ? formatDayKeyLabel(dueKey) : undefined;
+    let dueLabel = dueLabelOf(aheadOrder || todayOrder);
+    const kickIds = [
+      row?.marketplaceOrder?.id,
+      row?.jubelioOrder?.id,
+      todayOrder?.id,
+      aheadOrder?.id,
+      match?.orderId,
+    ];
+    const kickNumbers = [
+      match?.orderNumber,
+      todayOrder?.orderNumber,
+      aheadOrder?.orderNumber,
+      row?.orderNumber,
+    ];
 
     let status: OverdueScanStatus = "not_in_queue";
     if (cancelled && match) status = "cancelled";
     else if (row && match) {
       status = rowIsValidated(row, todayValidatedIds(scansRef.current)) ? "duplicate" : "valid";
-    }     else if (aheadOrder && match && isAheadPackOrder(aheadOrder)) {
+    } else if (aheadOrder && match && isAheadPackOrder(aheadOrder)) {
       status = scannedOrderIds(scansRef.current).has(match.orderId) ? "duplicate" : "ahead";
+    } else if (order && match) {
+      const classified = classifyWarehouseScan(order);
+      if (classified === "cancelled") status = "cancelled";
+      else if (classified === "valid") {
+        status = todayValidatedIds(scansRef.current).has(match.orderId) ? "duplicate" : "valid";
+      } else if (classified === "ahead") {
+        status = scannedOrderIds(scansRef.current).has(match.orderId) ? "duplicate" : "ahead";
+      }
     } else if (match && cancelledScanOrderIds(scansRef.current).has(match.orderId)) {
       status = "duplicate";
     }
@@ -547,153 +596,206 @@ export default function OverdueScanView({
       if (existing) status = "duplicate";
     }
 
-    setFlash({
-      status,
-      code: next,
-      orderNumber: match?.orderNumber,
-      dueLabel: status === "ahead" ? dueLabel : undefined,
-    });
-    playBeep(status);
+    const commit = (
+      nextStatus: OverdueScanStatus,
+      nextMatch: OverdueScanMatch | null,
+      nextDueLabel?: string,
+      adopted?: Order
+    ) => {
+      if (nextStatus === "valid" && nextMatch && cancelledScanOrderIds(scansRef.current).has(nextMatch.orderId)) {
+        nextStatus = "cancelled";
+      }
+      if (nextStatus === "cancelled" && nextMatch) {
+        const existing = scansRef.current.find(
+          (scan) => scan.orderId === nextMatch.orderId && scanResultOf(scan) === "cancelled"
+        );
+        if (existing) nextStatus = "duplicate";
+      }
+      if (
+        (nextStatus === "valid" && nextMatch && todayValidatedIds(scansRef.current).has(nextMatch.orderId)) ||
+        (nextStatus === "ahead" && nextMatch && scannedOrderIds(scansRef.current).has(nextMatch.orderId))
+      ) {
+        nextStatus = "duplicate";
+      }
 
-    if (status === "duplicate") return;
+      setFlash({
+        status: nextStatus,
+        code: next,
+        orderNumber: nextMatch?.orderNumber,
+        dueLabel: nextStatus === "ahead" ? nextDueLabel : undefined,
+      });
+      playBeep(nextStatus);
 
-    const scan: OverdueScan = {
-      id: crypto.randomUUID(),
-      scannedCode: next,
-      orderId: match?.orderId,
-      orderNumber: match?.orderNumber,
-      platform: match?.platform,
-      matched: status === "valid" || status === "cancelled" || status === "ahead",
-      result:
-        status === "cancelled"
-          ? "cancelled"
-          : status === "valid"
-            ? "valid"
-            : status === "ahead"
-              ? "ahead"
-              : "not_in_queue",
-      scannedAt: new Date(),
-      scannedBy: workerName,
-      scanDate: warehouseTodayKey(),
-    };
+      if (nextStatus === "duplicate") return;
+      if (adopted) onAdoptOrder?.(adopted);
 
-    if (status === "cancelled" && match) {
-      const existingValid = scansRef.current.find(
-        (item) => item.matched && item.orderId === match.orderId
-      );
-      if (existingValid) scan.id = existingValid.id;
-    }
+      const scan: OverdueScan = {
+        id: crypto.randomUUID(),
+        scannedCode: next,
+        orderId: nextMatch?.orderId,
+        orderNumber: nextMatch?.orderNumber,
+        platform: nextMatch?.platform,
+        matched: nextStatus === "valid" || nextStatus === "cancelled" || nextStatus === "ahead",
+        result:
+          nextStatus === "cancelled"
+            ? "cancelled"
+            : nextStatus === "valid"
+              ? "valid"
+              : nextStatus === "ahead"
+                ? "ahead"
+                : "not_in_queue",
+        scannedAt: new Date(),
+        scannedBy: workerName,
+        scanDate: warehouseTodayKey(),
+      };
 
-    const nextScans = [
-      scan,
-      ...scansRef.current.filter(
-        (item) => item.id !== scan.id && (!scan.orderId || item.orderId !== scan.orderId)
-      ),
-    ];
-    scansRef.current = nextScans;
-    onScansChange(nextScans);
+      if (nextStatus === "cancelled" && nextMatch) {
+        const existingValid = scansRef.current.find(
+          (item) => item.matched && item.orderId === nextMatch.orderId
+        );
+        if (existingValid) scan.id = existingValid.id;
+      }
 
-    if (status === "cancelled") {
-      const kicked = collectKickOrders(
-        [...orders, ...aheadOrders],
-        [row?.marketplaceOrder?.id, row?.jubelioOrder?.id, todayOrder?.id, aheadOrder?.id, match?.orderId],
-        [match?.orderNumber, todayOrder?.orderNumber, aheadOrder?.orderNumber, row?.orderNumber]
-      );
-      if (kicked.length > 0) onKickCancelled(kicked);
-      if (match?.orderNumber) onCancelAlert?.(makeCancelAlert(match.orderNumber, "scan"));
-    }
+      const nextScans = [
+        scan,
+        ...scansRef.current.filter(
+          (item) => item.id !== scan.id && (!scan.orderId || item.orderId !== scan.orderId)
+        ),
+      ];
+      scansRef.current = nextScans;
+      onScansChange(nextScans);
 
-    void (async () => {
-      try {
-        const res = await fetch("/api/overdue/scans", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: scan.id,
-            code: next,
-            scannedBy: workerName,
-            orderId: match?.orderId,
-            orderNumber: match?.orderNumber,
-            platform: match?.platform,
-            result: status,
-          }),
-        });
-        const data = (await res.json().catch(() => ({}))) as {
-          status?: OverdueScanStatus;
-          scan?: OverdueScan;
-          error?: string;
-        };
-        if (!res.ok || !data.status || !data.scan) {
-          setError(data.error || "Gagal menyimpan scan");
-          return;
-        }
-        const saved = hydrateOverdueScan(data.scan);
-        const merged = [saved, ...scansRef.current.filter((item) => item.id !== scan.id && item.id !== saved.id)];
-        scansRef.current = merged;
-        onScansChange(merged);
-        const savedStatus = data.status;
-        if (savedStatus !== status) {
-          setFlash({
-            status: savedStatus,
-            code: next,
-            orderNumber: match?.orderNumber || saved.orderNumber,
-            dueLabel: savedStatus === "ahead" ? dueLabel : undefined,
-          });
-          playBeep(savedStatus);
-        }
-        if (savedStatus === "cancelled" && match) {
-          const kicked = collectKickOrders(
-            [...orders, ...aheadOrders],
-            [match.orderId],
-            [match.orderNumber]
-          );
-          if (kicked.length > 0) onKickCancelled(kicked);
-          onCancelAlert?.(makeCancelAlert(match.orderNumber, "scan"));
-        }
-        if ((savedStatus === "valid" || savedStatus === "ahead") && match?.orderNumber) {
-          const liveRes = await fetch("/api/overview/check-live", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ numbers: [match.orderNumber], platform: match.platform }),
-          });
-          const liveData = (await liveRes.json().catch(() => ({}))) as { cancelled?: LiveStatusPatch[] };
-          if (!liveData.cancelled?.length) return;
-          const cancelledScan: OverdueScan = { ...saved, result: "cancelled", matched: true };
-          const withCancel = [
-            cancelledScan,
-            ...scansRef.current.filter((item) => item.id !== cancelledScan.id && item.id !== saved.id),
-          ];
-          scansRef.current = withCancel;
-          onScansChange(withCancel);
-          const kicked = collectKickOrders(
-            [...orders, ...aheadOrders],
-            [match.orderId, row?.marketplaceOrder?.id, row?.jubelioOrder?.id],
-            [match.orderNumber]
-          );
-          if (kicked.length > 0) onKickCancelled(kicked);
-          onCancelAlert?.(makeCancelAlert(match.orderNumber, "scan"));
-          setFlash({
-            status: "cancelled",
-            code: next,
-            orderNumber: match.orderNumber,
-          });
-          playBeep("cancelled");
-          await fetch("/api/overdue/scans", {
+      if (nextStatus === "cancelled") {
+        const kicked = collectKickOrders(
+          [...orders, ...aheadOrders, adopted].filter(Boolean) as Order[],
+          [...kickIds, nextMatch?.orderId, adopted?.id],
+          [...kickNumbers, nextMatch?.orderNumber, adopted?.orderNumber]
+        );
+        if (kicked.length > 0) onKickCancelled(kicked);
+        if (nextMatch?.orderNumber) onCancelAlert?.(makeCancelAlert(nextMatch.orderNumber, "scan"));
+      }
+
+      void (async () => {
+        try {
+          const res = await fetch("/api/overdue/scans", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              id: cancelledScan.id,
+              id: scan.id,
               code: next,
               scannedBy: workerName,
-              orderId: match.orderId,
-              orderNumber: match.orderNumber,
-              platform: match.platform,
-              result: "cancelled",
+              orderId: nextMatch?.orderId,
+              orderNumber: nextMatch?.orderNumber,
+              platform: nextMatch?.platform,
+              result: nextStatus,
             }),
           });
+          const data = (await res.json().catch(() => ({}))) as {
+            status?: OverdueScanStatus;
+            scan?: OverdueScan;
+            error?: string;
+          };
+          if (!res.ok || !data.status || !data.scan) {
+            setError(data.error || "Gagal menyimpan scan");
+            return;
+          }
+          const saved = hydrateOverdueScan(data.scan);
+          const merged = [saved, ...scansRef.current.filter((item) => item.id !== scan.id && item.id !== saved.id)];
+          scansRef.current = merged;
+          onScansChange(merged);
+          const savedStatus = data.status;
+          if (savedStatus !== nextStatus) {
+            setFlash({
+              status: savedStatus,
+              code: next,
+              orderNumber: nextMatch?.orderNumber || saved.orderNumber,
+              dueLabel: savedStatus === "ahead" ? nextDueLabel : undefined,
+            });
+            playBeep(savedStatus);
+          }
+          if (savedStatus === "cancelled" && nextMatch) {
+            const kicked = collectKickOrders(
+              [...orders, ...aheadOrders, adopted].filter(Boolean) as Order[],
+              [nextMatch.orderId],
+              [nextMatch.orderNumber]
+            );
+            if (kicked.length > 0) onKickCancelled(kicked);
+            onCancelAlert?.(makeCancelAlert(nextMatch.orderNumber, "scan"));
+          }
+          if ((savedStatus === "valid" || savedStatus === "ahead") && nextMatch?.orderNumber) {
+            const liveRes = await fetch("/api/overview/check-live", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ numbers: [nextMatch.orderNumber], platform: nextMatch.platform }),
+            });
+            const liveData = (await liveRes.json().catch(() => ({}))) as { cancelled?: LiveStatusPatch[] };
+            if (!liveData.cancelled?.length) return;
+            const cancelledScan: OverdueScan = { ...saved, result: "cancelled", matched: true };
+            const withCancel = [
+              cancelledScan,
+              ...scansRef.current.filter((item) => item.id !== cancelledScan.id && item.id !== saved.id),
+            ];
+            scansRef.current = withCancel;
+            onScansChange(withCancel);
+            const kicked = collectKickOrders(
+              [...orders, ...aheadOrders, adopted].filter(Boolean) as Order[],
+              [nextMatch.orderId, row?.marketplaceOrder?.id, row?.jubelioOrder?.id],
+              [nextMatch.orderNumber]
+            );
+            if (kicked.length > 0) onKickCancelled(kicked);
+            onCancelAlert?.(makeCancelAlert(nextMatch.orderNumber, "scan"));
+            setFlash({
+              status: "cancelled",
+              code: next,
+              orderNumber: nextMatch.orderNumber,
+            });
+            playBeep("cancelled");
+            await fetch("/api/overdue/scans", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: cancelledScan.id,
+                code: next,
+                scannedBy: workerName,
+                orderId: nextMatch.orderId,
+                orderNumber: nextMatch.orderNumber,
+                platform: nextMatch.platform,
+                result: "cancelled",
+              }),
+            });
+          }
+        } catch {
+          setError("Gagal menyimpan scan");
         }
+      })();
+    };
+
+    if (status !== "not_in_queue") {
+      commit(status, match, dueLabel);
+      return;
+    }
+
+    const seq = ++lookupSeq.current;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/orders/lookup?q=${encodeURIComponent(next)}&fast=1`, { cache: "no-store" });
+        const data = (await res.json().catch(() => ({}))) as { orders?: Order[] };
+        if (seq !== lookupSeq.current) return;
+        const found = (data.orders || []).map(hydrateOrder);
+        const keys = new Set(expandMatchKeys(next));
+        const hit =
+          found.find((item) => identityKeys(item).some((key) => keys.has(key))) ||
+          found.find((item) => item.platform === "shopee" || item.platform === "tiktok" || item.platform === "tokopedia") ||
+          found[0];
+        if (!hit) {
+          commit("not_in_queue", null);
+          return;
+        }
+        const classified = classifyWarehouseScan(hit);
+        commit(classified, overdueScanMatchFromOrder(hit), dueLabelOf(hit), hit);
       } catch {
-        setError("Gagal menyimpan scan");
+        if (seq !== lookupSeq.current) return;
+        commit("not_in_queue", null);
       }
     })();
   };
@@ -905,7 +1007,7 @@ export default function OverdueScanView({
               hint={
                 overview.todayPickedUp > 0
                   ? `${formatNumber(overview.todayPickedUp)} sudah berangkat · total tetap`
-                  : "Tenggat gudang · 09.00–17.00 due 17.00"
+                  : "Shopee Regular/Hemat/Next Day · sebelum 12.00 due 23.59"
               }
               onClick={() =>
                 openRowList(

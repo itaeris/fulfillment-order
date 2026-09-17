@@ -16,6 +16,7 @@ import { dropCancelledOrders, makeCancelAlert, orderMatchesScanKeys, takeNewlyCa
 import { expandMatchKeys } from "@/lib/order-match";
 import { upsertOverviewOrders } from "@/lib/overview-store";
 import { supabase } from "@/lib/supabase";
+import { classifyWarehouseScan, isAheadPackOrder, isShipTodayQueueOrder } from "@/lib/due-date";
 import { indonesiaOrderCutoffKey, warehouseTodayKey } from "@/lib/timezone";
 import { Order } from "@/types/order";
 
@@ -407,6 +408,39 @@ export default function ScannerBarcodePage() {
         void loadScans();
         void loadPlacedToday();
         void loadAhead();
+      }}
+      onAdoptOrder={(order) => {
+        const result = classifyWarehouseScan(order);
+        if (result === "ahead") {
+          setAheadOrders((prev) =>
+            prev.some((item) => item.id === order.id || item.orderNumber === order.orderNumber)
+              ? prev
+              : [order, ...prev]
+          );
+          return;
+        }
+        if (result !== "valid" && !isShipTodayQueueOrder(order) && !isAheadPackOrder(order)) return;
+        setOrders((prev) =>
+          prev.some((item) => item.id === order.id || item.orderNumber === order.orderNumber)
+            ? prev
+            : [order, ...prev]
+        );
+        void fetch("/api/overview/orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orders: [
+              {
+                ...order,
+                orderDate: order.orderDate ? new Date(order.orderDate).toISOString() : null,
+                paidTime: order.paidTime ? new Date(order.paidTime).toISOString() : null,
+                shippedTime: order.shippedTime ? new Date(order.shippedTime).toISOString() : null,
+                mustShipBefore: order.mustShipBefore ? new Date(order.mustShipBefore).toISOString() : null,
+                pickupTime: order.pickupTime ? new Date(order.pickupTime).toISOString() : null,
+              },
+            ],
+          }),
+        }).catch(() => {});
       }}
       onSignOut={signOut}
       workerName={profile?.name}

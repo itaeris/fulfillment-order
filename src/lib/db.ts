@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { addCalendarDays, INDONESIA_OFFSET, indonesiaDateKey, indonesiaOrderCutoffKey, inProcessCutoffWindow, processCutoffQuerySpan } from "./timezone";
+import { lookupMatchKeys } from "./order-match";
 import { classifyShipping, isAheadPackOrder } from "./due-date";
 import type { Order } from "@/types/order";
 
@@ -117,14 +118,16 @@ export async function getAllOrdersProgressive(
 export async function searchOrdersByNumber(query: string) {
   const raw = String(query || "").trim();
   if (!raw) return [];
-  const compact = raw.replace(/[\s\-_.#]+/g, "");
-  const safe = compact.replace(/[%_(),]/g, "").slice(0, 40);
-  if (safe.length < 4) return [];
-  const { data, error } = await supabase
-    .from("orders")
-    .select("*")
-    .ilike("order_number", `%${safe}%`)
-    .limit(50);
+  const keys = Array.from(
+    new Set(
+      lookupMatchKeys(raw)
+        .map((key) => key.replace(/[%_(),]/g, "").slice(0, 40))
+        .filter((key) => key.length >= 5)
+    )
+  ).slice(0, 8);
+  if (keys.length === 0) return [];
+  const clauses = keys.flatMap((key) => [`order_number.ilike.%${key}%`, `tracking_number.ilike.%${key}%`]);
+  const { data, error } = await supabase.from("orders").select("*").or(clauses.join(",")).limit(50);
   if (error) throw error;
   return (data ?? []).map(rowToOrder);
 }

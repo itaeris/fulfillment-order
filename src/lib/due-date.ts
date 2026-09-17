@@ -2,6 +2,7 @@ import { Order } from "@/types/order";
 import { orderNumberKeys, trackingKeys } from "@/lib/order-match";
 import {
   INDONESIA_TZ,
+  shopeeStandardDueSchedule,
   warehouseDueSchedule,
   warehouseTodayKey,
 } from "@/lib/timezone";
@@ -124,13 +125,25 @@ function placedAt(order?: Order | null): Date | undefined {
   return toDate(order?.paidTime) || toDate(order?.orderDate);
 }
 
-/** Tenggat gudang: 09.00–17.00 due hari itu 17.00; 17.00–09.00 due besok 09.00. Instant marketplace yang lebih awal tetap dipakai. */
+export function usesShopeeStandardSla(
+  order?: Pick<Order, "platform" | "courier" | "shippingOption"> | null
+): boolean {
+  if (!order || order.platform !== "shopee") return false;
+  return classifyShipping(order) === "regular";
+}
+
+function channelDueSchedule(order: Order, placed: Date): { dueDay: string; deadline: Date } {
+  if (usesShopeeStandardSla(order)) return shopeeStandardDueSchedule(placed);
+  return warehouseDueSchedule(placed);
+}
+
+/** Tenggat gudang: Shopee Regular/Hemat/Next Day 12.00 → 23.59; channel lain 09.00–17.00 / 17.00–09.00. Instant yang lebih awal tetap dipakai. */
 export function warehouseEffectiveDue(order?: Order | null): Date | undefined {
   const market = toDate(order?.mustShipBefore);
   const placed = placedAt(order);
   if (!order || !placed) return market;
   if (looksLikePreorder(order)) return market;
-  const warehouse = warehouseDueSchedule(placed).deadline;
+  const warehouse = channelDueSchedule(order, placed).deadline;
   if (market && market.getTime() <= warehouse.getTime()) return market;
   return warehouse;
 }
@@ -138,7 +151,7 @@ export function warehouseEffectiveDue(order?: Order | null): Date | undefined {
 function orderDueDayKey(order?: Order | null): string | null {
   const placed = placedAt(order);
   if (placed && order && !looksLikePreorder(order)) {
-    return warehouseDueSchedule(placed).dueDay;
+    return channelDueSchedule(order, placed).dueDay;
   }
   return dayKey(order?.mustShipBefore);
 }
@@ -416,14 +429,7 @@ export function mergeTodayQueueWithPickedUp<T extends Order>(
       return isPickedUpTodayOrder(order, now) ? [order] : [];
     }
     if (!isDueOnDate(order, warehouseTodayKey(now), now)) return [];
-    return [
-      {
-        ...order,
-        status: "shipped" as T["status"],
-        pickupTime: order.pickupTime || now,
-        shippedTime: order.shippedTime || now,
-      },
-    ];
+    return [order];
   });
   return [...incoming, ...kept];
 }
@@ -464,6 +470,21 @@ export function isAheadPackOrder(order: Order, now = new Date()): boolean {
   if (!isOpen(order)) return false;
   const dueDay = orderDueDayKey(order);
   return Boolean(dueDay && dueDay > warehouseTodayKey(now));
+}
+
+/** Hasil scan gudang: kirim hari ini, packing cicil, batal, atau tidak di antrian. */
+export function classifyWarehouseScan(
+  order: Order,
+  now = new Date()
+): "valid" | "ahead" | "cancelled" | "not_in_queue" {
+  if (order.platform === "jubelio") return "not_in_queue";
+  if (DROP_FROM_TODAY_TOTAL.has(order.status)) return "cancelled";
+  const dueDay = orderDueDayKey(order);
+  const today = warehouseTodayKey(now);
+  if (!dueDay) return "not_in_queue";
+  if (dueDay > today) return isOpen(order) ? "ahead" : "not_in_queue";
+  if (dueDay === today) return "valid";
+  return isOpen(order) ? "valid" : "not_in_queue";
 }
 
 export function formatDayKeyLabel(dateKey: string): string {

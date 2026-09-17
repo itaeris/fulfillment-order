@@ -17,6 +17,8 @@ import {
 import { fetchJubelioOrdersByKeys, fetchJubelioReadyToShipBatch } from "@/lib/jubelio-api";
 import {
   fetchShopeeReadyToShipBatch,
+  fetchShopeeStatusBatch,
+  emptyProcessedCursor,
   getShopeeConfig,
   mapShopeeListedOrders,
 } from "@/lib/shopee-api";
@@ -54,14 +56,34 @@ function toInput(order: Order) {
 async function collectShopeeToday(): Promise<Order[]> {
   const config = await getShopeeConfig();
   const collected: Order[] = [];
+  const seen = new Set<string>();
+  const take = (orders: Order[]) => {
+    for (const order of filterShipTodayQueue(orders)) {
+      const number = String(order.orderNumber || "").trim().toUpperCase();
+      if (!number || seen.has(number)) continue;
+      seen.add(number);
+      collected.push(order);
+    }
+  };
+
   let cursor: Awaited<ReturnType<typeof fetchShopeeReadyToShipBatch>>["nextCursor"] = null;
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const batch = await fetchShopeeReadyToShipBatch(config, cursor || undefined);
     const mapped =
       batch.listed.length > 0 ? await mapShopeeListedOrders(config, batch.listed) : [];
-    collected.push(...filterShipTodayQueue(mapped));
+    take(mapped);
     if (batch.done || !batch.nextCursor) break;
     cursor = batch.nextCursor;
+  }
+
+  let processed = emptyProcessedCursor();
+  for (let page = 0; page < 6; page += 1) {
+    const batch = await fetchShopeeStatusBatch(config, "PROCESSED", processed);
+    const mapped =
+      batch.listed.length > 0 ? await mapShopeeListedOrders(config, batch.listed) : [];
+    take(mapped);
+    if (batch.done || !batch.nextCursor) break;
+    processed = batch.nextCursor;
   }
   return collected;
 }

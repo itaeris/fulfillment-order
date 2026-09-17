@@ -27,6 +27,15 @@ export function splitIdentityValues(value?: string | null): string[] {
     .filter(Boolean);
 }
 
+export function lookupMatchKeys(value?: string | null): string[] {
+  const raw = String(value || "").trim();
+  if (!raw) return [];
+  const keys = new Set<string>(expandMatchKeys(raw));
+  keys.add(raw);
+  keys.add(normalizeMatchKey(raw));
+  return Array.from(keys).filter((key) => key.length >= 5);
+}
+
 export function expandMatchKeys(value?: string | null): string[] {
   const raw = String(value || "").trim();
   const base = normalizeMatchKey(raw);

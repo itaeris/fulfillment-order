@@ -736,7 +736,7 @@ export default function DueDateOverviewView({
             <StatCard
               label="Antrian kirim"
               value={formatNumber(overview.todayProcessCount)}
-              hint={`${formatNumber(overview.todayProcessItems)} item · 09.00–17.00 due 17.00 · 17.00–09.00 due besok 09.00`}
+              hint={`${formatNumber(overview.todayProcessItems)} item · Shopee Regular/Hemat/Next Day sebelum 12.00 due 23.59 · TikTok 09.00–17.00 due 17.00`}
               onClick={() =>
                 openRowList(
                   "Antrian kirim",
@@ -1010,8 +1010,8 @@ export default function DueDateOverviewView({
             <div className="px-3 sm:px-4 py-2.5 border-b border-brand-100">
               <h2 className="text-sm font-semibold text-brand-800">Pesanan per tenggat</h2>
               <p className="text-[11px] text-brand-400">
-                Total Shopee/TikTok dulu, lalu pecahan reguler, instan, dan same-day. Jubelio tidak dijumlahkan.
-                09.00–17.00 due hari ini jam 17.00. 17.00–09.00 besok due jam 09.00, semua channel.
+                Shopee Regular/Hemat/Next Day: masuk sebelum 12.00 wajib serah hari kerja itu (paling lama 23.59).
+                TikTok/Tokped tetap 09.00–17.00 due 17.00, 17.00–09.00 due besok 09.00.
               </p>
             </div>
             {overview.buckets.length === 0 ? (

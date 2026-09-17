@@ -21,6 +21,10 @@ export const ORDER_CUTOFF_HOUR = CUTOFF_1501.hour;
 export const WAREHOUSE_DUE_NIGHT_START: ProcessCutoffClock = { hour: 17, minute: 0 };
 export const WAREHOUSE_DUE_MORNING_END: ProcessCutoffClock = { hour: 9, minute: 0 };
 
+/** Shopee Regular / Hemat / Next Day: masuk sebelum 12.00 → hari kerja yang sama pukul 23.59. */
+export const SHOPEE_STANDARD_CUTOFF: ProcessCutoffClock = { hour: 12, minute: 0 };
+export const SHOPEE_STANDARD_DEADLINE: ProcessCutoffClock = { hour: 23, minute: 59 };
+
 export function indonesiaDateKey(now = new Date()): string {
   return now.toLocaleDateString("en-CA", { timeZone: INDONESIA_TZ });
 }
@@ -90,6 +94,40 @@ export function warehouseDueSchedule(placed: Date | string): { dueDay: string; d
 
 export function warehouseDueDayKey(placed: Date | string): string {
   return warehouseDueSchedule(placed).dueDay;
+}
+
+function indonesiaWeekday(dateKey: string): number {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day, 12)).getUTCDay();
+}
+
+export function shopeeWorkingDayOnOrAfter(dateKey: string): string {
+  let next = dateKey;
+  while (indonesiaWeekday(next) === 0) {
+    next = addCalendarDays(next, 1);
+  }
+  return next;
+}
+
+/**
+ * SLA Shopee Regular / Hemat / Next Day (WIB):
+ * masuk sebelum 12.00 → hari kerja itu juga, paling lama 23.59
+ * masuk jam 12.00+ → hari kerja berikutnya, 23.59
+ */
+export function shopeeStandardDueSchedule(placed: Date | string): { dueDay: string; deadline: Date } {
+  const at = placed instanceof Date ? placed : new Date(placed);
+  const date = indonesiaDateKey(at);
+  const { hour } = indonesiaTimeParts(at);
+  const rawDue = hour < SHOPEE_STANDARD_CUTOFF.hour ? date : addCalendarDays(date, 1);
+  const dueDay = shopeeWorkingDayOnOrAfter(rawDue);
+  return {
+    dueDay,
+    deadline: new Date(`${dueDay}T${clockStamp(SHOPEE_STANDARD_DEADLINE)}${INDONESIA_OFFSET}`),
+  };
+}
+
+export function shopeeStandardDueDayKey(placed: Date | string): string {
+  return shopeeStandardDueSchedule(placed).dueDay;
 }
 
 /** Hari antrian kirim: kalender WIB. Order 17.00+ masuk antrian besok. */

@@ -3,6 +3,7 @@ import { insertOrders, searchOrdersByNumber, updateOrdersFulfillment } from "@/l
 import { hydrateOrders } from "@/lib/client-data";
 import { fetchShopeeOrdersByNumbers, getShopeeConfig } from "@/lib/shopee-api";
 import { fetchTikTokOrdersByNumbers, getTikTokConfig } from "@/lib/tiktok-api";
+import { lookupMatchKeys } from "@/lib/order-match";
 import { Order } from "@/types/order";
 
 export const dynamic = "force-dynamic";
@@ -34,20 +35,22 @@ export async function GET(request: Request) {
     }
 
     const local = await searchOrdersByNumber(q);
-    if (!looksLikeOrderNumber(q)) {
+    const fast = url.searchParams.get("fast") === "1";
+    if (!looksLikeOrderNumber(q) || (fast && local.length > 0)) {
       return NextResponse.json({
         orders: hydrateOrders(local),
         source: local.length > 0 ? "db" : "none",
       });
     }
 
-    const number = q.replace(/[\s\-_.#]+/g, "");
+    const sns = lookupMatchKeys(q).filter((key) => /^\d{6,}[A-Z0-9]*$/i.test(key)).slice(0, 3);
+    const number = sns[0] || q.replace(/[\s\-_.#]+/g, "").replace(/^SP/i, "");
     let remote: Order[] = [];
     let source: "db" | "shopee" | "tiktok" | "none" = local.length > 0 ? "db" : "none";
 
     try {
       const config = await getShopeeConfig();
-      remote = await fetchShopeeOrdersByNumbers(config, [number]);
+      remote = await fetchShopeeOrdersByNumbers(config, sns.length > 0 ? sns : [number]);
       if (remote.length > 0) source = "shopee";
     } catch {
       remote = [];
