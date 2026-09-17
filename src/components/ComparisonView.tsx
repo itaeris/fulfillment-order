@@ -41,7 +41,7 @@ interface ComparisonViewProps {
 }
 
 type MatchStatus = "matched" | "penjualan" | "jubelio_only" | "platform_only";
-type FilterTab = "all" | "matched" | "penjualan" | "jubelio_only" | "platform_only" | "ship_today";
+type FilterTab = "all" | "matched" | "jubelio_only" | "platform_only" | "ship_today";
 type CompSortField = "status" | "orderNumber" | "matchedBy" | "customer" | "qty" | "courier" | "due" | "menu";
 type CompSortDir = "asc" | "desc";
 
@@ -461,7 +461,6 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
     { value: "all", label: "Semua", count: summary.total, color: "text-brand-700" },
     { value: "ship_today", label: shipDateIsToday ? "Kirim hari ini" : `Kirim ${formatDayKeyLabel(shipDate)}`, count: shipTodayCount, color: "text-orange-600" },
     { value: "matched", label: "Tercermin", count: summary.matched, color: "text-green-600" },
-    { value: "penjualan", label: "Penjualan", count: summary.penjualan, color: "text-orange-700" },
     { value: "platform_only", label: "Belum di Jubelio", count: summary.platformOnly, color: "text-blue-600" },
     { value: "jubelio_only", label: "Hanya di Jubelio", count: summary.jubelioOnly, color: "text-amber-600" },
   ];
