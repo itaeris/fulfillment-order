@@ -43,7 +43,6 @@ import {
   type StatPreviewItem,
 } from "@/components/StatListPreview";
 import {
-  aheadScansOf,
   buildOrderScanIndex,
   buildOverdueScanIndex,
   cancelledScanOrderIds,
@@ -57,16 +56,24 @@ import {
   rowHasId,
   rowIsCancelled,
   rowIsValidated,
-  scannedOrderIds,
   scanResultOf,
   todayValidatedIds,
+  uniqueAheadScans,
+  isAlreadyScanned,
+  preferMarketplaceOrder,
+  isMarketplaceScanPlatform,
   type OverdueScan,
   type OverdueScanMatch,
   type OverdueScanStatus,
 } from "@/lib/overdue-scan";
 import { expandMatchKeys, identityKeys } from "@/lib/order-match";
 import { hydrateOrder } from "@/lib/client-data";
-import { warehouseTodayKey } from "@/lib/timezone";
+import {
+  addCalendarDays,
+  ORDER_TODAY_CUTOFF_HINT,
+  ORDER_TODAY_CUTOFF_SUBTITLE,
+  warehouseTodayKey,
+} from "@/lib/timezone";
 import { makeCancelAlert, type CancelAlert } from "@/lib/live-cancel";
 import type { LiveStatusPatch } from "@/lib/overview-merge";
 
@@ -199,7 +206,7 @@ function StatCard({
 }: {
   label: string;
   value: string | number;
-  hint?: string;
+  hint?: ReactNode;
   valueClass?: string;
   onClick?: () => void;
 }) {
@@ -213,7 +220,13 @@ function StatCard({
       <p className={cn("text-xl sm:text-2xl font-semibold tracking-tight mt-0.5", valueClass || "text-brand-800")}>
         {value}
       </p>
-      {hint ? <p className="text-[11px] text-brand-400 mt-0.5">{hint}</p> : null}
+      {hint ? (
+        typeof hint === "string" ? (
+          <p className="text-[11px] text-brand-400 mt-0.5 leading-snug">{hint}</p>
+        ) : (
+          <div className="text-[10px] sm:text-[11px] text-brand-400 mt-0.5 leading-snug space-y-0.5">{hint}</div>
+        )
+      ) : null}
     </>
   );
   if (onClick) {
@@ -393,7 +406,20 @@ export default function OverdueScanView({
     () => scans.filter((scan) => scanResultOf(scan) === "cancelled"),
     [scans]
   );
-  const aheadScans = useMemo(() => aheadScansOf(scans), [scans]);
+  const aheadScans = useMemo(() => uniqueAheadScans(scans), [scans]);
+  const packingCicilUnscanned = useMemo(() => {
+    const scannedKeys = new Set(
+      aheadScans.flatMap((scan) => expandMatchKeys(scan.orderNumber || scan.scannedCode))
+    );
+    const today = warehouseTodayKey();
+    const until = addCalendarDays(today, 2);
+    return aheadOrders.filter((order) => {
+      if (!isMarketplaceScanPlatform(order.platform)) return false;
+      if (identityKeys(order).some((key) => scannedKeys.has(key))) return false;
+      const due = dayKey(warehouseEffectiveDue(order) || order.mustShipBefore);
+      return Boolean(due && due > today && due <= until);
+    });
+  }, [aheadOrders, aheadScans]);
   const unmatched = useMemo(
     () => scans.filter((scan) => scanResultOf(scan) === "not_in_queue").slice(0, 20),
     [scans]
@@ -459,11 +485,35 @@ export default function OverdueScanView({
     });
   };
 
+  const openCicilList = () => {
+    listReq.current += 1;
+    const scannedItems = aheadScans.map((scan) => ({
+      key: scan.id,
+      orderNumber: scan.orderNumber || scan.scannedCode,
+      platform: scan.platform,
+      meta: "Sudah discan · Packing cicil",
+      status: "Sudah discan",
+    }));
+    const unscannedItems = packingCicilUnscanned.map((order) => ({
+      key: order.id,
+      orderNumber: order.orderNumber,
+      platform: order.platform,
+      courier: order.courier,
+      meta: "Belum discan · Packing cicil",
+      status: "Belum discan",
+    }));
+    setListPreview({
+      title: "Packing cicil",
+      subtitle: `${formatNumber(aheadScans.length)} sudah discan · ${formatNumber(packingCicilUnscanned.length)} belum`,
+      items: [...scannedItems, ...unscannedItems],
+    });
+  };
+
   const openPlacedTodayList = async () => {
     const req = ++listReq.current;
     setListPreview({
       title: "Order hari ini",
-      subtitle: "Masuk cutoff proses gudang (bukan tenggat kirim)",
+      subtitle: ORDER_TODAY_CUTOFF_SUBTITLE,
       items: [],
       loading: true,
     });
@@ -543,9 +593,9 @@ export default function OverdueScanView({
     window.requestAnimationFrame(() => focusScanInput());
 
     const row = matchOverdueScanFromIndex(next, scanIndex);
-    const todayOrder = matchOrderFromIndex(next, orderIndex);
-    const aheadOrder = matchOrderFromIndex(next, aheadIndex);
-    const order = todayOrder || aheadOrder;
+    const todayOrder = preferMarketplaceOrder([matchOrderFromIndex(next, orderIndex)]);
+    const aheadOrder = preferMarketplaceOrder([matchOrderFromIndex(next, aheadIndex)]);
+    const order = preferMarketplaceOrder([todayOrder, aheadOrder]);
     const cancelled = Boolean(
       (row && rowIsCancelled(row)) || (order && isCancelledStatus(order.status))
     );
@@ -574,16 +624,16 @@ export default function OverdueScanView({
     else if (row && match) {
       status = rowIsValidated(row, todayValidatedIds(scansRef.current)) ? "duplicate" : "valid";
     } else if (aheadOrder && match && isAheadPackOrder(aheadOrder)) {
-      status = scannedOrderIds(scansRef.current).has(match.orderId) ? "duplicate" : "ahead";
+      status = isAlreadyScanned(scansRef.current, match) ? "duplicate" : "ahead";
     } else if (order && match) {
       const classified = classifyWarehouseScan(order);
       if (classified === "cancelled") status = "cancelled";
       else if (classified === "valid") {
-        status = todayValidatedIds(scansRef.current).has(match.orderId) ? "duplicate" : "valid";
+        status = isAlreadyScanned(scansRef.current, match) ? "duplicate" : "valid";
       } else if (classified === "ahead") {
-        status = scannedOrderIds(scansRef.current).has(match.orderId) ? "duplicate" : "ahead";
+        status = isAlreadyScanned(scansRef.current, match) ? "duplicate" : "ahead";
       }
-    } else if (match && cancelledScanOrderIds(scansRef.current).has(match.orderId)) {
+    } else if (match && isAlreadyScanned(scansRef.current, match)) {
       status = "duplicate";
     }
 
@@ -604,6 +654,15 @@ export default function OverdueScanView({
       nextDueLabel?: string,
       adopted?: Order
     ) => {
+      if (nextMatch?.platform === "jubelio") {
+        const market = preferMarketplaceOrder([aheadOrder, todayOrder, adopted]);
+        if (market) nextMatch = overdueScanMatchFromOrder(market);
+        else if (nextStatus === "ahead" || nextStatus === "valid") {
+          nextStatus = isAlreadyScanned(scansRef.current, nextMatch) ? "duplicate" : nextStatus;
+          nextMatch = null;
+          if (nextStatus !== "duplicate") nextStatus = "not_in_queue";
+        }
+      }
       if (nextStatus === "valid" && nextMatch && cancelledScanOrderIds(scansRef.current).has(nextMatch.orderId)) {
         nextStatus = "cancelled";
       }
@@ -614,8 +673,9 @@ export default function OverdueScanView({
         if (existing) nextStatus = "duplicate";
       }
       if (
-        (nextStatus === "valid" && nextMatch && todayValidatedIds(scansRef.current).has(nextMatch.orderId)) ||
-        (nextStatus === "ahead" && nextMatch && scannedOrderIds(scansRef.current).has(nextMatch.orderId))
+        (nextStatus === "valid" || nextStatus === "ahead") &&
+        nextMatch &&
+        isAlreadyScanned(scansRef.current, nextMatch)
       ) {
         nextStatus = "duplicate";
       }
@@ -674,7 +734,7 @@ export default function OverdueScanView({
           [...kickNumbers, nextMatch?.orderNumber, adopted?.orderNumber]
         );
         if (kicked.length > 0) onKickCancelled(kicked);
-        if (nextMatch?.orderNumber) onCancelAlert?.(makeCancelAlert(nextMatch.orderNumber, "scan"));
+        if (nextMatch?.orderNumber) onCancelAlert?.(makeCancelAlert(nextMatch.orderNumber, "scan", { platform: nextMatch.platform }));
       }
 
       void (async () => {
@@ -722,7 +782,7 @@ export default function OverdueScanView({
               [nextMatch.orderNumber]
             );
             if (kicked.length > 0) onKickCancelled(kicked);
-            onCancelAlert?.(makeCancelAlert(nextMatch.orderNumber, "scan"));
+            onCancelAlert?.(makeCancelAlert(nextMatch.orderNumber, "scan", { platform: nextMatch.platform }));
           }
           if ((savedStatus === "valid" || savedStatus === "ahead") && nextMatch?.orderNumber) {
             const liveRes = await fetch("/api/overview/check-live", {
@@ -745,7 +805,7 @@ export default function OverdueScanView({
               [nextMatch.orderNumber]
             );
             if (kicked.length > 0) onKickCancelled(kicked);
-            onCancelAlert?.(makeCancelAlert(nextMatch.orderNumber, "scan"));
+            onCancelAlert?.(makeCancelAlert(nextMatch.orderNumber, "scan", { platform: nextMatch.platform }));
             setFlash({
               status: "cancelled",
               code: next,
@@ -786,9 +846,8 @@ export default function OverdueScanView({
         const found = (data.orders || []).map(hydrateOrder);
         const keys = new Set(expandMatchKeys(next));
         const hit =
-          found.find((item) => identityKeys(item).some((key) => keys.has(key))) ||
-          found.find((item) => item.platform === "shopee" || item.platform === "tiktok" || item.platform === "tokopedia") ||
-          found[0];
+          preferMarketplaceOrder(found.filter((item) => identityKeys(item).some((key) => keys.has(key)))) ||
+          preferMarketplaceOrder(found);
         if (!hit) {
           commit("not_in_queue", null);
           return;
@@ -962,9 +1021,12 @@ export default function OverdueScanView({
             </button>
           ) : null}
           {error ? <p className="text-xs text-red-600">{error}</p> : null}
-          {cancelAlerts.length > 0 ? (
+          {cancelAlerts.filter((alert) => !alert.dismissed).length > 0 ? (
             <div className="space-y-1.5">
-              {cancelAlerts.slice(0, 6).map((alert) => (
+              {cancelAlerts
+                .filter((alert) => !alert.dismissed)
+                .slice(0, 3)
+                .map((alert) => (
                 <div
                   key={alert.id}
                   className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 flex items-start gap-2"
@@ -974,7 +1036,7 @@ export default function OverdueScanView({
                     <p className="font-semibold">CANCEL realtime — customer batal di channel</p>
                     <p className="text-xs font-mono break-all mt-0.5">{alert.orderNumber}</p>
                     <p className="text-[11px] mt-0.5">
-                      Dibuang dari pengiriman dan order hari ini · {formatScanTime(alert.at)}
+                      {alert.reason || "Dibuang dari pengiriman dan order hari ini"} · {formatScanTime(alert.at)}
                     </p>
                   </div>
                   <button
@@ -1000,7 +1062,9 @@ export default function OverdueScanView({
             <StatCard
               label="Order hari ini"
               value={formatNumber(placedToday?.total ?? 0)}
-              hint="Shopee 15.01 · TikTok/Tokped reguler 15.01 · instant 17.01"
+              hint={ORDER_TODAY_CUTOFF_HINT.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
               onClick={() => void openPlacedTodayList()}
             />
             <StatCard
@@ -1038,8 +1102,12 @@ export default function OverdueScanView({
               label="Packing cicil"
               value={formatNumber(aheadScans.length)}
               valueClass={aheadScans.length > 0 ? "text-sky-800" : undefined}
-              hint="Valid, bukan kirim hari ini"
-              onClick={() => openScanList("Packing cicil", aheadScans)}
+              hint={
+                packingCicilUnscanned.length > 0
+                  ? `${formatNumber(packingCicilUnscanned.length)} belum discan`
+                  : "Valid, bukan kirim hari ini"
+              }
+              onClick={() => openCicilList()}
             />
             <StatCard
               label="Belum dicek"
@@ -1061,6 +1129,52 @@ export default function OverdueScanView({
               onClick={() => openScanList("Cancel", cancelledScans, undefined, "cancelled")}
             />
           </div>
+
+          {cancelAlerts.length > 0 ? (
+            <section className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden">
+              <div className="px-3 sm:px-4 py-2.5 border-b border-red-100">
+                <h2 className="text-sm font-semibold text-red-900 inline-flex items-center gap-1.5">
+                  <Bell className="w-4 h-4" />
+                  Notifikasi cancel
+                </h2>
+                <p className="text-[11px] text-red-700/80 mt-0.5">
+                  Tersimpan di database. Alasan batal dari Shopee/TikTok kalau tersedia.
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] text-xs">
+                  <thead className="bg-red-50 text-red-800/70">
+                    <tr>
+                      <th className="text-left font-medium px-3 py-2">Waktu</th>
+                      <th className="text-left font-medium px-2 py-2">Pesanan</th>
+                      <th className="text-left font-medium px-2 py-2">Channel</th>
+                      <th className="text-left font-medium px-2 py-2">Sumber</th>
+                      <th className="text-left font-medium px-3 py-2">Alasan batal</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-red-100">
+                    {cancelAlerts.map((alert) => (
+                      <tr key={alert.id} className={alert.dismissed ? "opacity-60" : "bg-red-50/40"}>
+                        <td className="px-3 py-2 whitespace-nowrap text-brand-500">
+                          {formatScanTime(alert.at)}
+                        </td>
+                        <td className="px-2 py-2 font-mono font-medium text-brand-800 break-all">
+                          {alert.orderNumber}
+                        </td>
+                        <td className="px-2 py-2 capitalize">{alert.platform || "—"}</td>
+                        <td className="px-2 py-2">
+                          {alert.source === "scan" ? "Saat scan" : alert.source === "queue" ? "Antrian" : "Realtime"}
+                        </td>
+                        <td className="px-3 py-2 text-red-900">
+                          {alert.reason || "Customer batal di channel"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
 
           {overview.todayProcessCount === 0 && cancelledScans.length === 0 && aheadScans.length === 0 ? (
             <section className="bg-white rounded-xl shadow-sm border border-brand-200 px-4 py-8 text-center">
@@ -1216,10 +1330,13 @@ export default function OverdueScanView({
                 Packing cicil — bukan kirim hari ini
               </h2>
               <p className="text-[11px] text-sky-700/80 mt-0.5">
-                Sudah discan dan valid, tapi tenggatnya besok atau lebih. Tidak campur dengan antrian berangkat hari ini.
+                Hanya nomor Shopee/TikTok. Scan Jubelio (SP-) dianggap order yang sama, tidak dobel.
+                {packingCicilUnscanned.length > 0
+                  ? ` ${formatNumber(packingCicilUnscanned.length)} belum discan (tenggat 1–2 hari ke depan).`
+                  : ""}
               </p>
             </div>
-            {aheadScans.length === 0 ? (
+            {aheadScans.length === 0 && packingCicilUnscanned.length === 0 ? (
               <p className="px-4 py-6 text-center text-xs text-brand-400">
                 Belum ada packing cicil hari ini. Setelah kirim hari ini selesai, scan order berikutnya di sini.
               </p>
@@ -1240,7 +1357,7 @@ export default function OverdueScanView({
                   <tbody className="divide-y divide-sky-100">
                     {aheadScans.map((scan) => {
                       const related = ordersForScan(scan, lookupOrders);
-                      const order = related[0];
+                      const order = preferMarketplaceOrder(related) || related[0];
                       const logo = platformLogo(
                         order?.platform === "shopee"
                           ? "Shopee"
@@ -1248,7 +1365,7 @@ export default function OverdueScanView({
                             ? "TikTok"
                             : undefined
                       );
-                      const due = order?.mustShipBefore;
+                      const due = warehouseEffectiveDue(order) || order?.mustShipBefore;
                       return (
                         <tr
                           key={scan.id}
@@ -1258,7 +1375,7 @@ export default function OverdueScanView({
                           <td className="px-3 py-2 whitespace-nowrap">
                             <span className="inline-flex items-center gap-1 text-sky-800 font-medium">
                               <Check className="w-3.5 h-3.5" />
-                              Cicil
+                              Sudah discan
                             </span>
                           </td>
                           <td className="px-2 py-2 font-mono font-medium text-brand-800 break-all">
@@ -1283,6 +1400,41 @@ export default function OverdueScanView({
                             {formatScanTime(scan.scannedAt)}
                             {scan.scannedBy ? ` · ${scan.scannedBy}` : ""}
                           </td>
+                        </tr>
+                      );
+                    })}
+                    {packingCicilUnscanned.map((order) => {
+                      const logo = platformLogo(
+                        order.platform === "shopee"
+                          ? "Shopee"
+                          : order.platform === "tiktok" || order.platform === "tokopedia"
+                            ? "TikTok"
+                            : undefined
+                      );
+                      return (
+                        <tr key={`unscanned-${order.id}`} className="bg-white">
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1 text-amber-800 font-medium">
+                              Belum discan
+                            </span>
+                          </td>
+                          <td className="px-2 py-2 font-mono font-medium text-brand-800 break-all">
+                            {order.orderNumber}
+                          </td>
+                          <td className="px-2 py-2 text-right">{order.quantity ?? "—"}</td>
+                          <td className="px-2 py-2">
+                            {logo ? <PlatformLogo platform={logo} className="h-4 max-w-[5rem]" /> : order.platform}
+                          </td>
+                          <td className="px-2 py-2">
+                            <p>{order.courier || "—"}</p>
+                            <p className="font-mono text-[10px] text-brand-400 break-all">
+                              {order.trackingNumber || "—"}
+                            </p>
+                          </td>
+                          <td className="px-2 py-2 whitespace-nowrap">
+                            {formatDueLabel(warehouseEffectiveDue(order) || order.mustShipBefore)}
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap text-brand-300">—</td>
                         </tr>
                       );
                     })}

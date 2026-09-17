@@ -31,6 +31,38 @@ function mergeScan(prev: OverdueScan[], next: OverdueScan) {
   return [next, ...prev.filter((item) => item.id !== next.id)];
 }
 
+function hydrateCancelAlert(raw: any): CancelAlert {
+  const source = raw.source === "scan" || raw.source === "queue" ? raw.source : "live";
+  return {
+    id: String(raw.id || ""),
+    orderNumber: String(raw.orderNumber || raw.order_number || ""),
+    platform: raw.platform ? String(raw.platform) : undefined,
+    source,
+    reason: raw.reason ? String(raw.reason) : undefined,
+    reasonCode: raw.reasonCode || raw.reason_code ? String(raw.reasonCode || raw.reason_code) : undefined,
+    at: raw.at || raw.cancelled_at || raw.cancelledAt ? new Date(raw.at || raw.cancelled_at || raw.cancelledAt) : new Date(),
+    dismissed: Boolean(raw.dismissed || raw.dismissed_at),
+  };
+}
+
+function mergeCancelAlerts(prev: CancelAlert[], incoming: CancelAlert[]) {
+  const next = [...incoming, ...prev];
+  const seen = new Set<string>();
+  return next.filter((alert) => {
+    const key = cancelAlertMatchKey(alert.orderNumber) || alert.id;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function fetchTodayCancels(): Promise<CancelAlert[]> {
+  const res = await fetch("/api/overdue/cancels", { cache: "no-store" });
+  const data = (await res.json().catch(() => ({}))) as { alerts?: CancelAlert[] };
+  if (!res.ok) return [];
+  return (data.alerts || []).map(hydrateCancelAlert);
+}
+
 export default function ScannerBarcodePage() {
   const { user, profile, isLoading: authLoading, signOut } = useAuth();
   const router = useRouter();
@@ -118,9 +150,17 @@ export default function ScannerBarcodePage() {
       const res = await fetch("/api/orders/ahead", { cache: "no-store" });
       const data = (await res.json().catch(() => ({}))) as { orders?: Order[]; error?: string };
       if (!res.ok) return;
-      setAheadOrders((data.orders || []).map(hydrateOrder));
+      setAheadOrders((data.orders || []).map(hydrateOrder).filter((order) => order.platform !== "jubelio"));
     } catch (error) {
       console.error("Error loading ahead orders:", error);
+    }
+  }, []);
+
+  const loadCancels = useCallback(async () => {
+    try {
+      setCancelAlerts(await fetchTodayCancels());
+    } catch (error) {
+      console.error("Error loading cancel alerts:", error);
     }
   }, []);
 
@@ -136,16 +176,30 @@ export default function ScannerBarcodePage() {
 
   const pushCancelAlerts = useCallback((kicked: Order[], source: CancelAlert["source"]) => {
     if (kicked.length === 0) return;
-    setCancelAlerts((prev) => {
-      const next = [...kicked.map((order) => makeCancelAlert(order.orderNumber, source)), ...prev];
-      const seen = new Set<string>();
-      return next.filter((alert) => {
-        const key = cancelAlertMatchKey(alert.orderNumber);
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      }).slice(0, 12);
-    });
+    const optimistic = kicked.map((order) =>
+      makeCancelAlert(order.orderNumber, source, { platform: order.platform })
+    );
+    setCancelAlerts((prev) => mergeCancelAlerts(prev, optimistic).slice(0, 40));
+    void (async () => {
+      try {
+        const res = await fetch("/api/overdue/cancels", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            alerts: kicked.map((order) => ({
+              orderNumber: order.orderNumber,
+              platform: order.platform,
+              source,
+            })),
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { alerts?: CancelAlert[] };
+        if (!res.ok || !Array.isArray(data.alerts)) return;
+        setCancelAlerts((prev) => mergeCancelAlerts(prev, data.alerts.map(hydrateCancelAlert)).slice(0, 40));
+      } catch {
+        // Alert lokal tetap tampil.
+      }
+    })();
   }, []);
 
   const kickCancelled = useCallback(
@@ -230,8 +284,9 @@ export default function ScannerBarcodePage() {
       await loadScans();
       await loadPlacedToday();
       await loadAhead();
+      await loadCancels();
     })();
-  }, [authLoading, user, loadOrders, loadScans, loadPlacedToday, loadAhead]);
+  }, [authLoading, user, loadOrders, loadScans, loadPlacedToday, loadAhead, loadCancels]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -249,6 +304,7 @@ export default function ScannerBarcodePage() {
       void loadScans();
       void loadPlacedToday();
       void loadAhead();
+      void loadCancels();
     };
     const timer = window.setInterval(tick, 30_000);
     const onFocus = () => tick();
@@ -257,7 +313,7 @@ export default function ScannerBarcodePage() {
       window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
     };
-  }, [authLoading, user, loadOrders, loadScans, loadPlacedToday, loadAhead]);
+  }, [authLoading, user, loadOrders, loadScans, loadPlacedToday, loadAhead, loadCancels]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -371,6 +427,14 @@ export default function ScannerBarcodePage() {
           });
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "cancel_alerts" },
+        (payload) => {
+          if (!payload.new) return;
+          setCancelAlerts((prev) => mergeCancelAlerts(prev, [hydrateCancelAlert(payload.new)]).slice(0, 40));
+        }
+      )
       .subscribe();
     return () => {
       window.clearTimeout(debounce);
@@ -392,24 +456,43 @@ export default function ScannerBarcodePage() {
       }}
       cancelAlerts={cancelAlerts}
       onCancelAlert={(alert) => {
-        setCancelAlerts((prev) => {
-          const key = cancelAlertMatchKey(alert.orderNumber);
-          return [alert, ...prev.filter((item) => cancelAlertMatchKey(item.orderNumber) !== key)].slice(
-            0,
-            12
-          );
-        });
+        setCancelAlerts((prev) => mergeCancelAlerts(prev, [alert]).slice(0, 40));
+        void fetch("/api/overdue/cancels", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orderNumber: alert.orderNumber,
+            platform: alert.platform,
+            source: alert.source,
+            reason: alert.reason,
+          }),
+        })
+          .then((res) => res.json().catch(() => ({})))
+          .then((data: { alerts?: CancelAlert[] }) => {
+            if (!Array.isArray(data.alerts)) return;
+            setCancelAlerts((prev) => mergeCancelAlerts(prev, data.alerts.map(hydrateCancelAlert)).slice(0, 40));
+          })
+          .catch(() => {});
       }}
       onDismissCancelAlert={(id) => {
-        setCancelAlerts((prev) => prev.filter((alert) => alert.id !== id));
+        setCancelAlerts((prev) =>
+          prev.map((alert) => (alert.id === id ? { ...alert, dismissed: true } : alert))
+        );
+        void fetch("/api/overdue/cancels", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        }).catch(() => {});
       }}
       onRefresh={() => {
         void loadOrders("refresh");
         void loadScans();
         void loadPlacedToday();
         void loadAhead();
+        void loadCancels();
       }}
       onAdoptOrder={(order) => {
+        if (order.platform === "jubelio") return;
         const result = classifyWarehouseScan(order);
         if (result === "ahead") {
           setAheadOrders((prev) =>

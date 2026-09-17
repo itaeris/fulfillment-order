@@ -18,7 +18,7 @@ import {
  */
 
 const DETAIL_FIELDS =
-  "buyer_username,item_list,pay_time,note,package_list,shipping_carrier,payment_method,total_amount,ship_by_date,pickup_done_time,checkout_shipping_carrier,recipient_address";
+  "buyer_username,item_list,pay_time,note,package_list,shipping_carrier,payment_method,total_amount,ship_by_date,pickup_done_time,checkout_shipping_carrier,recipient_address,cancel_reason,buyer_cancel_reason,cancel_by";
 const DETAIL_FIELDS_SAFE =
   "buyer_username,item_list,pay_time,note,package_list,shipping_carrier,payment_method,total_amount,ship_by_date,pickup_done_time,checkout_shipping_carrier";
 const DETAIL_FIELDS_MINIMAL =
@@ -71,6 +71,9 @@ interface ShopeeOrder {
   pay_time?: number;
   ship_by_date?: number;
   pickup_done_time?: number;
+  cancel_reason?: string;
+  buyer_cancel_reason?: string;
+  cancel_by?: string;
   buyer_username?: string;
   note?: string;
   total_amount?: number | string;
@@ -398,4 +401,24 @@ export async function fetchShopeeOrdersByNumbers(
   numbers: string[]
 ): Promise<Order[]> {
   return mapShopeeListedOrders(config, numbers);
+}
+
+export async function fetchShopeeCancelNotes(
+  config: ShopeeConfig,
+  numbers: string[]
+): Promise<Map<string, { reason?: string; reasonCode?: string; initiator?: string }>> {
+  const sns = Array.from(new Set(numbers.map((value) => String(value || "").trim()).filter(Boolean)));
+  const details = sns.length > 0 ? await getOrderDetails(config, sns) : [];
+  const notes = new Map<string, { reason?: string; reasonCode?: string; initiator?: string }>();
+  for (const order of details) {
+    const reason = String(order.buyer_cancel_reason || order.cancel_reason || "").trim();
+    const initiator = String(order.cancel_by || "").trim();
+    if (!reason && !initiator) continue;
+    notes.set(order.order_sn, {
+      reason,
+      reasonCode: order.cancel_reason,
+      initiator,
+    });
+  }
+  return notes;
 }

@@ -8,6 +8,15 @@ export type OrderStatus =
   | "cancelled" 
   | "returned";
 
+export interface OrderItem {
+  productName: string;
+  variation?: string;
+  sku?: string;
+  quantity: number;
+  originalPrice?: number;
+  price: number;
+}
+
 export interface Order {
   id: string;
   orderNumber: string;
@@ -17,6 +26,7 @@ export interface Order {
   productName: string;
   variation?: string;
   sku?: string;
+  items?: OrderItem[];
   quantity: number;
   originalPrice?: number;
   price: number;

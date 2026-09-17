@@ -15,6 +15,17 @@ export const PROCESS_CUTOFF = {
   tokopedia: { regular: CUTOFF_1501, instant: CUTOFF_1701 },
 } as const;
 
+/** Teks kartu Order hari ini — cutoff masuk proses, bukan tenggat kirim. */
+export const ORDER_TODAY_CUTOFF_HINT = [
+  "Shopee — reguler: sampai 15.01",
+  "Shopee — instant: sampai 15.01 (sama dengan reguler)",
+  "TikTok/Tokped — reguler: sampai 15.01",
+  "TikTok/Tokped — instant: sampai 17.01",
+] as const;
+
+export const ORDER_TODAY_CUTOFF_SUBTITLE =
+  "Cutoff proses gudang (bukan tenggat kirim). Shopee reguler & instant sampai 15.01. TikTok & Tokopedia reguler sampai 15.01, instant sampai 17.01.";
+
 export const ORDER_CUTOFF_HOUR = CUTOFF_1501.hour;
 
 /** Due gudang, semua channel (WIB). */

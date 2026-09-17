@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Check, Copy, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Order } from "@/types/order";
+import { orderItems } from "@/lib/order-group";
 import {
   cn,
   fillClearContact,
@@ -48,7 +49,50 @@ function Field({ label, value }: { label: string; value?: ReactNode }) {
   );
 }
 
+function ProductFields({ order, hideMoney }: { order: Order; hideMoney?: boolean }) {
+  const items = orderItems(order);
+  if (items.length === 0) return null;
+
+  if (items.length === 1) {
+    const item = items[0];
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+        <Field label="Produk" value={item.productName} />
+        <Field label="Variasi" value={item.variation} />
+        <Field label="SKU" value={item.sku ? <span className="font-mono text-xs">{item.sku}</span> : null} />
+        <Field label="Qty" value={item.quantity} />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <p className="text-[10px] font-medium uppercase tracking-wide text-brand-400">
+        Produk ({items.length})
+      </p>
+      <ul className="mt-1.5 divide-y divide-brand-100 rounded-lg border border-brand-200 overflow-hidden">
+        {items.map((item, index) => (
+          <li key={`${item.sku || item.productName}-${index}`} className="px-3 py-2 bg-white">
+            <p className="text-sm text-brand-800 leading-snug">{item.productName}</p>
+            {item.variation ? <p className="text-[11px] text-brand-400 mt-0.5">{item.variation}</p> : null}
+            <p className="text-[11px] text-brand-500 mt-0.5">
+              {[
+                item.sku ? `SKU ${item.sku}` : null,
+                `Qty ${item.quantity}`,
+                !hideMoney && item.price ? formatCurrency(item.price) : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function OrderFields({ order, hideMoney }: { order: Order; hideMoney?: boolean }) {
+  const multiProduct = orderItems(order).length > 1;
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
       <Field
@@ -79,16 +123,17 @@ function OrderFields({ order, hideMoney }: { order: Order; hideMoney?: boolean }
           </span>
         }
       />
-      <Field label="Produk" value={order.productName} />
-      <Field label="Variasi" value={order.variation} />
-      <Field label="SKU" value={order.sku ? <span className="font-mono text-xs">{order.sku}</span> : null} />
-      <Field label="Qty" value={order.quantity} />
+      <div className="sm:col-span-2">
+        <ProductFields order={order} hideMoney={hideMoney} />
+      </div>
       {!hideMoney && (
         <>
-          <Field
-            label="Harga satuan"
-            value={order.price ? formatCurrency(order.price) : "—"}
-          />
+          {!multiProduct ? (
+            <Field
+              label="Harga satuan"
+              value={order.price ? formatCurrency(order.price) : "—"}
+            />
+          ) : null}
           <Field
             label="Total"
             value={

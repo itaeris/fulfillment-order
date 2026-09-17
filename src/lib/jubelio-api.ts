@@ -378,6 +378,13 @@ function mapRawOrder(raw: JubelioRawOrder, menu: "shipping" | "penjualan" = "shi
     productName: first?.item_name || first?.product_name || `Order ${orderNumber}`,
     variation: first?.variation,
     sku: first?.seller_sku || first?.sku,
+    items: items.map((item) => ({
+      productName: item.item_name || item.product_name || "Unknown Product",
+      variation: item.variation,
+      sku: item.seller_sku || item.sku,
+      quantity: item.qty || item.quantity || 1,
+      price: parseAmount(item.price ?? item.unit_price),
+    })),
     quantity,
     price,
     totalAmount,

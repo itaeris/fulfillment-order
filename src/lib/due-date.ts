@@ -1,4 +1,5 @@
 import { Order } from "@/types/order";
+import { groupOrdersByNumber } from "@/lib/order-group";
 import { orderNumberKeys, trackingKeys } from "@/lib/order-match";
 import {
   INDONESIA_TZ,
@@ -308,11 +309,20 @@ function criticalReason(args: {
   preorder: boolean;
   remainingLabel: string;
 }): { level: CriticalLevel; reason: string } {
+  const late = args.remainingLabel.replace(/^Terlambat\s+/, "");
   if (args.overdue) {
-    return { level: "overdue", reason: `Instant · Terlambat ${args.remainingLabel.replace(/^Terlambat\s+/, "")}` };
+    return {
+      level: "overdue",
+      reason: args.instant ? `Instant · Terlambat ${late}` : `Terlambat ${late}`,
+    };
   }
   if (args.dueSoon) {
-    return { level: "due_soon", reason: `Instant · Jatuh tempo ≤ 1 jam (${args.remainingLabel})` };
+    return {
+      level: "due_soon",
+      reason: args.instant
+        ? `Instant · Jatuh tempo ≤ 1 jam (${args.remainingLabel})`
+        : `Jatuh tempo ≤ 1 jam (${args.remainingLabel})`,
+    };
   }
   if (args.instant) {
     return { level: "instant", reason: "Instant / same-day" };
@@ -558,6 +568,7 @@ function matchOrders(jubelioOrders: Order[], platformOrders: Order[]) {
 
 /** Pesanan channel yang belum ketemu pasangannya di data Jubelio lokal. */
 export function unmatchedMarketplaceOrders(orders: Order[]): Order[] {
+  orders = groupOrdersByNumber(orders);
   const matchableJubelio = orders.filter(isMatchableJubelio);
   const platformOrders = orders.filter(
     (o) =>
@@ -639,12 +650,18 @@ function buildRow(args: {
 
 function bucketLabel(row: DueDateRow, now: Date): { key: string; label: string; sortAt: number } {
   if (row.overdue) {
-    return { key: "overdue", label: "Instant · Terlambat — kirim sekarang", sortAt: 0 };
+    return {
+      key: row.instant ? "overdue-instant" : "overdue",
+      label: row.instant ? "Instant · Terlambat — kirim sekarang" : "Terlambat — kirim sekarang",
+      sortAt: 0,
+    };
   }
   if (row.dueSoon) {
     return {
-      key: "within-1h",
-      label: `Instant · Jatuh tempo ≤ 1 jam — ${formatDueLabel(row.effectiveDue)}`,
+      key: row.instant ? "within-1h-instant" : "within-1h",
+      label: row.instant
+        ? `Instant · Jatuh tempo ≤ 1 jam — ${formatDueLabel(row.effectiveDue)}`
+        : `Jatuh tempo ≤ 1 jam — ${formatDueLabel(row.effectiveDue)}`,
       sortAt: 1,
     };
   }
@@ -666,6 +683,7 @@ function bucketLabel(row: DueDateRow, now: Date): { key: string; label: string; 
 }
 
 export function buildDueDateOverview(orders: Order[], now = new Date()): DueDateOverview {
+  orders = groupOrdersByNumber(orders);
   const today = warehouseTodayKey(now);
   const open = orders.filter(isOpen);
   const openJubelio = open.filter((o) => o.platform === "jubelio");

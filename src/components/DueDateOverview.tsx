@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn, formatNumber } from "@/lib/utils";
+import { ORDER_TODAY_CUTOFF_HINT, ORDER_TODAY_CUTOFF_SUBTITLE } from "@/lib/timezone";
 import {
   buildDueDateOverview,
   formatAnalyzedAt,
@@ -106,7 +107,7 @@ function StatCard({
 }: {
   label: string;
   value: string | number;
-  hint?: string;
+  hint?: ReactNode;
   valueClass?: string;
   shipping?: ShippingBreakdown;
   onClick?: () => void;
@@ -121,7 +122,13 @@ function StatCard({
       <p className={cn("text-xl sm:text-2xl font-semibold tracking-tight mt-0.5", valueClass || "text-brand-800")}>
         {value}
       </p>
-      {hint ? <p className="text-[11px] text-brand-400 mt-0.5">{hint}</p> : null}
+      {hint ? (
+        typeof hint === "string" ? (
+          <p className="text-[11px] text-brand-400 mt-0.5 leading-snug">{hint}</p>
+        ) : (
+          <div className="text-[10px] sm:text-[11px] text-brand-400 mt-0.5 leading-snug space-y-0.5">{hint}</div>
+        )
+      ) : null}
       {shipping ? <ShippingLines shipping={shipping} /> : null}
     </>
   );
@@ -498,7 +505,7 @@ export default function DueDateOverviewView({
     const req = ++listReq.current;
     setListPreview({
       title: "Order hari ini",
-      subtitle: "Masuk cutoff proses gudang (bukan tenggat kirim)",
+      subtitle: ORDER_TODAY_CUTOFF_SUBTITLE,
       items: [],
       loading: true,
     });
@@ -730,7 +737,9 @@ export default function DueDateOverviewView({
             <StatCard
               label="Order hari ini"
               value={formatNumber(placedToday?.total ?? 0)}
-              hint="Shopee 15.01 · TikTok/Tokped reguler 15.01 · instant 17.01"
+              hint={ORDER_TODAY_CUTOFF_HINT.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
               onClick={() => void openPlacedTodayList()}
             />
             <StatCard

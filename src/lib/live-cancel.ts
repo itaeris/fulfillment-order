@@ -5,8 +5,12 @@ import type { Order } from "@/types/order";
 export type CancelAlert = {
   id: string;
   orderNumber: string;
+  platform?: string;
   source: "scan" | "live" | "queue";
+  reason?: string;
+  reasonCode?: string;
   at: Date;
+  dismissed?: boolean;
 };
 
 export function cancelAlertMatchKey(orderNumber: string) {
@@ -30,11 +34,18 @@ export function dropCancelledOrders(orders: Order[]): Order[] {
   return orders.filter((order) => !isCancelledStatus(order.status));
 }
 
-export function makeCancelAlert(orderNumber: string, source: CancelAlert["source"]): CancelAlert {
+export function makeCancelAlert(
+  orderNumber: string,
+  source: CancelAlert["source"],
+  extra?: { platform?: string; reason?: string; reasonCode?: string }
+): CancelAlert {
   return {
     id: `${source}-${cancelAlertMatchKey(orderNumber)}-${Date.now()}`,
     orderNumber,
+    platform: extra?.platform,
     source,
+    reason: extra?.reason,
+    reasonCode: extra?.reasonCode,
     at: new Date(),
   };
 }

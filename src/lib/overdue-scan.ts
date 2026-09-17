@@ -104,9 +104,22 @@ export function rowIsCancelled(row: DueDateRow) {
   return isCancelledStatus(row.marketplaceOrder?.status) || isCancelledStatus(row.jubelioOrder?.status);
 }
 
+export function isMarketplaceScanPlatform(platform?: string | null) {
+  const value = String(platform || "").toLowerCase();
+  return value === "shopee" || value === "tiktok" || value === "tokopedia";
+}
+
+export function preferMarketplaceOrder(orders: Array<Order | undefined | null>): Order | undefined {
+  const list = orders.filter((order): order is Order => Boolean(order));
+  return list.find((order) => isMarketplaceScanPlatform(order.platform)) || list[0];
+}
+
 export function buildOrderScanIndex(orders: Order[]): Map<string, Order> {
+  const ranked = [...orders].sort((a, b) => {
+    return Number(a.platform === "jubelio") - Number(b.platform === "jubelio");
+  });
   const index = new Map<string, Order>();
-  for (const order of orders) {
+  for (const order of ranked) {
     for (const key of identityKeys(order)) {
       if (!index.has(key)) index.set(key, order);
     }
@@ -134,6 +147,38 @@ export function overdueScanMatchFromOrder(order: Order): OverdueScanMatch {
     trackingNumber: order.trackingNumber,
     rowKey: order.id,
   };
+}
+
+export function uniqueAheadScans(scans: OverdueScan[]): OverdueScan[] {
+  const ahead = aheadScansOf(scans).filter((scan) => isMarketplaceScanPlatform(scan.platform));
+  const out: OverdueScan[] = [];
+  const seen = new Set<string>();
+  for (const scan of ahead) {
+    const keys = expandMatchKeys(scan.orderNumber || scan.scannedCode);
+    if (keys.some((key) => seen.has(key))) continue;
+    for (const key of keys) seen.add(key);
+    out.push(scan);
+  }
+  return out;
+}
+
+export function isAlreadyScanned(
+  scans: OverdueScan[],
+  match: { orderId?: string; orderNumber?: string; trackingNumber?: string }
+): boolean {
+  const keys = new Set(
+    [match.orderId, ...expandMatchKeys(match.orderNumber), ...expandMatchKeys(match.trackingNumber)].filter(Boolean)
+  );
+  if (keys.size === 0) return false;
+  return scans.some((scan) => {
+    const result = scanResultOf(scan);
+    if (result === "not_in_queue") return false;
+    if (scan.orderId && keys.has(scan.orderId)) return true;
+    return (
+      expandMatchKeys(scan.orderNumber).some((key) => keys.has(key)) ||
+      expandMatchKeys(scan.scannedCode).some((key) => keys.has(key))
+    );
+  });
 }
 
 export function scanResultOf(scan: OverdueScan): Exclude<OverdueScanStatus, "duplicate"> {
@@ -188,10 +233,12 @@ export function ordersForScan(scan: OverdueScan, orders: Order[]): Order[] {
     ...expandMatchKeys(scan.scannedCode),
     ...expandMatchKeys(scan.orderId),
   ]);
-  return orders.filter((order) => {
+  const hits = orders.filter((order) => {
     if (scan.orderId && order.id === scan.orderId) return true;
     return identityKeys(order).some((key) => keys.has(key));
   });
+  const market = hits.filter((order) => isMarketplaceScanPlatform(order.platform));
+  return market.length > 0 ? market : hits;
 }
 
 export function rowIsValidated(row: DueDateRow, validatedIds: Set<string>): boolean {

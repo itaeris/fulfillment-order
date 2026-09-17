@@ -32,6 +32,7 @@ import {
   type JubelioMenu,
 } from "@/lib/due-date";
 import { orderNumberKeys, trackingKeys } from "@/lib/order-match";
+import { groupOrdersByNumber } from "@/lib/order-group";
 
 interface ComparisonViewProps {
   orders: Order[];
@@ -148,8 +149,9 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
   };
 
   const { rows, summary } = useMemo(() => {
-    const jubelioOrders = orders.filter((o) => o.platform === "jubelio");
-    const platformOrders = orders.filter(
+    const grouped = groupOrdersByNumber(orders);
+    const jubelioOrders = grouped.filter((o) => o.platform === "jubelio");
+    const platformOrders = grouped.filter(
       (o) => o.platform === "shopee" || o.platform === "tiktok" || o.platform === "tokopedia"
     );
 

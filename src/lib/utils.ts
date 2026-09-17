@@ -1,4 +1,5 @@
 import { Order, OrderSummary, DailyStats, Platform } from "@/types/order";
+import { groupOrdersByNumber } from "@/lib/order-group";
 import { format, parseISO, startOfDay } from "date-fns";
 import { id } from "date-fns/locale";
 
@@ -125,6 +126,7 @@ export function formatDateTime(date: Date | string): string {
 }
 
 export function calculateSummary(orders: Order[]): OrderSummary {
+  orders = groupOrdersByNumber(orders);
   const summary: OrderSummary = {
     totalOrders: 0,
     totalRevenue: 0,
@@ -159,6 +161,7 @@ export function calculateSummary(orders: Order[]): OrderSummary {
 }
 
 export function calculateDailyStats(orders: Order[]): DailyStats[] {
+  orders = groupOrdersByNumber(orders);
   const statsMap = new Map<string, DailyStats>();
 
   for (const order of orders) {
@@ -229,6 +232,8 @@ export function getStatusColor(status: string): string {
     delivered: "bg-green-100 text-green-800",
     cancelled: "bg-red-100 text-red-800",
     returned: "bg-stone-100 text-stone-800",
+    "Sudah discan": "bg-sky-100 text-sky-800",
+    "Belum discan": "bg-amber-100 text-amber-800",
   };
   return colors[status] || "bg-stone-100 text-stone-800";
 }

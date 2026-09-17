@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 import { addCalendarDays, INDONESIA_OFFSET, indonesiaDateKey, indonesiaOrderCutoffKey, inProcessCutoffWindow, processCutoffQuerySpan } from "./timezone";
-import { lookupMatchKeys } from "./order-match";
+import { lookupMatchKeys, expandMatchKeys } from "./order-match";
 import { classifyShipping, isAheadPackOrder } from "./due-date";
 import type { Order } from "@/types/order";
 
@@ -252,6 +252,7 @@ async function collectMarketplacePlacedToday(now = new Date()): Promise<{
     if (seen.has(seenKey)) return;
     seen.add(seenKey);
     const status = String(row.status || "").toLowerCase();
+    if (status === "pending") return;
     if (status === "cancelled" || status === "returned") {
       cancelled += 1;
       return;
@@ -971,6 +972,7 @@ function rowToOverdueScan(r: any): OverdueScanRow {
 }
 
 export async function getOverdueScans(scanDate: string): Promise<OverdueScanRow[]> {
+  await purgeDuplicateAheadScans(scanDate);
   const { data, error } = await supabase
     .from("overdue_scans")
     .select("*")
@@ -978,6 +980,32 @@ export async function getOverdueScans(scanDate: string): Promise<OverdueScanRow[
     .order("scanned_at", { ascending: false });
   if (error) throw error;
   return (data ?? []).map(rowToOverdueScan);
+}
+
+export async function purgeDuplicateAheadScans(scanDate: string) {
+  const { data, error } = await supabase
+    .from("overdue_scans")
+    .select("id, order_number, scanned_code, platform, result")
+    .eq("scan_date", scanDate)
+    .eq("result", "ahead");
+  if (error) throw error;
+  const rows = data ?? [];
+  const idsToDelete: string[] = [];
+  const seen = new Set<string>();
+  const ranked = [
+    ...rows.filter((row) => row.platform !== "jubelio"),
+    ...rows.filter((row) => row.platform === "jubelio"),
+  ];
+  for (const row of ranked) {
+    const keys = expandMatchKeys(String(row.order_number || row.scanned_code || ""));
+    const isJubelio = String(row.platform || "") === "jubelio";
+    const duplicate = isJubelio || keys.some((key) => seen.has(key));
+    if (duplicate) idsToDelete.push(String(row.id));
+    else for (const key of keys) seen.add(key);
+  }
+  if (idsToDelete.length === 0) return;
+  const { error: delError } = await supabase.from("overdue_scans").delete().in("id", idsToDelete);
+  if (delError) throw delError;
 }
 
 export async function findMatchedOverdueScan(
@@ -1073,4 +1101,84 @@ export async function markOverdueScansCancelled(input: {
       .in("order_number", numbers);
     if (error && !String(error.message || "").includes("result")) throw error;
   }
+}
+
+export type CancelAlertRow = {
+  id: string;
+  orderNumber: string;
+  platform?: string;
+  source: string;
+  reason?: string;
+  reasonCode?: string;
+  matchKey: string;
+  scanDate: string;
+  cancelledAt: Date;
+  dismissed: boolean;
+};
+
+function rowToCancelAlert(r: any): CancelAlertRow {
+  return {
+    id: String(r.id || ""),
+    orderNumber: String(r.order_number || ""),
+    platform: r.platform ? String(r.platform) : undefined,
+    source: String(r.source || "live"),
+    reason: r.reason ? String(r.reason) : undefined,
+    reasonCode: r.reason_code ? String(r.reason_code) : undefined,
+    matchKey: String(r.match_key || ""),
+    scanDate: String(r.scan_date || "").slice(0, 10),
+    cancelledAt: r.cancelled_at ? new Date(r.cancelled_at) : new Date(),
+    dismissed: Boolean(r.dismissed_at),
+  };
+}
+
+export async function getCancelAlerts(scanDate: string): Promise<CancelAlertRow[]> {
+  const { data, error } = await supabase
+    .from("cancel_alerts")
+    .select("*")
+    .eq("scan_date", scanDate)
+    .order("cancelled_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(rowToCancelAlert);
+}
+
+export async function upsertCancelAlert(input: {
+  id?: string;
+  orderNumber: string;
+  platform?: string;
+  source: string;
+  reason?: string;
+  reasonCode?: string;
+  matchKey: string;
+  scanDate: string;
+}): Promise<CancelAlertRow> {
+  const payload = {
+    id: input.id || `${input.scanDate}:${input.matchKey}`,
+    order_number: input.orderNumber,
+    platform: input.platform || null,
+    source: input.source,
+    reason: input.reason || null,
+    reason_code: input.reasonCode || null,
+    match_key: input.matchKey,
+    scan_date: input.scanDate,
+    cancelled_at: new Date().toISOString(),
+    dismissed_at: null,
+  };
+  const { data, error } = await supabase
+    .from("cancel_alerts")
+    .upsert(payload, { onConflict: "scan_date,match_key" })
+    .select()
+    .single();
+  if (error) throw error;
+  return rowToCancelAlert(data);
+}
+
+export async function dismissCancelAlert(id: string): Promise<CancelAlertRow | null> {
+  const { data, error } = await supabase
+    .from("cancel_alerts")
+    .update({ dismissed_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .maybeSingle();
+  if (error) throw error;
+  return data ? rowToCancelAlert(data) : null;
 }

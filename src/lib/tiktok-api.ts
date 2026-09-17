@@ -191,6 +191,8 @@ interface TikTokOrder {
   is_cod?: boolean;
   is_sample_order?: boolean;
   order_type?: string;
+  cancel_reason?: string;
+  cancellation_initiator?: string;
 }
 
 interface OrderSearchResponse {
@@ -779,6 +781,22 @@ export async function fetchTikTokOrdersByNumbers(
 
   const details = await getOrdersByIds(config, ids).catch(() => [] as TikTokOrder[]);
   return details.flatMap(mapTikTokOrderToOrders);
+}
+
+export async function fetchTikTokCancelNotes(
+  config: TikTokConfig,
+  numbers: string[]
+): Promise<Map<string, { reason?: string; reasonCode?: string; initiator?: string }>> {
+  const ids = Array.from(new Set(numbers.map((value) => String(value || "").trim()).filter(Boolean)));
+  const details = ids.length > 0 ? await getOrdersByIds(config, ids).catch(() => [] as TikTokOrder[]) : [];
+  const notes = new Map<string, { reason?: string; reasonCode?: string; initiator?: string }>();
+  for (const order of details) {
+    const reason = String(order.cancel_reason || "").trim();
+    const initiator = String(order.cancellation_initiator || "").trim();
+    if (!reason && !initiator) continue;
+    notes.set(order.id, { reason, reasonCode: reason, initiator });
+  }
+  return notes;
 }
 
 /**

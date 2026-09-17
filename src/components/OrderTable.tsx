@@ -31,6 +31,7 @@ import { TableSkeleton } from "@/components/Skeleton";
 import ApiSyncBar, { type ApiSyncState } from "@/components/ApiSyncBar";
 import { OrderDetailPreview } from "@/components/OrderDetailPreview";
 import { hydrateOrders } from "@/lib/client-data";
+import { groupOrdersByNumber, orderItems } from "@/lib/order-group";
 
 interface OrderTableProps {
   orders: Order[];
@@ -86,6 +87,32 @@ function looksLikeOrderNumber(value: string) {
   return compact.length >= 8 && /^[A-Za-z0-9]+$/.test(compact);
 }
 
+function OrderProductPreview({ order }: { order: Order }) {
+  const items = orderItems(order);
+  const first = items[0];
+  return (
+    <>
+      <p className="text-xs sm:text-sm text-brand-700 whitespace-normal break-words">
+        {first?.productName || order.productName}
+      </p>
+      {first?.variation ? (
+        <p className="text-[10px] sm:text-xs text-brand-300 whitespace-normal break-words">
+          {first.variation}
+        </p>
+      ) : null}
+      {items.length > 1 ? (
+        <p className="text-[10px] sm:text-xs text-brand-500 mt-0.5">
+          +{items.length - 1} produk lain
+        </p>
+      ) : first?.sku || order.sku ? (
+        <p className="text-[10px] sm:text-xs text-brand-500 font-mono break-all">
+          SKU: {first?.sku || order.sku}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 function matchesSearch(order: Order, rawQuery: string) {
   const q = rawQuery.replace(/[\s\-_.#]+/g, "").toLowerCase();
   if (!q) return true;
@@ -93,8 +120,10 @@ function matchesSearch(order: Order, rawQuery: string) {
     order.orderNumber,
     order.customerName,
     order.productName,
-    order.recipientName,
+    order.variation,
     order.sku,
+    ...(order.items || []).flatMap((item) => [item.productName, item.variation, item.sku]),
+    order.recipientName,
     order.trackingNumber,
     order.refNo,
   ]
@@ -146,14 +175,16 @@ export default function OrderTable({
   const lookupReq = useRef(0);
 
   const catalog = useMemo(() => {
-    if (lookedUp.length === 0) return orders;
     const lookedKeys = new Set(
       lookedUp.map((order) => `${order.platform}:${String(order.orderNumber || "").toUpperCase()}`)
     );
-    const kept = orders.filter(
-      (order) => !lookedKeys.has(`${order.platform}:${String(order.orderNumber || "").toUpperCase()}`)
-    );
-    return [...kept, ...lookedUp];
+    const kept =
+      lookedUp.length === 0
+        ? orders
+        : orders.filter(
+            (order) => !lookedKeys.has(`${order.platform}:${String(order.orderNumber || "").toUpperCase()}`)
+          );
+    return groupOrdersByNumber(lookedUp.length === 0 ? orders : [...kept, ...lookedUp]);
   }, [orders, lookedUp]);
 
   useEffect(() => {
@@ -249,23 +280,23 @@ export default function OrderTable({
   }, [catalog, selectedPlatform, selectedStatusTab, ttsChannelFilter]);
 
   const platformCounts: Record<string, number> = useMemo(() => {
-    const paid = orders.filter((o) => !isUnpaid(o));
+    const paid = catalog.filter((o) => !isUnpaid(o));
     return {
       all: paid.filter((o) => isMarketplacePlatform(o.platform)).length,
       shopee: paid.filter(o => o.platform === "shopee").length,
       tiktok: paid.filter(o => o.platform === "tiktok" || o.platform === "tokopedia").length,
       jubelio: paid.filter(o => o.platform === "jubelio").length,
     };
-  }, [orders]);
+  }, [catalog]);
 
   const ttsChannelCounts = useMemo(() => {
-    const ttsOrders = orders.filter((o) => (o.platform === "tiktok" || o.platform === "tokopedia") && !isUnpaid(o));
+    const ttsOrders = catalog.filter((o) => (o.platform === "tiktok" || o.platform === "tokopedia") && !isUnpaid(o));
     return {
       all: ttsOrders.length,
       tts: ttsOrders.filter((o) => ttsChannelOf(o) === "tts").length,
       tokopedia: ttsOrders.filter((o) => ttsChannelOf(o) === "tokopedia").length,
     };
-  }, [orders]);
+  }, [catalog]);
 
   const filteredAndSortedOrders = useMemo(() => {
     let filtered = catalog;
@@ -780,10 +811,7 @@ export default function OrderTable({
                     </div>
                   ) : (
                     <>
-                  <p className="text-sm text-brand-700 leading-snug">{order.productName}</p>
-                  {order.variation ? (
-                    <p className="text-xs text-brand-400">{order.variation}</p>
-                  ) : null}
+                  <OrderProductPreview order={order} />
                   <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-brand-500">
                     <span>Qty {order.quantity}</span>
                     {!hideMoney && (
@@ -970,19 +998,7 @@ export default function OrderTable({
                     {!unpaidView && (
                       <>
                     <td className="px-3 sm:px-4 py-2.5 sm:py-3">
-                      <p className="text-xs sm:text-sm text-brand-700 whitespace-normal break-words">
-                        {order.productName}
-                      </p>
-                      {order.variation && (
-                        <p className="text-[10px] sm:text-xs text-brand-300 whitespace-normal break-words">
-                          {order.variation}
-                        </p>
-                      )}
-                      {order.sku && (
-                        <p className="text-[10px] sm:text-xs text-brand-500 font-mono break-all">
-                          SKU: {order.sku}
-                        </p>
-                      )}
+                      <OrderProductPreview order={order} />
                     </td>
                     <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-center">
                       <span className="text-xs sm:text-sm font-medium text-brand-700">
