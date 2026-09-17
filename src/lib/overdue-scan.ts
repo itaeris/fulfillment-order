@@ -149,35 +149,113 @@ export function overdueScanMatchFromOrder(order: Order): OverdueScanMatch {
   };
 }
 
-export function uniqueAheadScans(scans: OverdueScan[]): OverdueScan[] {
-  const ahead = aheadScansOf(scans).filter((scan) => isMarketplaceScanPlatform(scan.platform));
+export function resolveMarketplaceScanOrder(
+  code: string,
+  orders: Order[],
+  scan?: Pick<OverdueScan, "orderId" | "orderNumber" | "scannedCode">
+): Order | undefined {
+  const index = buildOrderScanIndex(orders);
+  const hits: Order[] = [];
+  const push = (order?: Order) => {
+    if (order && !hits.some((item) => item.id === order.id)) hits.push(order);
+  };
+  push(matchOrderFromIndex(code, index));
+  if (scan?.orderNumber) push(matchOrderFromIndex(scan.orderNumber, index));
+  if (scan?.scannedCode && scan.scannedCode !== code) push(matchOrderFromIndex(scan.scannedCode, index));
+  if (scan?.orderId) push(orders.find((order) => order.id === scan.orderId));
+
+  const direct = preferMarketplaceOrder(hits);
+  if (direct && isMarketplaceScanPlatform(direct.platform)) return direct;
+
+  const keys = new Set<string>();
+  for (const order of hits) {
+    for (const key of identityKeys(order)) keys.add(key);
+  }
+  for (const key of expandMatchKeys(code)) keys.add(key);
+  if (scan) {
+    for (const key of expandMatchKeys(scan.orderNumber)) keys.add(key);
+    for (const key of expandMatchKeys(scan.scannedCode)) keys.add(key);
+  }
+  if (keys.size === 0) return undefined;
+  return preferMarketplaceOrder(
+    orders.filter(
+      (order) => isMarketplaceScanPlatform(order.platform) && identityKeys(order).some((key) => keys.has(key))
+    )
+  );
+}
+
+function scanIdentityKeys(scan: OverdueScan, orders: Order[] = []): string[] {
+  const order = resolveMarketplaceScanOrder(scan.orderNumber || scan.scannedCode, orders, scan);
+  if (order) return identityKeys(order);
+  return [
+    ...expandMatchKeys(scan.orderNumber),
+    ...expandMatchKeys(scan.scannedCode),
+    scan.orderId,
+  ].filter((key): key is string => Boolean(key));
+}
+
+function scanKeepsMarketplaceNumber(scan: OverdueScan, order?: Order) {
+  if (!order) return isMarketplaceScanPlatform(scan.platform);
+  return normalizeMatchKey(scan.orderNumber) === normalizeMatchKey(order.orderNumber);
+}
+
+/** Satu baris packing cicil per order marketplace. Scan resi/Jubelio digabung ke nomor Shopee/TikTok. */
+export function uniqueAheadScans(scans: OverdueScan[], orders: Order[] = []): OverdueScan[] {
+  const ahead = aheadScansOf(scans);
+  const scored = ahead.map((scan) => {
+    const order = resolveMarketplaceScanOrder(scan.orderNumber || scan.scannedCode, orders, scan);
+    return { scan, order };
+  });
+  scored.sort((a, b) => {
+    const rank = (item: (typeof scored)[number]) => {
+      if (scanKeepsMarketplaceNumber(item.scan, item.order)) return 3;
+      if (item.order && isMarketplaceScanPlatform(item.scan.platform)) return 2;
+      if (item.order || isMarketplaceScanPlatform(item.scan.platform)) return 1;
+      return 0;
+    };
+    return rank(b) - rank(a);
+  });
+
   const out: OverdueScan[] = [];
   const seen = new Set<string>();
-  for (const scan of ahead) {
-    const keys = expandMatchKeys(scan.orderNumber || scan.scannedCode);
-    if (keys.some((key) => seen.has(key))) continue;
+  for (const { scan, order } of scored) {
+    if (order && !isMarketplaceScanPlatform(order.platform)) continue;
+    if (!order && !isMarketplaceScanPlatform(scan.platform)) continue;
+    const keys = order ? identityKeys(order) : scanIdentityKeys(scan);
+    if (keys.length === 0 || keys.some((key) => seen.has(key))) continue;
     for (const key of keys) seen.add(key);
-    out.push(scan);
+    out.push(
+      order
+        ? { ...scan, orderId: order.id, orderNumber: order.orderNumber, platform: order.platform }
+        : scan
+    );
   }
   return out;
 }
 
 export function isAlreadyScanned(
   scans: OverdueScan[],
-  match: { orderId?: string; orderNumber?: string; trackingNumber?: string }
+  match: { orderId?: string; orderNumber?: string; trackingNumber?: string },
+  orders: Order[] = []
 ): boolean {
   const keys = new Set(
     [match.orderId, ...expandMatchKeys(match.orderNumber), ...expandMatchKeys(match.trackingNumber)].filter(Boolean)
   );
+  if (orders.length > 0) {
+    const related = orders.filter(
+      (order) =>
+        (match.orderId && order.id === match.orderId) ||
+        identityKeys(order).some((key) => keys.has(key))
+    );
+    for (const order of related) {
+      for (const key of identityKeys(order)) keys.add(key);
+    }
+  }
   if (keys.size === 0) return false;
   return scans.some((scan) => {
     const result = scanResultOf(scan);
     if (result === "not_in_queue") return false;
-    if (scan.orderId && keys.has(scan.orderId)) return true;
-    return (
-      expandMatchKeys(scan.orderNumber).some((key) => keys.has(key)) ||
-      expandMatchKeys(scan.scannedCode).some((key) => keys.has(key))
-    );
+    return scanIdentityKeys(scan, orders).some((key) => keys.has(key));
   });
 }
 

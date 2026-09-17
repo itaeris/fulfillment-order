@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { addCalendarDays, INDONESIA_OFFSET, indonesiaDateKey, indonesiaOrderCutoffKey, inProcessCutoffWindow, processCutoffQuerySpan } from "./timezone";
-import { lookupMatchKeys, expandMatchKeys } from "./order-match";
+import { lookupMatchKeys } from "./order-match";
+import { hydrateOverdueScan, uniqueAheadScans } from "./overdue-scan";
 import { classifyShipping, isAheadPackOrder } from "./due-date";
 import type { Order } from "@/types/order";
 
@@ -985,24 +986,29 @@ export async function getOverdueScans(scanDate: string): Promise<OverdueScanRow[
 export async function purgeDuplicateAheadScans(scanDate: string) {
   const { data, error } = await supabase
     .from("overdue_scans")
-    .select("id, order_number, scanned_code, platform, result")
+    .select("*")
     .eq("scan_date", scanDate)
     .eq("result", "ahead");
   if (error) throw error;
-  const rows = data ?? [];
-  const idsToDelete: string[] = [];
-  const seen = new Set<string>();
-  const ranked = [
-    ...rows.filter((row) => row.platform !== "jubelio"),
-    ...rows.filter((row) => row.platform === "jubelio"),
-  ];
-  for (const row of ranked) {
-    const keys = expandMatchKeys(String(row.order_number || row.scanned_code || ""));
-    const isJubelio = String(row.platform || "") === "jubelio";
-    const duplicate = isJubelio || keys.some((key) => seen.has(key));
-    if (duplicate) idsToDelete.push(String(row.id));
-    else for (const key of keys) seen.add(key);
+  const scans = (data ?? []).map(hydrateOverdueScan);
+  if (scans.length === 0) return;
+
+  const codes = Array.from(
+    new Set(scans.flatMap((scan) => [scan.orderNumber, scan.scannedCode]).filter(Boolean) as string[])
+  ).slice(0, 40);
+  const orders: Order[] = [];
+  const seenOrder = new Set<string>();
+  for (const code of codes) {
+    const found = await searchOrdersByNumber(code);
+    for (const order of found) {
+      if (seenOrder.has(order.id)) continue;
+      seenOrder.add(order.id);
+      orders.push(order);
+    }
   }
+
+  const keep = new Set(uniqueAheadScans(scans, orders).map((scan) => scan.id));
+  const idsToDelete = scans.filter((scan) => !keep.has(scan.id)).map((scan) => scan.id);
   if (idsToDelete.length === 0) return;
   const { error: delError } = await supabase.from("overdue_scans").delete().in("id", idsToDelete);
   if (delError) throw delError;
