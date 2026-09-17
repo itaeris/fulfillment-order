@@ -493,7 +493,7 @@ async function searchReadyToShipOrders(config: TikTokConfig): Promise<TikTokOrde
   return allTikTokOrders;
 }
 
-export type TikTokSyncPhase = "rts" | "completed";
+export type TikTokSyncPhase = "rts" | "unpaid" | "completed";
 
 export interface TikTokSyncCursor {
   phase?: TikTokSyncPhase;
@@ -501,6 +501,7 @@ export interface TikTokSyncCursor {
   collectionToken: string | null;
   completedToken?: string | null;
   deliveredToken?: string | null;
+  unpaidToken?: string | null;
   pagesFetched: number;
 }
 
@@ -510,6 +511,23 @@ const COMPLETED_LOOKBACK_DAYS = 30;
 function completedSinceUnix() {
   const fromKey = addCalendarDays(indonesiaDateKey(), -COMPLETED_LOOKBACK_DAYS);
   return indonesiaDayStartUnix(fromKey);
+}
+
+const UNPAID_LOOKBACK_DAYS = 15;
+
+function unpaidSinceUnix() {
+  const fromKey = addCalendarDays(indonesiaDateKey(), -UNPAID_LOOKBACK_DAYS);
+  return indonesiaDayStartUnix(fromKey);
+}
+
+export function emptyUnpaidCursor(): TikTokSyncCursor {
+  return {
+    phase: "unpaid",
+    shipmentToken: null,
+    collectionToken: null,
+    unpaidToken: null,
+    pagesFetched: 0,
+  };
 }
 
 export function emptyCompletedCursor(): TikTokSyncCursor {
@@ -668,6 +686,70 @@ export async function fetchTikTokCompletedBatch(
     pagesFetched: cursor.pagesFetched + 1,
   };
   const done = !completedToken && !deliveredToken;
+  return {
+    listed: dedupeTikTokOrders(listed),
+    cursor: next,
+    nextCursor: done ? null : next,
+    done,
+  };
+}
+
+async function searchUnpaidPage(config: TikTokConfig, pageToken: string) {
+  try {
+    return await searchOrdersPage(
+      config,
+      "UNPAID",
+      pageToken,
+      pageToken ? undefined : { create_time_ge: unpaidSinceUnix() }
+    );
+  } catch {
+    return { orders: [] as TikTokOrder[], nextPageToken: "" };
+  }
+}
+
+export async function fetchTikTokUnpaidBatch(
+  config: TikTokConfig,
+  cursor?: TikTokSyncCursor
+): Promise<{
+  listed: TikTokOrder[];
+  cursor: TikTokSyncCursor;
+  nextCursor: TikTokSyncCursor | null;
+  done: boolean;
+}> {
+  if (!cursor || cursor.pagesFetched === 0) {
+    const page = await searchUnpaidPage(config, "");
+    const next: TikTokSyncCursor = {
+      phase: "unpaid",
+      shipmentToken: null,
+      collectionToken: null,
+      unpaidToken: page.nextPageToken || null,
+      pagesFetched: 1,
+    };
+    const done = !next.unpaidToken;
+    return {
+      listed: dedupeTikTokOrders(page.orders),
+      cursor: next,
+      nextCursor: done ? null : next,
+      done,
+    };
+  }
+
+  let unpaidToken = cursor.unpaidToken || null;
+  const listed: TikTokOrder[] = [];
+  if (unpaidToken) {
+    const page = await searchUnpaidPage(config, unpaidToken);
+    listed.push(...page.orders);
+    unpaidToken = page.nextPageToken || null;
+  }
+
+  const next: TikTokSyncCursor = {
+    phase: "unpaid",
+    shipmentToken: null,
+    collectionToken: null,
+    unpaidToken,
+    pagesFetched: cursor.pagesFetched + 1,
+  };
+  const done = !unpaidToken;
   return {
     listed: dedupeTikTokOrders(listed),
     cursor: next,

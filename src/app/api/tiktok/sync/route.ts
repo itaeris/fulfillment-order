@@ -3,14 +3,17 @@ import {
   getTikTokConfig,
   fetchTikTokReadyToShipBatch,
   fetchTikTokCompletedBatch,
+  fetchTikTokUnpaidBatch,
   mapTikTokListedOrders,
   emptyCompletedCursor,
+  emptyUnpaidCursor,
   type TikTokSyncCursor,
 } from "@/lib/tiktok-api";
 import {
   countOrdersByPlatforms,
   deleteUploadedFilesByPlatform,
   findExistingOrderNumbers,
+  findExistingOrderStatuses,
   insertOrders,
   insertUploadedFile,
 } from "@/lib/db";
@@ -23,6 +26,7 @@ export const maxDuration = 60;
 const TIKTOK_PLATFORMS = ["tiktok", "tokopedia"];
 const MAX_INCREMENTAL_PAGES = 4;
 const MAX_COMPLETED_PAGES = 8;
+const MAX_UNPAID_PAGES = 6;
 
 function publicTikTokError(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
@@ -69,7 +73,7 @@ export async function POST(request: Request) {
     };
     const persist = body.persist !== false;
     const todayOnly = body.scope === "today";
-    const phase = todayOnly || body.cursor?.phase !== "completed" ? "rts" : "completed";
+    const phase = todayOnly ? "rts" : body.cursor?.phase || "rts";
 
     if (!persist) {
       const config = await getTikTokConfig();
@@ -148,7 +152,42 @@ export async function POST(request: Request) {
         added,
         updated: 0,
         nextPage: 1,
-        cursor: emptyCompletedCursor(),
+        cursor: emptyUnpaidCursor(),
+        syncedAt: new Date().toISOString(),
+      });
+    }
+
+    if (phase === "unpaid") {
+      const batch = await fetchTikTokUnpaidBatch(config, body.cursor);
+      const numbers = batch.listed.map((order) => order.id);
+      const existingStatuses = await findExistingOrderStatuses(TIKTOK_PLATFORMS, numbers);
+      const toMap = batch.listed.filter((order) => {
+        const status = existingStatuses.get(order.id);
+        return !status || status !== "pending";
+      });
+      const orders = toMap.length > 0 ? await mapTikTokListedOrders(config, toMap) : [];
+      if (orders.length > 0) {
+        await insertOrders(orders.map(orderToInput));
+      }
+
+      const added = toMap.length;
+      const count = hasCache
+        ? dbCount + batch.listed.filter((order) => !existingStatuses.has(order.id)).length
+        : (Number(body.insertedSoFar) || 0) + orders.length;
+      const unpaidDone =
+        batch.done ||
+        batch.cursor.pagesFetched >= MAX_UNPAID_PAGES ||
+        (batch.listed.length === 0 && batch.cursor.pagesFetched >= 2);
+
+      return NextResponse.json({
+        success: true,
+        done: false,
+        cached: false,
+        count,
+        added,
+        updated: 0,
+        nextPage: 1,
+        cursor: unpaidDone ? emptyCompletedCursor() : batch.nextCursor,
         syncedAt: new Date().toISOString(),
       });
     }

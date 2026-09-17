@@ -3,6 +3,7 @@ import {
   emptyCancelledCursor,
   emptyCompletedCursor,
   emptyProcessedCursor,
+  emptyUnpaidCursor,
   fetchShopeeReadyToShipBatch,
   fetchShopeeStatusBatch,
   getShopeeConfig,
@@ -27,6 +28,7 @@ const SHOPEE_PLATFORMS = ["shopee"];
 const MAX_INCREMENTAL_PAGES = 4;
 const MAX_COMPLETED_PAGES = 6;
 const MAX_CANCELLED_PAGES = 12;
+const MAX_UNPAID_PAGES = 6;
 
 function publicShopeeError(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
@@ -78,6 +80,7 @@ export async function POST(request: Request) {
 
     const fetchBatch = async () => {
       if (phase === "processed") return fetchShopeeStatusBatch(config, "PROCESSED", body.cursor);
+      if (phase === "unpaid") return fetchShopeeStatusBatch(config, "UNPAID", body.cursor);
       if (phase === "completed") return fetchShopeeStatusBatch(config, "COMPLETED", body.cursor);
       if (phase === "cancelled") return fetchShopeeStatusBatch(config, "CANCELLED", body.cursor);
       return fetchShopeeReadyToShipBatch(config, body.cursor);
@@ -106,7 +109,7 @@ export async function POST(request: Request) {
     const hasCache = dbCount > 0;
     const batch = await fetchBatch();
     const existingStatuses =
-      phase === "cancelled"
+      phase === "cancelled" || phase === "unpaid"
         ? await findExistingOrderStatuses(SHOPEE_PLATFORMS, batch.listed)
         : null;
     const existing =
@@ -121,11 +124,16 @@ export async function POST(request: Request) {
             const status = existingStatuses?.get(sn);
             return !status || (status !== "cancelled" && status !== "returned");
           })
-        : hasCache && isFirstRts && allKnown
-          ? []
-          : hasCache
-            ? newListed
-            : batch.listed;
+        : phase === "unpaid"
+          ? batch.listed.filter((sn) => {
+              const status = existingStatuses?.get(sn);
+              return !status || status !== "pending";
+            })
+          : hasCache && isFirstRts && allKnown
+            ? []
+            : hasCache
+              ? newListed
+              : batch.listed;
     const orders = toMap.length > 0 ? await mapShopeeListedOrders(config, toMap) : [];
     if (orders.length > 0) {
       await insertOrders(orders.map(orderToInput));
@@ -166,7 +174,24 @@ export async function POST(request: Request) {
         count,
         added,
         nextPage: 1,
-        cursor: batch.done ? emptyCompletedCursor() : batch.nextCursor,
+        cursor: batch.done ? emptyUnpaidCursor() : batch.nextCursor,
+        syncedAt: new Date().toISOString(),
+      });
+    }
+
+    const unpaidDone =
+      batch.done ||
+      (body.cursor?.pagesFetched || 0) + 1 >= MAX_UNPAID_PAGES ||
+      (batch.listed.length === 0 && (body.cursor?.pagesFetched || 0) >= 2);
+
+    if (phase === "unpaid") {
+      return NextResponse.json({
+        success: true,
+        done: false,
+        count,
+        added,
+        nextPage: 1,
+        cursor: unpaidDone ? emptyCompletedCursor() : batch.nextCursor,
         syncedAt: new Date().toISOString(),
       });
     }
