@@ -119,6 +119,10 @@ function matchesPlatform(
   return order.platform === selectedPlatform;
 }
 
+function isUnpaid(order: Order) {
+  return order.status === "pending";
+}
+
 export default function OrderTable({
   orders,
   userRole,
@@ -194,13 +198,21 @@ export default function OrderTable({
       returned: 0,
     };
 
-    const filteredByPlatform = catalog.filter((o) =>
+    const inPlatform = catalog.filter((o) =>
       matchesPlatform(o, selectedPlatform, ttsChannelFilter)
     );
 
-    filteredByPlatform.forEach((order) => {
+    inPlatform.forEach((order) => {
+      if (isUnpaid(order)) {
+        counts.pending++;
+        return;
+      }
       counts.all++;
-      counts[order.status]++;
+      if (order.status === "processing") counts.processing++;
+      else if (order.status === "shipped") counts.shipped++;
+      else if (order.status === "delivered") counts.delivered++;
+      else if (order.status === "cancelled") counts.cancelled++;
+      else if (order.status === "returned") counts.returned++;
     });
 
     return counts;
@@ -237,16 +249,17 @@ export default function OrderTable({
   }, [catalog, selectedPlatform, selectedStatusTab, ttsChannelFilter]);
 
   const platformCounts: Record<string, number> = useMemo(() => {
+    const paid = orders.filter((o) => !isUnpaid(o));
     return {
-      all: orders.filter((o) => isMarketplacePlatform(o.platform)).length,
-      shopee: orders.filter(o => o.platform === "shopee").length,
-      tiktok: orders.filter(o => o.platform === "tiktok" || o.platform === "tokopedia").length,
-      jubelio: orders.filter(o => o.platform === "jubelio").length,
+      all: paid.filter((o) => isMarketplacePlatform(o.platform)).length,
+      shopee: paid.filter(o => o.platform === "shopee").length,
+      tiktok: paid.filter(o => o.platform === "tiktok" || o.platform === "tokopedia").length,
+      jubelio: paid.filter(o => o.platform === "jubelio").length,
     };
   }, [orders]);
 
   const ttsChannelCounts = useMemo(() => {
-    const ttsOrders = orders.filter((o) => o.platform === "tiktok" || o.platform === "tokopedia");
+    const ttsOrders = orders.filter((o) => (o.platform === "tiktok" || o.platform === "tokopedia") && !isUnpaid(o));
     return {
       all: ttsOrders.length,
       tts: ttsOrders.filter((o) => ttsChannelOf(o) === "tts").length,
@@ -265,14 +278,24 @@ export default function OrderTable({
         filtered = filtered.filter((order) =>
           matchesPlatform(order, selectedPlatform, ttsChannelFilter)
         );
+        if (selectedStatusTab === "pending") {
+          filtered = filtered.filter(isUnpaid);
+        } else {
+          filtered = filtered.filter((order) => !isUnpaid(order));
+        }
       }
     } else {
       filtered = filtered.filter((order) =>
         matchesPlatform(order, selectedPlatform, ttsChannelFilter)
       );
 
-      if (selectedStatusTab !== "all") {
-        filtered = filtered.filter((order) => order.status === selectedStatusTab);
+      if (selectedStatusTab === "pending") {
+        filtered = filtered.filter(isUnpaid);
+      } else {
+        filtered = filtered.filter((order) => !isUnpaid(order));
+        if (selectedStatusTab !== "all") {
+          filtered = filtered.filter((order) => order.status === selectedStatusTab);
+        }
       }
 
       if ((selectedStatusTab === "processing" || selectedStatusTab === "shipped") && shippingFilter !== "all") {
@@ -409,6 +432,11 @@ export default function OrderTable({
     { value: "tiktok", label: "TikTok & Tokopedia", color: "bg-brand-800" },
     { value: "jubelio", label: "Jubelio (cermin)", color: "bg-brand-500" },
   ];
+
+  const unpaidView = selectedStatusTab === "pending";
+  const unpaidTotal = unpaidView
+    ? filteredAndSortedOrders.reduce((sum, order) => sum + (Number(order.totalAmount) || 0), 0)
+    : 0;
 
   const showSyncSkeleton = (isLoading || isRefreshing) && orders.length === 0;
 
@@ -626,6 +654,11 @@ export default function OrderTable({
         <div>
           <p className="text-xs sm:text-sm text-brand-400">
             <span className="font-semibold text-brand-700">{filteredAndSortedOrders.length}</span> pesanan
+            {unpaidView && (
+              <span className="ml-2 font-semibold text-yellow-700">
+                · {formatCurrency(unpaidTotal)}
+              </span>
+            )}
             {selectedStatusTab === "processing" && statusCounts.processing > 0 && (
               <span className="text-orange-600 ml-2">
                 <AlertTriangle className="w-3.5 h-3.5 sm:w-4 sm:h-4 inline mr-1" />
@@ -731,6 +764,22 @@ export default function OrderTable({
                   <p className="text-sm font-semibold text-brand-800 font-mono break-all leading-snug">
                     {order.orderNumber}
                   </p>
+                  {unpaidView ? (
+                    <div className="flex items-center justify-between gap-2 text-sm">
+                      <span
+                        className={cn(
+                          "inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium",
+                          getStatusColor(order.status)
+                        )}
+                      >
+                        {getStatusLabel(order.status)}
+                      </span>
+                      <span className="font-semibold text-brand-800">
+                        {formatCurrency(order.totalAmount)}
+                      </span>
+                    </div>
+                  ) : (
+                    <>
                   <p className="text-sm text-brand-700 leading-snug">{order.productName}</p>
                   {order.variation ? (
                     <p className="text-xs text-brand-400">{order.variation}</p>
@@ -759,12 +808,14 @@ export default function OrderTable({
                       <span>Batas {formatDateTime(order.mustShipBefore)}</span>
                     </div>
                   ) : null}
+                    </>
+                  )}
                 </article>
               );
             })}
           </div>
           <div className="hidden md:block overflow-x-auto">
-          <table className="w-full min-w-[800px]">
+          <table className={cn("w-full", unpaidView ? "min-w-[520px]" : "min-w-[800px]")}>
             <thead className="bg-cream-100">
               <tr>
                 <th
@@ -791,66 +842,80 @@ export default function OrderTable({
                     Status <SortIcon field="status" />
                   </div>
                 </th>
-                <th
-                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
-                  onClick={() => handleSort("productName")}
-                >
-                  <div className="flex items-center gap-1">
-                    Produk <SortIcon field="productName" />
-                  </div>
-                </th>
-                <th
-                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-center text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
-                  onClick={() => handleSort("quantity")}
-                >
-                  <div className="flex items-center justify-center gap-1">
-                    Qty <SortIcon field="quantity" />
-                  </div>
-                </th>
-                {!hideMoney && (
+                {unpaidView && (
                   <th
                     className="px-3 sm:px-4 py-2.5 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
                     onClick={() => handleSort("totalAmount")}
                   >
                     <div className="flex items-center justify-end gap-1">
-                      Total <SortIcon field="totalAmount" />
+                      Harga <SortIcon field="totalAmount" />
                     </div>
                   </th>
                 )}
-                <th
-                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
-                  onClick={() => handleSort("customerName")}
-                >
-                  <div className="flex items-center gap-1">
-                    Penerima <SortIcon field="customerName" />
-                  </div>
-                </th>
-                <th
-                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
-                  onClick={() => handleSort("trackingNumber")}
-                >
-                  <div className="flex items-center gap-1">
-                    Kurir / Resi <SortIcon field="trackingNumber" />
-                  </div>
-                </th>
-                {(selectedStatusTab === "processing" || selectedStatusTab === "shipped") && (
-                  <th
-                    className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
-                    onClick={() => handleSort("pickupTime")}
-                  >
-                    <div className="flex items-center gap-1">
-                      Waktu Pickup <SortIcon field="pickupTime" />
-                    </div>
-                  </th>
+                {!unpaidView && (
+                  <>
+                    <th
+                      className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
+                      onClick={() => handleSort("productName")}
+                    >
+                      <div className="flex items-center gap-1">
+                        Produk <SortIcon field="productName" />
+                      </div>
+                    </th>
+                    <th
+                      className="px-3 sm:px-4 py-2.5 sm:py-3 text-center text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
+                      onClick={() => handleSort("quantity")}
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        Qty <SortIcon field="quantity" />
+                      </div>
+                    </th>
+                    {!hideMoney && (
+                      <th
+                        className="px-3 sm:px-4 py-2.5 sm:py-3 text-right text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
+                        onClick={() => handleSort("totalAmount")}
+                      >
+                        <div className="flex items-center justify-end gap-1">
+                          Total <SortIcon field="totalAmount" />
+                        </div>
+                      </th>
+                    )}
+                    <th
+                      className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
+                      onClick={() => handleSort("customerName")}
+                    >
+                      <div className="flex items-center gap-1">
+                        Penerima <SortIcon field="customerName" />
+                      </div>
+                    </th>
+                    <th
+                      className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
+                      onClick={() => handleSort("trackingNumber")}
+                    >
+                      <div className="flex items-center gap-1">
+                        Kurir / Resi <SortIcon field="trackingNumber" />
+                      </div>
+                    </th>
+                    {(selectedStatusTab === "processing" || selectedStatusTab === "shipped") && (
+                      <th
+                        className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
+                        onClick={() => handleSort("pickupTime")}
+                      >
+                        <div className="flex items-center gap-1">
+                          Waktu Pickup <SortIcon field="pickupTime" />
+                        </div>
+                      </th>
+                    )}
+                    <th
+                      className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
+                      onClick={() => handleSort("mustShipBefore")}
+                    >
+                      <div className="flex items-center gap-1">
+                        Batas Kirim <SortIcon field="mustShipBefore" />
+                      </div>
+                    </th>
+                  </>
                 )}
-                <th
-                  className="px-3 sm:px-4 py-2.5 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-brand-400 uppercase tracking-wider cursor-pointer hover:text-brand-600 select-none"
-                  onClick={() => handleSort("mustShipBefore")}
-                >
-                  <div className="flex items-center gap-1">
-                    Batas Kirim <SortIcon field="mustShipBefore" />
-                  </div>
-                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-cream-200">
@@ -895,6 +960,15 @@ export default function OrderTable({
                         {getStatusLabel(order.status)}
                       </span>
                     </td>
+                    {unpaidView && (
+                      <td className="px-3 sm:px-4 py-2.5 sm:py-3 text-right">
+                        <p className="text-xs sm:text-sm font-semibold text-brand-800">
+                          {formatCurrency(order.totalAmount)}
+                        </p>
+                      </td>
+                    )}
+                    {!unpaidView && (
+                      <>
                     <td className="px-3 sm:px-4 py-2.5 sm:py-3">
                       <p className="text-xs sm:text-sm text-brand-700 whitespace-normal break-words">
                         {order.productName}
@@ -993,6 +1067,8 @@ export default function OrderTable({
                         <span className="text-xs text-brand-300">-</span>
                       )}
                     </td>
+                      </>
+                    )}
                   </tr>
                 );
               })}

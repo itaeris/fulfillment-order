@@ -3,19 +3,7 @@ import "./load-env";
 import compression from "compression";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
-
-function corsOrigins() {
-  const extra = String(process.env.API_CORS_ORIGIN || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  return [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://fulfillment-fti.aerisbeaute.com",
-    ...extra,
-  ];
-}
+import { corsOrigins } from "./cors";
 
 export async function createApp() {
   const app = await NestFactory.create(AppModule, { logger: ["error", "warn", "log"] });

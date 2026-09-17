@@ -5,22 +5,10 @@ import { ExpressAdapter } from "@nestjs/platform-express";
 import express, { type Request, type Response } from "express";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
+import { corsOrigins } from "./cors";
 
 const server = express();
 let ready: Promise<void> | null = null;
-
-function corsOrigins() {
-  const extra = String(process.env.API_CORS_ORIGIN || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  return [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://fulfillment-fti.aerisbeaute.com",
-    ...extra,
-  ];
-}
 
 function bootstrap() {
   if (!ready) {

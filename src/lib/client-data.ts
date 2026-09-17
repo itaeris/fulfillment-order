@@ -47,8 +47,17 @@ function snapshot(orders: Order[], files: UploadedFile[]): DataSnapshot {
   };
 }
 
+function isLocalApi(url: string) {
+  return /localhost|127\.0\.0\.1/.test(url);
+}
+
 function apiBaseUrl() {
-  return String(process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+  const raw = String(process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+  if (!raw) return "";
+  if (!isLocalApi(raw)) return raw;
+  if (typeof window === "undefined") return process.env.VERCEL ? "" : raw;
+  const host = window.location.hostname;
+  return host === "localhost" || host === "127.0.0.1" ? raw : "";
 }
 
 async function loadDashboardFromNest(): Promise<DataSnapshot | null> {

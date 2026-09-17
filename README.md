@@ -233,11 +233,19 @@ npm install
 
 ### Environment Variables
 
+Dua file, jangan dicampur:
+
 ```bash
-cp .env.example .env
+cp .env.example .env                 # frontend Next.js (root)
+cp apps/api/.env.example apps/api/.env   # backend Nest
 ```
 
-Isi nilai di `.env` (atau `.env.local`). Daftar lengkap variabel ada di `.env.example`. Jangan commit secret.
+| File | Dipakai siapa | Vercel project |
+|------|----------------|----------------|
+| `.env` (root) | Next.js :3000 — login, Shopee, TikTok, Jubelio, Turnstile, URL Nest | Web (Root Directory kosong) |
+| `apps/api/.env` | Nest :4000 — Supabase, Upstash, port, CORS | API (Root Directory `apps/api`) |
+
+Jangan commit secret.
 
 Di Open Platform Shopee, Redirect URL Domain:
 
@@ -303,7 +311,7 @@ Web di [http://localhost:3000](http://localhost:3000), Nest di [http://localhost
 
 Hanya frontend: `npm run dev:web`. Hanya API: `npm run dev:api`.
 
-Pastikan `.env` punya `NEXT_PUBLIC_API_URL=http://localhost:4000` plus `UPSTASH_REDIS_REST_URL` dan `UPSTASH_REDIS_REST_TOKEN` (cache dashboard, local dan production sama).
+Pastikan root `.env` punya `NEXT_PUBLIC_API_URL=http://localhost:4000`, dan `apps/api/.env` punya Upstash + Supabase.
 
 ### Build & Deploy
 
@@ -315,8 +323,8 @@ npm start
 
 Monorepo, dua project Vercel dari repo yang sama:
 
-1. **Web** (dashboard yang sudah ada) — Root Directory kosong. Build `npm run build`. Cron di `vercel.json` tetap jalan (`/api/refresh-status`, sync). Tambah env `NEXT_PUBLIC_API_URL` = URL project API (contoh `https://fti-api.vercel.app`). Opsional `API_URL` sama, untuk proxy server-side `/api/v1/dashboard`.
-2. **API** — Root Directory `apps/api`. Build `npm run build` (Nest). Env: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (atau anon key), plus `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`. CORS sudah allow `localhost:3000` dan `https://fulfillment-fti.aerisbeaute.com`. Origin lain: `API_CORS_ORIGIN`.
+1. **Web** (dashboard yang sudah ada) — Root Directory kosong. Env dari `.env.example` (Shopee, TikTok, Jubelio, Turnstile, `NEXT_PUBLIC_API_URL` + `API_URL` = URL project API). Cron tetap.
+2. **API** — Root Directory `apps/api`. Env dari `apps/api/.env.example`: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`. CORS default: `localhost:3000` + `https://fulfillment-fti.aerisbeaute.com`. Origin lain: `API_CORS_ORIGIN`.
 
 Jangan pindahkan Next ke `apps/web` di langkah ini — Root Directory web tetap root repo.
 

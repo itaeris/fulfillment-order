@@ -5,7 +5,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 function nestUrl() {
-  return String(process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+  const raw = String(process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+  if (!raw) return "";
+  if (/localhost|127\.0\.0\.1/.test(raw) && process.env.VERCEL) return "";
+  return raw;
 }
 
 export async function GET() {
