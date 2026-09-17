@@ -194,8 +194,9 @@ export default function ScannerBarcodePage() {
           }),
         });
         const data = (await res.json().catch(() => ({}))) as { alerts?: CancelAlert[] };
-        if (!res.ok || !Array.isArray(data.alerts)) return;
-        setCancelAlerts((prev) => mergeCancelAlerts(prev, data.alerts.map(hydrateCancelAlert)).slice(0, 40));
+        const alerts = data.alerts;
+        if (!res.ok || !Array.isArray(alerts)) return;
+        setCancelAlerts((prev) => mergeCancelAlerts(prev, alerts.map(hydrateCancelAlert)).slice(0, 40));
       } catch {
         // Alert lokal tetap tampil.
       }
@@ -469,8 +470,9 @@ export default function ScannerBarcodePage() {
         })
           .then((res) => res.json().catch(() => ({})))
           .then((data: { alerts?: CancelAlert[] }) => {
-            if (!Array.isArray(data.alerts)) return;
-            setCancelAlerts((prev) => mergeCancelAlerts(prev, data.alerts.map(hydrateCancelAlert)).slice(0, 40));
+            const alerts = data.alerts;
+            if (!Array.isArray(alerts)) return;
+            setCancelAlerts((prev) => mergeCancelAlerts(prev, alerts.map(hydrateCancelAlert)).slice(0, 40));
           })
           .catch(() => {});
       }}

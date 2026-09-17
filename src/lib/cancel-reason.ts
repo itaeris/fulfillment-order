@@ -82,7 +82,7 @@ export async function lookupCancelReasons(
     try {
       const config = await getShopeeConfig();
       const notes = await fetchShopeeCancelNotes(config, shopee);
-      for (const [number, note] of notes) {
+      for (const [number, note] of Array.from(notes.entries())) {
         found.set(cancelAlertMatchKey(number), {
           reason: describeCancelReason({
             source: "live",
@@ -102,7 +102,7 @@ export async function lookupCancelReasons(
     try {
       const config = await getTikTokConfig();
       const notes = await fetchTikTokCancelNotes(config, tiktok);
-      for (const [number, note] of notes) {
+      for (const [number, note] of Array.from(notes.entries())) {
         found.set(cancelAlertMatchKey(number), {
           reason: describeCancelReason({
             source: "live",
