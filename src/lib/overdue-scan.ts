@@ -1,5 +1,5 @@
 import { expandMatchKeys, identityKeys, isTrackingLikeCode, normalizeMatchKey } from "@/lib/order-match";
-import type { DueDateRow } from "@/lib/due-date";
+import { isAheadPackOrder, isShipTodayQueueOrder, type DueDateRow } from "@/lib/due-date";
 import type { Order } from "@/types/order";
 
 export type OverdueScanStatus = "valid" | "ahead" | "duplicate" | "not_in_queue" | "cancelled";
@@ -212,9 +212,34 @@ function scanKeepsMarketplaceNumber(scan: OverdueScan, order?: Order) {
   return normalizeMatchKey(scan.orderNumber) === normalizeMatchKey(order.orderNumber);
 }
 
+function resolvedScanOrder(scan: OverdueScan, orders: Order[] = []): Order | undefined {
+  if (orders.length === 0) return undefined;
+  return resolveMarketplaceScanOrder(scan.orderNumber || scan.scannedCode, orders, scan);
+}
+
+function isPackingCicilScan(scan: OverdueScan, orders: Order[] = []): boolean {
+  const result = scanResultOf(scan);
+  if (result !== "ahead" && result !== "valid") return false;
+  const order = resolvedScanOrder(scan, orders);
+  if (order) return isAheadPackOrder(order);
+  return result === "ahead";
+}
+
+function isTodayValidScan(scan: OverdueScan, orders: Order[] = []): boolean {
+  if (!scan.matched) return false;
+  const result = scanResultOf(scan);
+  if (result !== "valid" && result !== "ahead") return false;
+  const order = resolvedScanOrder(scan, orders);
+  if (order) {
+    if (isAheadPackOrder(order)) return false;
+    if (result === "ahead") return isShipTodayQueueOrder(order);
+  }
+  return result === "valid";
+}
+
 /** Satu baris packing cicil per order marketplace. Scan resi/Jubelio digabung ke nomor Shopee/TikTok. */
 export function uniqueAheadScans(scans: OverdueScan[], orders: Order[] = []): OverdueScan[] {
-  const ahead = aheadScansOf(scans);
+  const ahead = scans.filter((scan) => isPackingCicilScan(scan, orders));
   const scored = ahead.map((scan) => {
     const order = resolveMarketplaceScanOrder(scan.orderNumber || scan.scannedCode, orders, scan);
     return { scan, order };
@@ -241,8 +266,8 @@ export function uniqueAheadScans(scans: OverdueScan[], orders: Order[] = []): Ov
     for (const key of keys) seen.add(key);
     out.push(
       order
-        ? { ...scan, orderId: order.id, orderNumber: order.orderNumber, platform: order.platform }
-        : scan
+        ? { ...scan, orderId: order.id, orderNumber: order.orderNumber, platform: order.platform, result: "ahead" }
+        : { ...scan, result: "ahead" }
     );
   }
   return out;
@@ -299,12 +324,15 @@ export function scanResultOf(scan: OverdueScan): Exclude<OverdueScanStatus, "dup
   return scan.matched ? "valid" : "not_in_queue";
 }
 
-export function todayValidatedIds(scans: OverdueScan[]): Set<string> {
-  return new Set(
-    scans
-      .filter((scan) => scan.matched && scan.orderId && scanResultOf(scan) === "valid")
-      .map((scan) => scan.orderId as string)
-  );
+export function todayValidatedIds(scans: OverdueScan[], orders: Order[] = []): Set<string> {
+  const ids = new Set<string>();
+  for (const scan of scans) {
+    if (!isTodayValidScan(scan, orders)) continue;
+    if (scan.orderId) ids.add(scan.orderId);
+    const order = resolvedScanOrder(scan, orders);
+    if (order?.id) ids.add(order.id);
+  }
+  return ids;
 }
 
 export function aheadScansOf(scans: OverdueScan[]): OverdueScan[] {

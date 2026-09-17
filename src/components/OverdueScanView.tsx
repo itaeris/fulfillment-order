@@ -402,7 +402,7 @@ export default function OverdueScanView({
   const orderIndex = useMemo(() => buildOrderScanIndex(orders), [orders]);
   const aheadIndex = useMemo(() => buildOrderScanIndex(aheadOrders), [aheadOrders]);
   const lookupOrders = useMemo(() => [...orders, ...aheadOrders], [orders, aheadOrders]);
-  const validatedIds = useMemo(() => todayValidatedIds(scans), [scans]);
+  const validatedIds = useMemo(() => todayValidatedIds(scans, lookupOrders), [scans, lookupOrders]);
   const cancelledIds = useMemo(() => cancelledScanOrderIds(scans), [scans]);
   const cancelledScans = useMemo(
     () => scans.filter((scan) => scanResultOf(scan) === "cancelled"),
@@ -411,9 +411,13 @@ export default function OverdueScanView({
   const aheadScans = useMemo(() => uniqueAheadScans(scans, lookupOrders), [scans, lookupOrders]);
   const packingCicilUnscanned = useMemo(() => {
     const scannedKeys = new Set(
-      aheadScans.flatMap((scan) => {
+      scans.flatMap((scan) => {
+        const result = scanResultOf(scan);
+        if (result !== "valid" && result !== "ahead") return [];
         const order = resolveMarketplaceScanOrder(scan.orderNumber || scan.scannedCode, lookupOrders, scan);
-        return order ? identityKeys(order) : expandMatchKeys(scan.orderNumber || scan.scannedCode);
+        return order
+          ? identityKeys(order)
+          : [...expandMatchKeys(scan.orderNumber), ...expandMatchKeys(scan.scannedCode)];
       })
     );
     const today = warehouseTodayKey();
@@ -428,7 +432,7 @@ export default function OverdueScanView({
         return Boolean(due && due > today && due <= until);
       })
     );
-  }, [aheadOrders, aheadScans, lookupOrders]);
+  }, [aheadOrders, scans, lookupOrders]);
   const unmatched = useMemo(
     () => scans.filter((scan) => scanResultOf(scan) === "not_in_queue").slice(0, 20),
     [scans]
@@ -637,7 +641,7 @@ export default function OverdueScanView({
     let status: OverdueScanStatus = "not_in_queue";
     if (cancelled && match) status = "cancelled";
     else if (row && match) {
-      status = rowIsValidated(row, todayValidatedIds(scansRef.current)) ? "duplicate" : "valid";
+      status = rowIsValidated(row, todayValidatedIds(scansRef.current, lookupOrders)) ? "duplicate" : "valid";
     } else if (aheadOrder && match && isAheadPackOrder(aheadOrder)) {
       status = isAlreadyScanned(scansRef.current, { ...match, scannedCode: next }, lookupOrders)
         ? "duplicate"
