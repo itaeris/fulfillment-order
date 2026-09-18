@@ -491,7 +491,28 @@ export type LiveOrderStatus = {
 
 export async function upsertLiveOrderStatuses(patches: LiveOrderStatus[]) {
   if (patches.length === 0) return;
-  const rows = patches.map((patch) => ({
+  const byKey = new Map<string, LiveOrderStatus>();
+  for (const patch of patches) {
+    const orderNumber = String(patch.orderNumber || "").trim();
+    const platform = String(patch.platform || "").trim();
+    if (!orderNumber || !platform) continue;
+    const key = `${platform}::${orderNumber}`;
+    const prev = byKey.get(key);
+    byKey.set(key, {
+      ...prev,
+      ...patch,
+      orderNumber,
+      platform,
+      trackingNumber: patch.trackingNumber || prev?.trackingNumber,
+      courier: patch.courier || prev?.courier,
+      shippingOption: patch.shippingOption || prev?.shippingOption,
+      shippedTime: patch.shippedTime || prev?.shippedTime,
+      mustShipBefore: patch.mustShipBefore || prev?.mustShipBefore,
+      pickupTime: patch.pickupTime || prev?.pickupTime,
+      refNo: patch.refNo || prev?.refNo,
+    });
+  }
+  const rows = Array.from(byKey.values()).map((patch) => ({
     order_number: patch.orderNumber,
     platform: patch.platform,
     status: patch.status,
@@ -504,6 +525,7 @@ export async function upsertLiveOrderStatuses(patches: LiveOrderStatus[]) {
     ref_no: patch.refNo ?? null,
     updated_at: new Date().toISOString(),
   }));
+  if (rows.length === 0) return;
   const { error } = await supabase.from("live_order_status").upsert(rows, {
     onConflict: "order_number,platform",
   });

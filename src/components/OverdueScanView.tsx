@@ -16,7 +16,7 @@ import {
   XCircle,
 } from "lucide-react";
 import * as XLSX from "xlsx";
-import { cn, formatNumber, getPlatformName } from "@/lib/utils";
+import { cn, formatDateTime, formatNumber, getPlatformName } from "@/lib/utils";
 import {
   buildDueDateOverview,
   classifyWarehouseScan,
@@ -271,6 +271,50 @@ function formatScanTime(value: Date) {
   });
 }
 
+function cancelAlertSourceLabel(source: CancelAlert["source"]) {
+  if (source === "scan") return "Saat scan";
+  if (source === "queue") return "Antrian";
+  return "Realtime";
+}
+
+function cancelAlertPlatform(platform?: string): Order["platform"] {
+  if (platform === "shopee" || platform === "tiktok" || platform === "tokopedia" || platform === "jubelio") {
+    return platform;
+  }
+  return "tiktok";
+}
+
+function stubCancelOrder(alert: CancelAlert): Order {
+  return {
+    id: alert.id,
+    orderNumber: alert.orderNumber,
+    platform: cancelAlertPlatform(alert.platform),
+    customerName: "",
+    productName: "",
+    quantity: 1,
+    price: 0,
+    totalAmount: 0,
+    status: "cancelled",
+    orderDate: alert.at,
+    notes: alert.reason,
+  };
+}
+
+function cancelAlertNotes(alert: CancelAlert) {
+  const notes = [
+    { label: "Status", value: "Dibatalkan — skip pengiriman" },
+    { label: "Alasan batal", value: alert.reason || "Customer batal di channel" },
+  ];
+  if (alert.reasonCode) notes.push({ label: "Kode alasan", value: alert.reasonCode });
+  notes.push(
+    { label: "Sumber", value: cancelAlertSourceLabel(alert.source) },
+    { label: "Waktu", value: formatDateTime(alert.at) }
+  );
+  if (alert.platform) notes.push({ label: "Channel", value: getPlatformName(cancelAlertPlatform(alert.platform)) });
+  notes.push({ label: "No. pesanan", value: alert.orderNumber });
+  return notes;
+}
+
 function downloadValidExcel(
   rows: DueDateRow[],
   scans: OverdueScan[],
@@ -366,6 +410,7 @@ export default function OverdueScanView({
   const scansRef = useRef(scans);
   scansRef.current = scans;
   const lookupSeq = useRef(0);
+  const cancelPreviewSeq = useRef(0);
   const [code, setCode] = useState("");
   const [filter, setFilter] = useState<FilterId>("pending");
   const [preview, setPreview] = useState<{
@@ -373,6 +418,7 @@ export default function OverdueScanView({
     orders: Order[];
     row?: DueDateRow;
     kind?: "ahead" | "cancelled";
+    notes?: { label: string; value: string }[];
   } | null>(null);
   const [listPreview, setListPreview] = useState<{
     title: string;
@@ -408,6 +454,47 @@ export default function OverdueScanView({
     () => scans.filter((scan) => scanResultOf(scan) === "cancelled"),
     [scans]
   );
+  const cancelChartItems = useMemo(() => {
+    const seen = new Set<string>();
+    const items: {
+      key: string;
+      orderNumber: string;
+      platform?: string;
+      meta: string;
+      at: Date;
+      dismissed?: boolean;
+      alert?: CancelAlert;
+      scan?: OverdueScan;
+    }[] = [];
+    for (const alert of cancelAlerts) {
+      const key = cancelAlertMatchKey(alert.orderNumber) || alert.id;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      items.push({
+        key: `alert:${alert.id}`,
+        orderNumber: alert.orderNumber,
+        platform: alert.platform,
+        meta: [cancelAlertSourceLabel(alert.source), alert.reason || "Customer batal di channel"].join(" · "),
+        at: alert.at,
+        dismissed: alert.dismissed,
+        alert,
+      });
+    }
+    for (const scan of cancelledScans) {
+      const key = cancelAlertMatchKey(scan.orderNumber || scan.scannedCode) || scan.id;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      items.push({
+        key: scan.id,
+        orderNumber: scan.orderNumber || scan.scannedCode,
+        platform: scan.platform,
+        meta: "Cancel — skip pengiriman",
+        at: scan.scannedAt,
+        scan,
+      });
+    }
+    return items;
+  }, [cancelAlerts, cancelledScans]);
   const aheadScans = useMemo(() => uniqueAheadScans(scans, lookupOrders), [scans, lookupOrders]);
   const packingCicilUnscanned = useMemo(() => {
     const scannedKeys = new Set(
@@ -483,17 +570,18 @@ export default function OverdueScanView({
     });
   };
 
-  const openScanList = (title: string, scans: OverdueScan[], subtitle?: string, filterId?: FilterId) => {
+  const openCancelList = () => {
     listReq.current += 1;
-    if (filterId) setFilter(filterId);
+    setFilter("cancelled");
     setListPreview({
-      title,
-      subtitle: subtitle || `${formatNumber(scans.length)} pesanan`,
-      items: scans.map((scan) => ({
-        key: scan.id,
-        orderNumber: scan.orderNumber || scan.scannedCode,
-        platform: scan.platform,
-        meta: scanResultOf(scan) === "ahead" ? "Packing cicil" : "Cancel — skip pengiriman",
+      title: "Cancel",
+      subtitle: `${formatNumber(cancelChartItems.length)} pesanan batal`,
+      items: cancelChartItems.map((item) => ({
+        key: item.key,
+        orderNumber: item.orderNumber,
+        platform: item.platform,
+        meta: item.meta,
+        status: "cancelled",
       })),
     });
   };
@@ -922,9 +1010,57 @@ export default function OverdueScanView({
     });
   };
 
+  const openCancelAlertPreview = (alert: CancelAlert) => {
+    const matchKey = cancelAlertMatchKey(alert.orderNumber);
+    const local =
+      resolveMarketplaceScanOrder(alert.orderNumber, lookupOrders) ||
+      preferMarketplaceOrder(
+        lookupOrders.filter((order) => identityKeys(order).some((key) => expandMatchKeys(alert.orderNumber).includes(key)))
+      );
+    const scan = cancelledScans.find((item) => {
+      const keys = [...expandMatchKeys(item.orderNumber), ...expandMatchKeys(item.scannedCode)];
+      return keys.includes(matchKey) || expandMatchKeys(alert.orderNumber).some((key) => keys.includes(key));
+    });
+    const related = scan ? ordersForScan(scan, lookupOrders) : [];
+    const found = groupOrdersByNumber(
+      [local, ...related].filter((order, index, list): order is Order => Boolean(order) && list.findIndex((item) => item?.id === order?.id) === index)
+    );
+    const seq = ++cancelPreviewSeq.current;
+    setPreview({
+      title: alert.orderNumber,
+      orders: found.length > 0 ? found : [stubCancelOrder(alert)],
+      kind: "cancelled",
+      notes: cancelAlertNotes(alert),
+    });
+    if (found.length > 0) return;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/orders/lookup?q=${encodeURIComponent(alert.orderNumber)}`, { cache: "no-store" });
+        const data = (await res.json().catch(() => ({}))) as { orders?: Order[] };
+        if (seq !== cancelPreviewSeq.current) return;
+        const remote = groupOrdersByNumber((data.orders || []).map(hydrateOrder));
+        if (remote.length === 0) return;
+        setPreview((prev) =>
+          prev && prev.title === alert.orderNumber
+            ? { ...prev, orders: remote, kind: "cancelled", notes: cancelAlertNotes(alert) }
+            : prev
+        );
+      } catch {
+        // Preview tetap tampil dari data notifikasi.
+      }
+    })();
+  };
+
   const onListSelect = (item: StatPreviewItem) => {
     if (item.row) {
       openRowPreview(item.row);
+      return;
+    }
+    const alert = cancelAlerts.find(
+      (entry) => item.key === `alert:${entry.id}` || cancelAlertMatchKey(entry.orderNumber) === cancelAlertMatchKey(item.orderNumber)
+    );
+    if (alert) {
+      openCancelAlertPreview(alert);
       return;
     }
     const scan = aheadScans.find((entry) => entry.id === item.key) || scans.find((entry) => entry.id === item.key);
@@ -1066,14 +1202,23 @@ export default function OverdueScanView({
                   key={alert.id}
                   className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 flex items-start gap-2"
                 >
-                  <Bell className="w-4 h-4 mt-0.5 shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold">CANCEL realtime — customer batal di channel</p>
-                    <p className="text-xs font-mono break-all mt-0.5">{alert.orderNumber}</p>
-                    <p className="text-[11px] mt-0.5">
-                      {alert.reason || "Dibuang dari pengiriman dan order hari ini"} · {formatScanTime(alert.at)}
-                    </p>
-                  </div>
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => openCancelAlertPreview(alert)}
+                    className="min-w-0 flex-1 flex items-start gap-2 text-left"
+                  >
+                    <Bell className="w-4 h-4 mt-0.5 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold">CANCEL realtime — customer batal di channel</p>
+                      <p className="text-xs font-mono break-all mt-0.5">{alert.orderNumber}</p>
+                      <p className="text-[11px] mt-0.5">
+                        {alert.reason || "Dibuang dari pengiriman dan order hari ini"} · {formatScanTime(alert.at)}
+                      </p>
+                      <p className="text-[11px] mt-1 text-red-700/80">Klik untuk lihat detail</p>
+                    </div>
+                  </button>
                   <button
                     type="button"
                     tabIndex={-1}
@@ -1158,60 +1303,14 @@ export default function OverdueScanView({
             />
             <StatCard
               label="Cancel"
-              value={formatNumber(cancelledScans.length)}
-              hint="Skip pengiriman"
-              valueClass={cancelledScans.length > 0 ? "text-slate-800" : undefined}
-              onClick={() => openScanList("Cancel", cancelledScans, undefined, "cancelled")}
+              value={formatNumber(cancelChartItems.length)}
+              hint="Batal di channel / skip pengiriman"
+              valueClass={cancelChartItems.length > 0 ? "text-slate-800" : undefined}
+              onClick={openCancelList}
             />
           </div>
 
-          {cancelAlerts.length > 0 ? (
-            <section className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden">
-              <div className="px-3 sm:px-4 py-2.5 border-b border-red-100">
-                <h2 className="text-sm font-semibold text-red-900 inline-flex items-center gap-1.5">
-                  <Bell className="w-4 h-4" />
-                  Notifikasi cancel
-                </h2>
-                <p className="text-[11px] text-red-700/80 mt-0.5">
-                  Tersimpan di database. Alasan batal dari Shopee/TikTok kalau tersedia.
-                </p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[640px] text-xs">
-                  <thead className="bg-red-50 text-red-800/70">
-                    <tr>
-                      <th className="text-left font-medium px-3 py-2">Waktu</th>
-                      <th className="text-left font-medium px-2 py-2">Pesanan</th>
-                      <th className="text-left font-medium px-2 py-2">Channel</th>
-                      <th className="text-left font-medium px-2 py-2">Sumber</th>
-                      <th className="text-left font-medium px-3 py-2">Alasan batal</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-red-100">
-                    {cancelAlerts.map((alert) => (
-                      <tr key={alert.id} className={alert.dismissed ? "opacity-60" : "bg-red-50/40"}>
-                        <td className="px-3 py-2 whitespace-nowrap text-brand-500">
-                          {formatScanTime(alert.at)}
-                        </td>
-                        <td className="px-2 py-2 font-mono font-medium text-brand-800 break-all">
-                          {alert.orderNumber}
-                        </td>
-                        <td className="px-2 py-2 capitalize">{alert.platform || "—"}</td>
-                        <td className="px-2 py-2">
-                          {alert.source === "scan" ? "Saat scan" : alert.source === "queue" ? "Antrian" : "Realtime"}
-                        </td>
-                        <td className="px-3 py-2 text-red-900">
-                          {alert.reason || "Customer batal di channel"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          ) : null}
-
-          {overview.todayProcessCount === 0 && cancelledScans.length === 0 && aheadScans.length === 0 ? (
+          {overview.todayProcessCount === 0 && cancelChartItems.length === 0 && aheadScans.length === 0 ? (
             <section className="bg-white rounded-xl shadow-sm border border-brand-200 px-4 py-8 text-center">
               <AlertTriangle className="w-6 h-6 text-amber-600 mx-auto mb-2" />
               <p className="text-sm font-medium text-brand-800">Antrian kirim hari ini masih kosong</p>
@@ -1257,7 +1356,7 @@ export default function OverdueScanView({
                   Terlambat {formatNumber(overview.overdue)}
                 </FilterPill>
                 <FilterPill active={filter === "cancelled"} onClick={() => setFilter("cancelled")}>
-                  Cancel {formatNumber(cancelledScans.length)}
+                  Cancel {formatNumber(cancelChartItems.length)}
                 </FilterPill>
                 <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>
                   Semua {formatNumber(shippingCount)}
@@ -1479,45 +1578,55 @@ export default function OverdueScanView({
             )}
           </section>
 
-          {filter === "cancelled" || cancelledScans.length > 0 ? (
-            <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="px-3 sm:px-4 py-2.5 border-b border-slate-200">
-                <h2 className="text-sm font-semibold text-slate-800 inline-flex items-center gap-1.5">
+          {filter === "cancelled" || cancelChartItems.length > 0 ? (
+            <section className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden">
+              <div className="px-3 sm:px-4 py-2.5 border-b border-red-100">
+                <h2 className="text-sm font-semibold text-red-900 inline-flex items-center gap-1.5">
                   <XCircle className="w-4 h-4" />
                   Cancel — dibuang dari pengiriman
                 </h2>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Order yang cancel, termasuk batal customer setelah sudah valid. Sudah keluar dari antrian kirim dan order hari ini.
+                <p className="text-[11px] text-red-700/80 mt-0.5">
+                  Termasuk batal realtime di channel. Klik baris untuk lihat detail.
                 </p>
               </div>
-              {cancelledScans.length === 0 ? (
-                <p className="px-4 py-6 text-center text-xs text-brand-400">Belum ada scan cancel hari ini.</p>
+              {cancelChartItems.length === 0 ? (
+                <p className="px-4 py-6 text-center text-xs text-brand-400">Belum ada cancel hari ini.</p>
               ) : (
-                <div className="divide-y divide-slate-100">
-                  {cancelledScans.map((scan) => (
-                    <button
-                      key={scan.id}
-                      type="button"
-                      onClick={() => openScanPreview(scan)}
-                      className="w-full px-3 sm:px-4 py-2.5 flex items-start justify-between gap-3 text-left hover:bg-slate-50"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-xs font-mono font-medium break-all text-brand-800">
-                          {scan.orderNumber || scan.scannedCode}
-                        </p>
-                        {scan.orderNumber && scan.scannedCode !== scan.orderNumber ? (
-                          <p className="text-[11px] font-mono text-brand-400 break-all mt-0.5">{scan.scannedCode}</p>
-                        ) : null}
-                        <p className="text-[11px] text-slate-500 mt-0.5">
-                          {scan.platform || "—"} · klik untuk detail
-                        </p>
-                      </div>
-                      <p className="text-[11px] text-brand-400 whitespace-nowrap">
-                        {formatScanTime(scan.scannedAt)}
-                        {scan.scannedBy ? ` · ${scan.scannedBy}` : ""}
-                      </p>
-                    </button>
-                  ))}
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[640px] text-xs">
+                    <thead className="bg-red-50 text-red-800/70">
+                      <tr>
+                        <th className="text-left font-medium px-3 py-2">Waktu</th>
+                        <th className="text-left font-medium px-2 py-2">Pesanan</th>
+                        <th className="text-left font-medium px-2 py-2">Channel</th>
+                        <th className="text-left font-medium px-3 py-2">Alasan batal</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-red-100">
+                      {cancelChartItems.map((item) => (
+                        <tr
+                          key={item.key}
+                          className={cn(
+                            "cursor-pointer hover:bg-red-100/80",
+                            item.dismissed ? "opacity-60" : "bg-red-50/40"
+                          )}
+                          onClick={() => {
+                            if (item.alert) openCancelAlertPreview(item.alert);
+                            else if (item.scan) openScanPreview(item.scan);
+                          }}
+                        >
+                          <td className="px-3 py-2 whitespace-nowrap text-brand-500">
+                            {formatScanTime(item.at)}
+                          </td>
+                          <td className="px-2 py-2 font-mono font-medium text-brand-800 break-all">
+                            {item.orderNumber}
+                          </td>
+                          <td className="px-2 py-2 capitalize">{item.platform || "—"}</td>
+                          <td className="px-3 py-2 text-red-900">{item.meta}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </section>
@@ -1564,7 +1673,9 @@ export default function OverdueScanView({
         onClose={() => setPreview(null)}
         title={preview?.title || "Detail pesanan"}
         notes={
-          preview?.row
+          preview?.notes
+            ? preview.notes
+            : preview?.row
             ? [
                 { label: "Sisa waktu", value: preview.row.remainingLabel },
                 { label: "Kurir", value: preview.row.courier || "-" },
@@ -1575,7 +1686,7 @@ export default function OverdueScanView({
               ]
             : preview?.kind === "ahead"
               ? [{ label: "Status", value: "Packing cicil — bukan kirim hari ini" }]
-              : preview
+              : preview?.kind === "cancelled"
                 ? [{ label: "Status", value: "Dibatalkan — skip pengiriman" }]
                 : undefined
         }
