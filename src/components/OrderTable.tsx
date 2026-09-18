@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Order, Platform, OrderStatus } from "@/types/order";
-import { cn, formatCurrency, formatDate, formatDateTime, getPlatformName, getStatusColor, getStatusLabel, isMarketplacePlatform } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, formatDateTime, formatNumber, getPlatformName, getStatusColor, getStatusLabel, isMarketplacePlatform } from "@/lib/utils";
 import { isBefore, addHours } from "date-fns";
 import type { UserRole } from "@/contexts/AuthContext";
 import { TableSkeleton } from "@/components/Skeleton";
