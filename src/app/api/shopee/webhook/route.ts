@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { applyShopeeStatusHint } from "@/lib/shopee-status";
+import { finishWebhook } from "@/lib/webhook-ack";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 10;
@@ -85,11 +86,7 @@ export async function POST(request: Request) {
   const unique = Array.from(new Set(ids)).slice(0, 5);
   const status = findStatus(payload);
   if (unique.length > 0 && status) {
-    try {
-      await applyShopeeStatusHint(unique, status);
-    } catch (error) {
-      console.error("Shopee webhook status update failed:", error);
-    }
+    await finishWebhook(applyShopeeStatusHint(unique, status));
   }
 
   return new NextResponse(null, { status: 200 });

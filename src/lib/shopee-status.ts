@@ -1,6 +1,6 @@
 import { Order } from "@/types/order";
 import { fetchShopeeOrdersByNumbers, getShopeeConfig, mapShopeeStatusLabel } from "@/lib/shopee-api";
-import { getOpenOrderNumbersByPlatforms, updateOrdersFulfillment } from "@/lib/db";
+import { getOpenOrderNumbersByPlatforms, updateOrdersFulfillment, updateOrdersStatusByNumbers } from "@/lib/db";
 
 export const SHOPEE_PLATFORMS = ["shopee"];
 const OPEN_STATUSES = ["pending", "processing", "shipped"];
@@ -10,10 +10,7 @@ export async function applyShopeeStatusHint(orderNumbers: string[], statusRaw?: 
   if (!statusRaw || orderNumbers.length === 0) return 0;
   const status = mapShopeeStatusLabel(statusRaw);
   const unique = Array.from(new Set(orderNumbers.map((n) => String(n).trim()).filter(Boolean)));
-  await updateOrdersFulfillment(
-    SHOPEE_PLATFORMS,
-    unique.map((orderNumber) => ({ orderNumber, platform: "shopee" as const, status }))
-  );
+  await updateOrdersStatusByNumbers(SHOPEE_PLATFORMS, unique, status);
   return unique.length;
 }
 

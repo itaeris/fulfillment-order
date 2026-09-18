@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { applyTikTokStatusHint } from "@/lib/tiktok-status";
+import { finishWebhook } from "@/lib/webhook-ack";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 10;
@@ -83,11 +84,7 @@ export async function POST(request: Request) {
   const unique = Array.from(new Set(ids)).slice(0, 5);
   const status = findStatus(payload);
   if (unique.length > 0 && status) {
-    try {
-      await applyTikTokStatusHint(unique, status);
-    } catch (error) {
-      console.error("TikTok webhook status update failed:", error);
-    }
+    await finishWebhook(applyTikTokStatusHint(unique, status));
   }
 
   return new NextResponse(null, { status: 200 });

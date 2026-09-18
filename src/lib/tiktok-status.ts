@@ -7,6 +7,7 @@ import {
 import {
   getOpenOrderNumbersByPlatforms,
   updateOrdersFulfillment,
+  updateOrdersStatusByNumbers,
 } from "@/lib/db";
 
 export const TIKTOK_PLATFORMS = ["tiktok", "tokopedia"];
@@ -17,10 +18,7 @@ export async function applyTikTokStatusHint(orderNumbers: string[], statusRaw?: 
   if (!statusRaw || orderNumbers.length === 0) return 0;
   const status = mapTikTokStatusLabel(statusRaw);
   const unique = Array.from(new Set(orderNumbers.map((n) => String(n).trim()).filter(Boolean)));
-  await updateOrdersFulfillment(
-    TIKTOK_PLATFORMS,
-    unique.map((orderNumber) => ({ orderNumber, status }))
-  );
+  await updateOrdersStatusByNumbers(TIKTOK_PLATFORMS, unique, status);
   return unique.length;
 }
 

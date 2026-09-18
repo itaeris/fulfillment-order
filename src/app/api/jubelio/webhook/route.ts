@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { applyJubelioStatusHint } from "@/lib/jubelio-status";
+import { finishWebhook } from "@/lib/webhook-ack";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 10;
@@ -122,17 +123,14 @@ export async function POST(request: Request) {
   const unique = Array.from(new Set(keys)).slice(0, 5);
   const status = findStatus(payload);
 
-  try {
-    if (unique.length > 0 && status) {
-      await applyJubelioStatusHint(unique, status);
-    }
-  } catch (error) {
-    console.error("Jubelio webhook status update failed:", error);
-  }
-
-  void forwardWebhook(rawBody, request.headers.get("content-type")).catch((error) => {
-    console.error("Jubelio webhook forward failed:", error);
-  });
+  await finishWebhook(
+    (async () => {
+      if (unique.length > 0 && status) {
+        await applyJubelioStatusHint(unique, status);
+      }
+      await forwardWebhook(rawBody, request.headers.get("content-type"));
+    })()
+  );
 
   return new NextResponse(null, { status: 200 });
 }

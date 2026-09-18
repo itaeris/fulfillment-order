@@ -70,7 +70,8 @@ function mergeCancelAlerts(prev: CancelAlert[], incoming: CancelAlert[]) {
 }
 
 async function fetchTodayCancels(): Promise<CancelAlert[]> {
-  const res = await fetch("/api/overdue/cancels", { cache: "no-store" });
+  const date = warehouseTodayKey();
+  const res = await fetch(`/api/overdue/cancels?date=${encodeURIComponent(date)}`, { cache: "no-store" });
   const data = (await res.json().catch(() => ({}))) as { alerts?: CancelAlert[] };
   if (!res.ok) return [];
   return (data.alerts || []).map(hydrateCancelAlert);
@@ -171,11 +172,13 @@ export default function ScannerBarcodePage() {
 
   const loadCancels = useCallback(async () => {
     try {
+      const today = warehouseTodayKey();
       const fetched = await fetchTodayCancels();
       setCancelAlerts((prev) => {
         const optimistic = prev.filter((alert) => {
           if (alert.dismissed) return false;
-          if (/^\d{4}-\d{2}-\d{2}:/.test(alert.id)) return false;
+          if (/^\d{4}-\d{2}-\d{2}:/.test(alert.id) && !alert.id.startsWith(`${today}:`)) return false;
+          if (warehouseTodayKey(new Date(alert.at)) !== today) return false;
           return Date.now() - new Date(alert.at).getTime() < 90_000;
         });
         return mergeCancelAlerts(fetched, optimistic).slice(0, 40);
@@ -341,6 +344,7 @@ export default function ScannerBarcodePage() {
       if (dayKeyRef.current === today) return;
       dayKeyRef.current = today;
       setScans([]);
+      setCancelAlerts([]);
       void loadOrders("refresh");
       void loadScans();
       void loadPlacedToday();

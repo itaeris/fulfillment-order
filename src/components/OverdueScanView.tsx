@@ -464,7 +464,6 @@ export default function OverdueScanView({
       at: Date;
       dismissed?: boolean;
       alert?: CancelAlert;
-      scan?: OverdueScan;
     }[] = [];
     for (const alert of cancelAlerts) {
       const key = cancelAlertMatchKey(alert.orderNumber) || alert.id;
@@ -474,27 +473,14 @@ export default function OverdueScanView({
         key: `alert:${alert.id}`,
         orderNumber: alert.orderNumber,
         platform: alert.platform,
-        meta: [cancelAlertSourceLabel(alert.source), alert.reason || "Customer batal di channel"].join(" · "),
+        meta: alert.reason || "Customer batal di channel",
         at: alert.at,
         dismissed: alert.dismissed,
         alert,
       });
     }
-    for (const scan of cancelledScans) {
-      const key = cancelAlertMatchKey(scan.orderNumber || scan.scannedCode) || scan.id;
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      items.push({
-        key: scan.id,
-        orderNumber: scan.orderNumber || scan.scannedCode,
-        platform: scan.platform,
-        meta: "Cancel — skip pengiriman",
-        at: scan.scannedAt,
-        scan,
-      });
-    }
     return items;
-  }, [cancelAlerts, cancelledScans]);
+  }, [cancelAlerts]);
   const aheadScans = useMemo(() => uniqueAheadScans(scans, lookupOrders), [scans, lookupOrders]);
   const packingCicilUnscanned = useMemo(() => {
     const scannedKeys = new Set(
@@ -575,7 +561,7 @@ export default function OverdueScanView({
     setFilter("cancelled");
     setListPreview({
       title: "Cancel",
-      subtitle: `${formatNumber(cancelChartItems.length)} pesanan batal`,
+      subtitle: `${formatNumber(cancelChartItems.length)} batal hari ini · reset besok`,
       items: cancelChartItems.map((item) => ({
         key: item.key,
         orderNumber: item.orderNumber,
@@ -1304,7 +1290,7 @@ export default function OverdueScanView({
             <StatCard
               label="Cancel"
               value={formatNumber(cancelChartItems.length)}
-              hint="Batal di channel / skip pengiriman"
+              hint="Log batal customer · reset tiap hari"
               valueClass={cancelChartItems.length > 0 ? "text-slate-800" : undefined}
               onClick={openCancelList}
             />
@@ -1586,7 +1572,7 @@ export default function OverdueScanView({
                   Cancel — dibuang dari pengiriman
                 </h2>
                 <p className="text-[11px] text-red-700/80 mt-0.5">
-                  Termasuk batal realtime di channel. Klik baris untuk lihat detail.
+                  Tersimpan di database saja, tidak masuk order hari ini atau antrian kirim. Reset otomatis ganti hari. Klik baris untuk alasan batal.
                 </p>
               </div>
               {cancelChartItems.length === 0 ? (
@@ -1612,7 +1598,6 @@ export default function OverdueScanView({
                           )}
                           onClick={() => {
                             if (item.alert) openCancelAlertPreview(item.alert);
-                            else if (item.scan) openScanPreview(item.scan);
                           }}
                         >
                           <td className="px-3 py-2 whitespace-nowrap text-brand-500">

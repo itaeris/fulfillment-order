@@ -475,6 +475,36 @@ export async function updateOrdersFulfillment(
   });
 }
 
+/** Satu kali update batch untuk webhook — jangan loop per nomor (itu yang bikin timeout). */
+export async function updateOrdersStatusByNumbers(
+  platforms: string[],
+  orderNumbers: string[],
+  status: string
+) {
+  const unique = Array.from(new Set(orderNumbers.map((value) => String(value || "").trim()).filter(Boolean)));
+  if (platforms.length === 0 || unique.length === 0) return;
+
+  const fields = { status };
+  const [ordersRes, overviewRes] = await Promise.all([
+    supabase.from("orders").update(fields).in("platform", platforms).in("order_number", unique),
+    supabase.from("overview_orders").update(fields).in("platform", platforms).in("order_number", unique),
+  ]);
+  if (ordersRes.error) throw ordersRes.error;
+  if (overviewRes.error && !String(overviewRes.error.message || "").includes("does not exist")) {
+    // Overview opsional.
+  }
+
+  await upsertLiveOrderStatuses(
+    unique.map((orderNumber) => ({
+      orderNumber,
+      platform: platforms[0],
+      status,
+    }))
+  ).catch((error) => {
+    console.error("live_order_status upsert skipped:", error);
+  });
+}
+
 export type LiveOrderStatus = {
   orderNumber: string;
   platform: string;

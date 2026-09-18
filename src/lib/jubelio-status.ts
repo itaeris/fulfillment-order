@@ -7,6 +7,7 @@ import {
 import {
   getOpenOrderNumbersByPlatforms,
   updateOrdersFulfillment,
+  updateOrdersStatusByNumbers,
 } from "@/lib/db";
 
 const JUBELIO_PLATFORMS = ["jubelio"];
@@ -47,10 +48,7 @@ export async function applyJubelioStatusHint(keys: string[], statusRaw?: string)
   if (!statusRaw || keys.length === 0) return 0;
   const status = mapJubelioStatusLabel(statusRaw);
   const unique = Array.from(new Set(keys.map((key) => String(key).trim()).filter(Boolean)));
-  await updateOrdersFulfillment(
-    JUBELIO_PLATFORMS,
-    unique.map((orderNumber) => ({ orderNumber, platform: "jubelio", status }))
-  );
+  await updateOrdersStatusByNumbers(JUBELIO_PLATFORMS, unique, status);
   return unique.length;
 }
 
