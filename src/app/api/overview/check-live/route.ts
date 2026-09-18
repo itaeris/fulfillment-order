@@ -48,21 +48,25 @@ export async function POST(request: Request) {
     };
     const numbers = Array.from(
       new Set((Array.isArray(body.numbers) ? body.numbers : []).map((value) => String(value || "").trim()).filter(Boolean))
-    ).slice(0, 40);
+    );
     if (numbers.length === 0) {
       return NextResponse.json({ patches: [], cancelled: [] });
     }
 
-    const grouped = await lookupNumbers(numbers, body.platform);
-    if (grouped.shopee.length > 0) {
-      await applyLiveShopeeStatuses(grouped.shopee).catch((error) => {
-        console.error("check-live shopee:", error);
-      });
-    }
-    if (grouped.tiktok.length > 0) {
-      await applyLiveTikTokStatuses(grouped.tiktok).catch((error) => {
-        console.error("check-live tiktok:", error);
-      });
+    const CHUNK = 40;
+    for (let i = 0; i < numbers.length; i += CHUNK) {
+      const chunk = numbers.slice(i, i + CHUNK);
+      const grouped = await lookupNumbers(chunk, body.platform);
+      if (grouped.shopee.length > 0) {
+        await applyLiveShopeeStatuses(grouped.shopee).catch((error) => {
+          console.error("check-live shopee:", error);
+        });
+      }
+      if (grouped.tiktok.length > 0) {
+        await applyLiveTikTokStatuses(grouped.tiktok).catch((error) => {
+          console.error("check-live tiktok:", error);
+        });
+      }
     }
 
     const patches = await getLiveOrderStatuses(numbers);

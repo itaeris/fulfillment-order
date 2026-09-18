@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dismissCancelAlert, getCancelAlerts, upsertCancelAlert } from "@/lib/db";
+import { dismissCancelAlert, getCancelAlerts, syncTodayCancelLog, upsertCancelAlert } from "@/lib/db";
 import { cancelAlertMatchKey, canonicalizeCancelNumber } from "@/lib/live-cancel";
 import { isTrackingLikeCode } from "@/lib/order-match";
 import {
@@ -33,8 +33,9 @@ function toClient(row: Awaited<ReturnType<typeof upsertCancelAlert>>) {
 
 export async function GET(request: NextRequest) {
   try {
-    const scanDate = request.nextUrl.searchParams.get("date") || warehouseTodayKey();
-    const alerts = await getCancelAlerts(scanDate);
+    const today = warehouseTodayKey();
+    const scanDate = request.nextUrl.searchParams.get("date") || today;
+    const alerts = scanDate === today ? await syncTodayCancelLog() : await getCancelAlerts(scanDate);
     return NextResponse.json({ scanDate, alerts: alerts.map(toClient) });
   } catch (error) {
     console.error("cancel-alerts GET:", error);

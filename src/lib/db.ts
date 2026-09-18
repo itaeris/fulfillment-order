@@ -1,7 +1,8 @@
 import { supabase } from "./supabase";
-import { addCalendarDays, INDONESIA_OFFSET, indonesiaDateKey, indonesiaOrderCutoffKey, inProcessCutoffWindow, processCutoffQuerySpan, warehouseTodayKey } from "./timezone";
-import { lookupMatchKeys } from "./order-match";
-import { cancelAlertMatchKey } from "./live-cancel";
+import { addCalendarDays, INDONESIA_OFFSET, indonesiaDateKey, indonesiaOrderCutoffKey, inProcessCutoffWindow, parseIndonesiaDateTime, processCutoffQuerySpan, warehouseTodayKey } from "./timezone";
+import { isTrackingLikeCode, lookupMatchKeys } from "./order-match";
+import { cancelAlertMatchKey, canonicalizeCancelNumber } from "./live-cancel";
+import { fallbackCancelReason } from "./cancel-reason";
 import { hydrateOverdueScan, uniqueAheadScans } from "./overdue-scan";
 import { classifyShipping, isAheadPackOrder } from "./due-date";
 import type { Order } from "@/types/order";
@@ -205,6 +206,7 @@ export type MarketplacePlacedTodayOrder = {
 async function collectMarketplacePlacedToday(now = new Date()): Promise<{
   summary: MarketplacePlacedToday;
   orders: MarketplacePlacedTodayOrder[];
+  cancelledOrders: MarketplacePlacedTodayOrder[];
 }> {
   const { from, to } = processCutoffQuerySpan(now);
   const fromIso = from.toISOString();
@@ -233,6 +235,7 @@ async function collectMarketplacePlacedToday(now = new Date()): Promise<{
   let tiktok = 0;
   let cancelled = 0;
   const orders: MarketplacePlacedTodayOrder[] = [];
+  const cancelledOrders: MarketplacePlacedTodayOrder[] = [];
 
   const consider = (row: {
     order_number?: string;
@@ -259,13 +262,7 @@ async function collectMarketplacePlacedToday(now = new Date()): Promise<{
     seen.add(seenKey);
     const status = String(row.status || "").toLowerCase();
     if (status === "pending") return;
-    if (status === "cancelled" || status === "returned") {
-      cancelled += 1;
-      return;
-    }
-    if (platform === "shopee") shopee += 1;
-    else tiktok += 1;
-    orders.push({
+    const item: MarketplacePlacedTodayOrder = {
       orderNumber: String(row.order_number || "").trim(),
       platform,
       status,
@@ -273,7 +270,15 @@ async function collectMarketplacePlacedToday(now = new Date()): Promise<{
       paidTime: row.paid_time,
       courier: row.courier,
       shippingOption: row.shipping_option,
-    });
+    };
+    if (status === "cancelled" || status === "returned") {
+      cancelled += 1;
+      cancelledOrders.push(item);
+      return;
+    }
+    if (platform === "shopee") shopee += 1;
+    else tiktok += 1;
+    orders.push(item);
   };
 
   for (const row of byOrderDate.data ?? []) consider(row);
@@ -293,6 +298,7 @@ async function collectMarketplacePlacedToday(now = new Date()): Promise<{
       cancelled,
     },
     orders,
+    cancelledOrders,
   };
 }
 
@@ -304,7 +310,8 @@ export async function countMarketplacePlacedToday(
 }
 
 export async function listMarketplacePlacedToday(now = new Date()) {
-  return collectMarketplacePlacedToday(now);
+  const { summary, orders } = await collectMarketplacePlacedToday(now);
+  return { summary, orders };
 }
 
 export async function getOpenMarketplaceAheadOrders(now = new Date()) {
@@ -1247,6 +1254,37 @@ export async function upsertCancelAlert(input: {
   return rowToCancelAlert(data);
 }
 
+export async function insertCancelAlertsIfMissing(
+  inputs: {
+    id?: string;
+    orderNumber: string;
+    platform?: string;
+    source: string;
+    reason?: string;
+    reasonCode?: string;
+    matchKey: string;
+    scanDate: string;
+  }[]
+): Promise<void> {
+  if (inputs.length === 0) return;
+  const seen = new Set<string>();
+  const rows = [];
+  for (const input of inputs) {
+    const key = `${input.scanDate}:${input.matchKey}`;
+    if (!input.matchKey || seen.has(key)) continue;
+    seen.add(key);
+    rows.push(cancelAlertPayload(input));
+  }
+  if (rows.length === 0) return;
+  const CHUNK = 200;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const { error } = await supabase
+      .from("cancel_alerts")
+      .upsert(rows.slice(i, i + CHUNK), { onConflict: "scan_date,match_key", ignoreDuplicates: true });
+    if (error) throw error;
+  }
+}
+
 export async function insertCancelAlertIfMissing(input: {
   id?: string;
   orderNumber: string;
@@ -1257,10 +1295,52 @@ export async function insertCancelAlertIfMissing(input: {
   matchKey: string;
   scanDate: string;
 }): Promise<void> {
-  const { error } = await supabase
-    .from("cancel_alerts")
-    .upsert(cancelAlertPayload(input), { onConflict: "scan_date,match_key", ignoreDuplicates: true });
-  if (error) throw error;
+  await insertCancelAlertsIfMissing([input]);
+}
+
+function placementCalendarDay(orderDate?: string, paidTime?: string) {
+  const at = parseIndonesiaDateTime(paidTime) || parseIndonesiaDateTime(orderDate);
+  return at ? warehouseTodayKey(at) : "";
+}
+
+/** Persist pesanan batal kalender hari ini, lalu buang dari antrian kirim. */
+export async function syncTodayCancelLog(now = new Date()) {
+  const scanDate = warehouseTodayKey(now);
+  const { cancelledOrders } = await collectMarketplacePlacedToday(now);
+  const alerts: {
+    orderNumber: string;
+    platform?: string;
+    source: string;
+    reason?: string;
+    matchKey: string;
+    scanDate: string;
+  }[] = [];
+  const numbers: string[] = [];
+  const seen = new Set<string>();
+  for (const order of cancelledOrders) {
+    if (placementCalendarDay(order.orderDate, order.paidTime) !== scanDate) continue;
+    const orderNumber = canonicalizeCancelNumber(order.orderNumber);
+    if (!orderNumber || isTrackingLikeCode(orderNumber)) continue;
+    const matchKey = cancelAlertMatchKey(orderNumber);
+    if (!matchKey || seen.has(matchKey)) continue;
+    seen.add(matchKey);
+    const platform = order.platform === "tokopedia" ? "tiktok" : order.platform;
+    numbers.push(orderNumber);
+    alerts.push({
+      orderNumber,
+      platform,
+      source: "live",
+      reason: fallbackCancelReason("live", platform),
+      matchKey,
+      scanDate,
+    });
+  }
+  await insertCancelAlertsIfMissing(alerts);
+  if (numbers.length > 0) {
+    await deleteOverviewOrdersByNumbers(numbers);
+    await markOverdueScansCancelled({ scanDate, numbers });
+  }
+  return getCancelAlerts(scanDate);
 }
 
 export async function dismissCancelAlert(id: string, orderNumber?: string): Promise<CancelAlertRow | null> {

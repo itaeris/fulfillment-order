@@ -97,6 +97,11 @@ export default function SummaryCards({ summary, userRole }: SummaryCardsProps) {
                 <p className="text-[10px] sm:text-sm text-brand-400 font-medium truncate">
                   {card.title}
                 </p>
+                {card.title === "Total Order" ? (
+                  <p className="text-[9px] sm:text-[11px] text-brand-300 leading-tight">
+                    Shopee + TikTok/Tokped · termasuk belum bayar · Jubelio tidak dihitung
+                  </p>
+                ) : null}
                 <p className="text-sm sm:text-2xl font-bold text-brand-800 mt-0.5 sm:mt-1 truncate">
                   {card.value}
                 </p>
@@ -136,7 +141,7 @@ export default function SummaryCards({ summary, userRole }: SummaryCardsProps) {
 
               <div className="space-y-1.5 sm:space-y-3">
                 <div className="flex justify-between items-center gap-2">
-                  <span className="text-[11px] sm:text-sm text-brand-400">Order</span>
+                  <span className="text-[11px] sm:text-sm text-brand-400">Order (semua status)</span>
                   <span className="text-xs sm:text-base font-semibold text-brand-700">
                     {formatNumber(data.orders)}
                   </span>

@@ -193,7 +193,7 @@ export default function ScannerBarcodePage() {
           if (warehouseTodayKey(new Date(alert.at)) !== today) return false;
           return Date.now() - new Date(alert.at).getTime() < 90_000;
         });
-        return mergeCancelAlerts(fetched, optimistic).slice(0, 40);
+        return mergeCancelAlerts(fetched, optimistic);
       });
     } catch (error) {
       console.error("Error loading cancel alerts:", error);
@@ -216,7 +216,7 @@ export default function ScannerBarcodePage() {
     const optimistic = items.map((order) =>
       makeCancelAlert(order.orderNumber, source, { platform: order.platform })
     );
-    setCancelAlerts((prev) => mergeCancelAlerts(prev, optimistic).slice(0, 40));
+    setCancelAlerts((prev) => mergeCancelAlerts(prev, optimistic));
     void (async () => {
       try {
         const res = await fetch("/api/overdue/cancels", {
@@ -233,7 +233,7 @@ export default function ScannerBarcodePage() {
         const data = (await res.json().catch(() => ({}))) as { alerts?: CancelAlert[] };
         const alerts = data.alerts;
         if (!res.ok || !Array.isArray(alerts)) return;
-        setCancelAlerts((prev) => mergeCancelAlerts(prev, alerts.map(hydrateCancelAlert)).slice(0, 40));
+        setCancelAlerts((prev) => mergeCancelAlerts(prev, alerts.map(hydrateCancelAlert)));
       } catch {
         // Alert lokal tetap tampil.
       }
@@ -405,7 +405,7 @@ export default function ScannerBarcodePage() {
             .map((scan) => String(scan.orderNumber || "").trim())
             .filter(Boolean)
         )
-      ).slice(0, 40);
+      );
       if (numbers.length === 0) return;
       try {
         const res = await fetch("/api/overview/check-live", {
@@ -492,7 +492,7 @@ export default function ScannerBarcodePage() {
           const row = payload.new as { scan_date?: string };
           const scanDate = String(row.scan_date || "").slice(0, 10);
           if (scanDate && scanDate !== warehouseTodayKey()) return;
-          setCancelAlerts((prev) => mergeCancelAlerts(prev, [hydrateCancelAlert(payload.new)]).slice(0, 40));
+          setCancelAlerts((prev) => mergeCancelAlerts(prev, [hydrateCancelAlert(payload.new)]));
         }
       )
       .subscribe();
@@ -516,7 +516,7 @@ export default function ScannerBarcodePage() {
       }}
       cancelAlerts={cancelAlerts}
       onCancelAlert={(alert) => {
-        setCancelAlerts((prev) => mergeCancelAlerts(prev, [alert]).slice(0, 40));
+        setCancelAlerts((prev) => mergeCancelAlerts(prev, [alert]));
         void fetch("/api/overdue/cancels", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -531,7 +531,7 @@ export default function ScannerBarcodePage() {
           .then((data: { alerts?: CancelAlert[] }) => {
             const alerts = data.alerts;
             if (!Array.isArray(alerts)) return;
-            setCancelAlerts((prev) => mergeCancelAlerts(prev, alerts.map(hydrateCancelAlert)).slice(0, 40));
+            setCancelAlerts((prev) => mergeCancelAlerts(prev, alerts.map(hydrateCancelAlert)));
           })
           .catch(() => {});
       }}

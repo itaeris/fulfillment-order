@@ -458,7 +458,7 @@ export default function OrderTable({
   ];
 
   const platformTabs: { value: Platform | "all"; label: string; color: string }[] = [
-    { value: "all", label: "Semua", color: "bg-brand-400" },
+    { value: "all", label: "Channel", color: "bg-brand-400" },
     { value: "shopee", label: "Shopee", color: "bg-shopee-500" },
     { value: "tiktok", label: "TikTok & Tokopedia", color: "bg-brand-800" },
     { value: "jubelio", label: "Jubelio (cermin)", color: "bg-brand-500" },
@@ -476,7 +476,7 @@ export default function OrderTable({
       <div className="px-3 sm:px-4 pt-3 sm:pt-4">
         <ApiSyncBar
           {...apiSync}
-          hint="Total penjualan dari Shopee, TikTok, dan Tokopedia. Jubelio hanya cermin gudang, tidak dijumlahkan ke total order."
+          hint="Tab Channel = Shopee + TikTok/Tokped yang sudah bayar. Jubelio adalah cermin gudang (nomor SP-), jangan dijumlah ke Channel. Angka Komparasi beda karena di sana semua status dan barisnya pasangan SN vs Jubelio."
         />
       </div>
 
@@ -518,6 +518,9 @@ export default function OrderTable({
             );
           })}
         </div>
+        <p className="text-[11px] text-brand-400 pb-3">
+          Channel = Shopee + TikTok/Tokped, sudah bayar, 1 nomor = 1 baris. Jubelio (cermin) pakai nomor SP- sendiri — bukan sales, jangan dijumlah ke Channel.
+        </p>
         {selectedPlatform === "tiktok" && (
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pb-3">
             <span className="text-[10px] sm:text-xs font-medium text-brand-400 mr-0.5">Platform:</span>
@@ -684,7 +687,12 @@ export default function OrderTable({
       <div className="p-3 sm:p-4 border-b border-brand-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
         <div>
           <p className="text-xs sm:text-sm text-brand-400">
-            <span className="font-semibold text-brand-700">{filteredAndSortedOrders.length}</span> pesanan
+            <span className="font-semibold text-brand-700">{formatNumber(filteredAndSortedOrders.length)}</span>{" "}
+            {selectedPlatform === "jubelio"
+              ? "cermin Jubelio"
+              : selectedPlatform === "all"
+                ? "pesanan channel"
+                : "pesanan"}
             {unpaidView && (
               <span className="ml-2 font-semibold text-yellow-700">
                 · {formatCurrency(unpaidTotal)}

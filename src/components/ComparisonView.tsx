@@ -231,6 +231,8 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
         platformOnly: platformOnlyCount,
         jubelioCount: jubelioOrders.length,
         platformCount: platformOrders.length,
+        shopeeCount: platformOrders.filter((order) => order.platform === "shopee").length,
+        tiktokCount: platformOrders.filter((order) => order.platform === "tiktok" || order.platform === "tokopedia").length,
       },
     };
   }, [orders]);
@@ -495,8 +497,8 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
       <>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         {[
-          { label: "Order channel", value: formatNumber(summary.platformCount), sub: "Shopee + TikTok/Tokped", border: "border-brand-200", valueColor: "text-brand-800", labelColor: "text-brand-400", subColor: "text-brand-300" },
-          { label: "Jubelio", value: formatNumber(summary.jubelioCount), sub: "cermin WMS", border: "border-brand-200", valueColor: "text-brand-800", labelColor: "text-brand-400", subColor: "text-brand-300" },
+          { label: "Order channel", value: formatNumber(summary.platformCount), sub: `Shopee ${formatNumber(summary.shopeeCount)} · TikTok/Tokped ${formatNumber(summary.tiktokCount)} · semua status`, border: "border-brand-200", valueColor: "text-brand-800", labelColor: "text-brand-400", subColor: "text-brand-300" },
+          { label: "Jubelio", value: formatNumber(summary.jubelioCount), sub: "Nomor SP- cermin WMS · jangan dijumlah ke channel", border: "border-brand-200", valueColor: "text-brand-800", labelColor: "text-brand-400", subColor: "text-brand-300" },
         ].map((card, i) => (
           <motion.div
             key={card.label}
@@ -555,7 +557,7 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
         </motion.div>
 
         {[
-          { tab: "matched" as FilterTab, label: "Tercermin", value: formatNumber(summary.matched), sub: "di Jubelio Shipping", border: "border-green-200", valueColor: "text-green-700", labelColor: "text-green-600", subColor: "text-green-500", ring: "ring-green-300" },
+          { tab: "matched" as FilterTab, label: "Tercermin", value: formatNumber(summary.matched), sub: "SN channel ketemu di Jubelio Shipping", border: "border-green-200", valueColor: "text-green-700", labelColor: "text-green-600", subColor: "text-green-500", ring: "ring-green-300" },
           { tab: "platform_only" as FilterTab, label: "Belum di Jubelio", value: formatNumber(summary.platformOnly), sub: `${missingRate.toFixed(0)}% channel belum ketemu`, border: "border-red-200", valueColor: "text-red-700", labelColor: "text-red-600", subColor: "text-red-400", ring: "ring-red-300" },
         ].map((card, i) => (
           <motion.button
@@ -578,9 +580,28 @@ export default function ComparisonView({ orders, userRole, apiSync, isRefreshing
         ))}
       </div>
 
-      <div className="bg-brand-50 border border-brand-200 rounded-xl p-3 sm:p-4 text-xs sm:text-sm text-brand-600">
-        Komparasi pakai <strong>nomor pesanan</strong>, <strong>ref no</strong>, dan <strong>resi</strong>.
-        Kartu = ketemu atau tidak di Jubelio. Harga dan sales tidak dipakai. Klik kartu untuk buka daftar.
+      <div className="bg-brand-50 border border-brand-200 rounded-xl p-3 sm:p-4 text-xs sm:text-sm text-brand-600 space-y-1.5">
+        <p>
+          Angka di sini <strong>memang beda</strong> dengan menu Pesanan — bukan data rusak.
+        </p>
+        <ul className="list-disc pl-4 space-y-1 text-brand-500">
+          <li>
+            <strong>Order channel</strong> = unique nomor Shopee/TikTok/Tokped, semua status (batal ikut).
+            Di Pesanan, tab channel hanya yang <strong>sudah bayar</strong>.
+          </li>
+          <li>
+            <strong>Jubelio</strong> = unique nomor SP- gudang. Bukan SN marketplace, jangan dijumlah ke Shopee/TikTok.
+          </li>
+          <li>
+            <strong>Tercermin + Belum di Jubelio</strong> = pecahan Order channel ({formatNumber(summary.matched)} + {formatNumber(summary.platformOnly)} = {formatNumber(summary.platformCount)}).
+          </li>
+          <li>
+            Tab tabel <strong>Semua {formatNumber(summary.total)}</strong> = baris cermin (ketemu, belum, atau hanya di Jubelio), bukan total Pesanan.
+          </li>
+          <li>
+            <strong>Kirim hari ini</strong> = yang tenggat kirim tanggal itu, bukan semua order.
+          </li>
+        </ul>
       </div>
 
       <motion.div

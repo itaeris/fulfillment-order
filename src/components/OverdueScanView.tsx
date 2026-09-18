@@ -1290,7 +1290,7 @@ export default function OverdueScanView({
             <StatCard
               label="Cancel"
               value={formatNumber(cancelChartItems.length)}
-              hint="Log batal customer · reset tiap hari"
+              hint="Batal hari ini · tidak masuk order hari ini"
               valueClass={cancelChartItems.length > 0 ? "text-slate-800" : undefined}
               onClick={openCancelList}
             />
@@ -1572,7 +1572,7 @@ export default function OverdueScanView({
                   Cancel — dibuang dari pengiriman
                 </h2>
                 <p className="text-[11px] text-red-700/80 mt-0.5">
-                  Tersimpan di database saja, tidak masuk order hari ini atau antrian kirim. Reset otomatis ganti hari. Klik baris untuk alasan batal.
+                  Jumlah order batal hari ini. Tidak masuk kartu order hari ini, dan dibuang dari antrian kirim. Reset otomatis ganti hari. Klik baris untuk alasan batal.
                 </p>
               </div>
               {cancelChartItems.length === 0 ? (
