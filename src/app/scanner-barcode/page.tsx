@@ -12,7 +12,7 @@ import {
   uniqueLookupNumbers,
   type LiveStatusPatch,
 } from "@/lib/overview-merge";
-import { dropCancelledOrders, makeCancelAlert, orderMatchesScanKeys, takeNewlyCancelled, cancelAlertMatchKey, type CancelAlert } from "@/lib/live-cancel";
+import { dropCancelledOrders, makeCancelAlert, orderMatchesScanKeys, takeNewlyCancelled, cancelAlertMatchKey, preferMarketplaceCancelOrders, type CancelAlert } from "@/lib/live-cancel";
 import { expandMatchKeys, isTrackingLikeCode } from "@/lib/order-match";
 import { upsertOverviewOrders } from "@/lib/overview-store";
 import { supabase } from "@/lib/supabase";
@@ -45,6 +45,14 @@ function hydrateCancelAlert(raw: any): CancelAlert {
   };
 }
 
+function preferCancelReason(a?: string, b?: string) {
+  const generic = (value?: string) =>
+    !value || /batal di channel|Customer batal pesanan/i.test(value);
+  if (a && !generic(a)) return a;
+  if (b && !generic(b)) return b;
+  return a || b;
+}
+
 function mergeCancelAlerts(prev: CancelAlert[], incoming: CancelAlert[]) {
   const seen = new Map<string, CancelAlert>();
   for (const alert of [...prev, ...incoming]) {
@@ -60,7 +68,11 @@ function mergeCancelAlerts(prev: CancelAlert[], incoming: CancelAlert[]) {
       ...existing,
       ...alert,
       id: serverId || alert.id || existing.id,
-      reason: alert.reason || existing.reason,
+      orderNumber: /^(SP|TT|TP)-/i.test(alert.orderNumber)
+        ? existing.orderNumber
+        : alert.orderNumber || existing.orderNumber,
+      platform: alert.platform === "jubelio" ? existing.platform : alert.platform || existing.platform,
+      reason: preferCancelReason(alert.reason, existing.reason),
       reasonCode: alert.reasonCode || existing.reasonCode,
       dismissed: Boolean(existing.dismissed || alert.dismissed),
       at: new Date(existing.at).getTime() <= new Date(alert.at).getTime() ? existing.at : alert.at,
@@ -199,8 +211,9 @@ export default function ScannerBarcodePage() {
   }, []);
 
   const pushCancelAlerts = useCallback((kicked: Order[], source: CancelAlert["source"]) => {
-    if (kicked.length === 0) return;
-    const optimistic = kicked.map((order) =>
+    const items = preferMarketplaceCancelOrders(kicked);
+    if (items.length === 0) return;
+    const optimistic = items.map((order) =>
       makeCancelAlert(order.orderNumber, source, { platform: order.platform })
     );
     setCancelAlerts((prev) => mergeCancelAlerts(prev, optimistic).slice(0, 40));
@@ -210,7 +223,7 @@ export default function ScannerBarcodePage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            alerts: kicked.map((order) => ({
+            alerts: items.map((order) => ({
               orderNumber: order.orderNumber,
               platform: order.platform,
               source,

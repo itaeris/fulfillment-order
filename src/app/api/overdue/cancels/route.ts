@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dismissCancelAlert, getCancelAlerts, upsertCancelAlert } from "@/lib/db";
-import { cancelAlertMatchKey } from "@/lib/live-cancel";
+import { cancelAlertMatchKey, canonicalizeCancelNumber } from "@/lib/live-cancel";
+import { isTrackingLikeCode } from "@/lib/order-match";
 import {
   describeCancelReason,
   fallbackCancelReason,
@@ -54,13 +55,18 @@ export async function POST(request: NextRequest) {
       ? body.alerts
       : [{ orderNumber: body.orderNumber, platform: body.platform, source: body.source, reason: body.reason }];
     const items = incoming
-      .map((item) => ({
-        orderNumber: String(item.orderNumber || "").trim(),
-        platform: String(item.platform || "").trim() || undefined,
-        source: asSource(item.source),
-        reason: String(item.reason || "").trim() || undefined,
-      }))
-      .filter((item) => item.orderNumber);
+      .map((item) => {
+        const orderNumber = canonicalizeCancelNumber(String(item.orderNumber || "").trim());
+        let platform = String(item.platform || "").trim() || undefined;
+        if (platform === "jubelio") platform = /^\d{10,}$/.test(orderNumber) ? "tiktok" : "shopee";
+        return {
+          orderNumber,
+          platform,
+          source: asSource(item.source),
+          reason: String(item.reason || "").trim() || undefined,
+        };
+      })
+      .filter((item) => item.orderNumber && !isTrackingLikeCode(item.orderNumber));
     if (items.length === 0) {
       return NextResponse.json({ error: "Nomor pesanan kosong" }, { status: 400 });
     }

@@ -1,4 +1,5 @@
-import { cancelAlertMatchKey } from "@/lib/live-cancel";
+import { cancelAlertMatchKey, canonicalizeCancelNumber } from "@/lib/live-cancel";
+import { isTrackingLikeCode } from "@/lib/order-match";
 import { fetchShopeeCancelNotes, getShopeeConfig } from "@/lib/shopee-api";
 import { fetchTikTokCancelNotes, getTikTokConfig } from "@/lib/tiktok-api";
 
@@ -71,9 +72,14 @@ export async function lookupCancelReasons(
   const shopee: string[] = [];
   const tiktok: string[] = [];
   for (const item of items) {
-    const number = String(item.orderNumber || "").trim();
-    if (!number) continue;
+    const number = canonicalizeCancelNumber(item.orderNumber);
+    if (!number || isTrackingLikeCode(number)) continue;
     const platform = String(item.platform || "").toLowerCase();
+    if (platform === "jubelio") {
+      if (/^\d{10,}$/.test(number)) tiktok.push(number);
+      else shopee.push(number);
+      continue;
+    }
     if (platform === "tiktok" || platform === "tokopedia" || /^\d{10,}$/.test(number)) tiktok.push(number);
     else shopee.push(number);
   }

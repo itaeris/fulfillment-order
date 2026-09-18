@@ -1,5 +1,5 @@
 import { isCancelledStatus } from "@/lib/overdue-scan";
-import { expandMatchKeys, normalizeMatchKey } from "@/lib/order-match";
+import { expandMatchKeys, isTrackingLikeCode, normalizeMatchKey } from "@/lib/order-match";
 import type { Order } from "@/types/order";
 
 export type CancelAlert = {
@@ -14,9 +14,47 @@ export type CancelAlert = {
 };
 
 export function cancelAlertMatchKey(orderNumber: string) {
-  const keys = expandMatchKeys(orderNumber);
-  if (keys.length === 0) return normalizeMatchKey(orderNumber);
+  const canonical = canonicalizeCancelNumber(orderNumber);
+  const keys = expandMatchKeys(canonical);
+  if (keys.length === 0) return normalizeMatchKey(canonical);
   return keys.reduce((shortest, key) => (key.length < shortest.length ? key : shortest));
+}
+
+/** Nomor yang dipakai log cancel: SN Shopee / ID TikTok, bukan SP- Jubelio. */
+export function canonicalizeCancelNumber(orderNumber: string) {
+  const raw = String(orderNumber || "").trim();
+  if (!raw) return "";
+  const stripped = raw.replace(/^(SP|TT|TP|TTS|SHOPEE|TOKOPEDIA|TOKPED)-/i, "").trim();
+  return stripped || raw;
+}
+
+function cancelNumberScore(orderNumber: string, platform?: string) {
+  if (!orderNumber) return -1;
+  if (isTrackingLikeCode(orderNumber)) return 0;
+  if (platform === "jubelio" || /^(SP|TT|TP)-/i.test(orderNumber)) return 1;
+  return 2;
+}
+
+export function preferMarketplaceCancelOrders(orders: Order[]): Order[] {
+  const byKey = new Map<string, Order>();
+  const ranked = [...orders].sort(
+    (a, b) =>
+      cancelNumberScore(b.orderNumber, b.platform) - cancelNumberScore(a.orderNumber, a.platform)
+  );
+  for (const order of ranked) {
+    const orderNumber = canonicalizeCancelNumber(order.orderNumber);
+    if (!orderNumber || isTrackingLikeCode(orderNumber)) continue;
+    const platform =
+      order.platform === "jubelio"
+        ? /^\d{10,}$/.test(orderNumber)
+          ? "tiktok"
+          : "shopee"
+        : order.platform;
+    const key = cancelAlertMatchKey(orderNumber);
+    if (!key || byKey.has(key)) continue;
+    byKey.set(key, { ...order, orderNumber, platform });
+  }
+  return Array.from(byKey.values());
 }
 
 export function orderMatchesScanKeys(orderNumber: string, scanKeys: Set<string>) {
@@ -41,7 +79,7 @@ export function makeCancelAlert(
 ): CancelAlert {
   return {
     id: `${source}-${cancelAlertMatchKey(orderNumber)}-${Date.now()}`,
-    orderNumber,
+    orderNumber: canonicalizeCancelNumber(orderNumber) || orderNumber,
     platform: extra?.platform,
     source,
     reason: extra?.reason,
