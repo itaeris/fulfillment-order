@@ -303,6 +303,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_overdue_scans_unique_match
 ALTER TABLE overdue_scans ADD COLUMN IF NOT EXISTS result TEXT;
 
 ALTER TABLE overdue_scans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE overdue_scans REPLICA IDENTITY FULL;
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow all access to overdue_scans') THEN
@@ -339,6 +340,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_cancel_alerts_unique_day
   ON cancel_alerts (scan_date, match_key);
 
 ALTER TABLE cancel_alerts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cancel_alerts REPLICA IDENTITY FULL;
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow all access to cancel_alerts') THEN
