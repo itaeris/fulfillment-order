@@ -1,4 +1,4 @@
-import { cancelAlertMatchKey, canonicalizeCancelNumber } from "@/lib/live-cancel";
+import { cancelAlertMatchKey, canonicalizeCancelNumber, fallbackCancelReason } from "@/lib/live-cancel";
 import { isTrackingLikeCode } from "@/lib/order-match";
 import { fetchShopeeCancelNotes, getShopeeConfig } from "@/lib/shopee-api";
 import { fetchTikTokCancelNotes, getTikTokConfig } from "@/lib/tiktok-api";
@@ -42,13 +42,7 @@ function humanizeCode(value?: string | null) {
   );
 }
 
-export function fallbackCancelReason(source: CancelAlertSource, platform?: string) {
-  const channel =
-    platform === "shopee" ? "Shopee" : platform === "tokopedia" ? "Tokopedia" : platform === "tiktok" ? "TikTok" : "channel";
-  if (source === "scan") return `Status batal di ${channel} saat scan`;
-  if (source === "queue") return `Pesanan batal di ${channel} sebelum discan`;
-  return `Customer batal pesanan di ${channel}`;
-}
+export { fallbackCancelReason };
 
 export function describeCancelReason(args: {
   source: CancelAlertSource;

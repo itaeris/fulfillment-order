@@ -87,3 +87,11 @@ export function makeCancelAlert(
     at: new Date(),
   };
 }
+
+export function fallbackCancelReason(source: CancelAlert["source"], platform?: string) {
+  const channel =
+    platform === "shopee" ? "Shopee" : platform === "tokopedia" ? "Tokopedia" : platform === "tiktok" ? "TikTok" : "channel";
+  if (source === "scan") return `Status batal di ${channel} saat scan`;
+  if (source === "queue") return `Pesanan batal di ${channel} sebelum discan`;
+  return `Customer batal pesanan di ${channel}`;
+}
