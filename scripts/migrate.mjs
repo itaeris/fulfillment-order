@@ -176,24 +176,26 @@ try {
     }
   }
 
-  const [rows] = await conn.query("SELECT COUNT(*) AS n FROM users");
-  if (Number(rows[0]?.n || 0) === 0) {
-    try {
-      await conn.query(
-        `INSERT INTO users (id, username, name, email, password_hash, role, approved)
-         VALUES (?, ?, ?, ?, ?, 'admin', 1)`,
-        [
-          randomUUID(),
-          "itaeris",
-          "IT Aeris",
-          "it@aerisbeaute.com",
-          await bcrypt.hash("@Aerisbeaute123!", 10),
-        ]
-      );
-      console.log("migrate: seed admin itaeris");
-    } catch (error) {
-      if (!isSkip(error) && error?.code !== "ER_DUP_ENTRY") throw error;
-    }
+  const email = "it@aerisbeaute.com";
+  const username = "itaeris";
+  const hash = await bcrypt.hash("@AerisFTI2026!", 10);
+  const [admins] = await conn.query("SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1", [
+    email,
+    username,
+  ]);
+  if (admins[0]?.id) {
+    await conn.query(
+      `UPDATE users SET username = ?, name = ?, email = ?, password_hash = ?, role = 'admin', approved = 1 WHERE id = ?`,
+      [username, "IT Aeris", email, hash, admins[0].id]
+    );
+    console.log("migrate: admin it@aerisbeaute.com ok");
+  } else {
+    await conn.query(
+      `INSERT INTO users (id, username, name, email, password_hash, role, approved)
+       VALUES (?, ?, ?, ?, ?, 'admin', 1)`,
+      [randomUUID(), username, "IT Aeris", email, hash]
+    );
+    console.log("migrate: admin it@aerisbeaute.com created");
   }
 
   if (created === 0 && columns === 0) {

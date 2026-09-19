@@ -186,6 +186,25 @@ const ALTERS = [
   "ALTER TABLE overdue_scans ADD COLUMN result VARCHAR(64)",
 ];
 
+async function ensureAdmin() {
+  const email = "it@aerisbeaute.com";
+  const username = "itaeris";
+  const hash = await bcrypt.hash("@AerisFTI2026!", 10);
+  const rows = await run("SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1", [email, username]);
+  if (rows[0]?.id) {
+    await run(
+      `UPDATE users SET username = ?, name = ?, email = ?, password_hash = ?, role = 'admin', approved = 1 WHERE id = ?`,
+      [username, "IT Aeris", email, hash, rows[0].id]
+    );
+    return;
+  }
+  await run(
+    `INSERT INTO users (id, username, name, email, password_hash, role, approved)
+     VALUES (?, ?, ?, ?, ?, 'admin', 1)`,
+    [randomUUID(), username, "IT Aeris", email, hash]
+  );
+}
+
 let ready: Promise<void> | null = null;
 
 export async function ensureSchema() {
@@ -201,20 +220,7 @@ export async function ensureSchema() {
           /* kolom / index sudah ada — bukan error */
         }
       }
-      const rows = await run("SELECT COUNT(*) AS n FROM users");
-      if (Number(rows[0]?.n || 0) === 0) {
-        await run(
-          `INSERT INTO users (id, username, name, email, password_hash, role, approved)
-           VALUES (?, ?, ?, ?, ?, 'admin', 1)`,
-          [
-            randomUUID(),
-            "itaeris",
-            "IT Aeris",
-            "it@aerisbeaute.com",
-            await bcrypt.hash("@Aerisbeaute123!", 10),
-          ]
-        );
-      }
+      await ensureAdmin();
     })().catch((error) => {
       ready = null;
       throw error;

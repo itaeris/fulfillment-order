@@ -152,7 +152,7 @@ Timezone tenggat: `Asia/Jakarta`. Tombol **Hapus data halaman ini** hanya mengos
 - User harus didaftarkan admin sebelum bisa login
 - **Admin**: akses penuh + kelola user
 - **Warehouse**: akses penuh, data keuangan disembunyikan
-- Seed lokal (kalau tabel `users` kosong): `it@aerisbeaute.com` / `itaeris`
+- Seed admin: `it@aerisbeaute.com` / `itaeris`
 - Login Google sudah tidak dipakai
 
 ### Shopee Open API
@@ -224,7 +224,7 @@ Setiap deploy selalu cek migrate: table/kolom baru ditambah, yang sudah ada di-s
 npm run db:migrate
 ```
 
-Kalau `users` kosong, seed admin: `itaeris` / `it@aerisbeaute.com`.
+Setiap migrate memastikan admin `it@aerisbeaute.com` / `itaeris`.
 
 Tabel utama: `orders`, `uploaded_files`, `overview_orders`, `overview_files`, `live_order_status`, `overdue_scans`, `cancel_alerts`, `users`, `tiktok_tokens`, `shopee_tokens`, `jubelio_tokens`.
 
