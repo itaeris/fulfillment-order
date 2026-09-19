@@ -27,21 +27,50 @@ export type TurnstileHandle = {
   reset: () => void;
 };
 
+let cachedSiteKey: string | null | undefined;
+
+async function loadSiteKey() {
+  if (cachedSiteKey !== undefined) return cachedSiteKey || "";
+  const baked = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "";
+  if (baked) {
+    cachedSiteKey = baked;
+    return baked;
+  }
+  try {
+    const res = await fetch("/api/turnstile/config", { cache: "no-store" });
+    const data = (await res.json()) as { siteKey?: string };
+    cachedSiteKey = String(data.siteKey || "");
+    return cachedSiteKey;
+  } catch {
+    cachedSiteKey = "";
+    return "";
+  }
+}
+
 export const Turnstile = forwardRef<
   TurnstileHandle | null,
   {
     onToken: (token: string) => void;
   }
 >(function Turnstile({ onToken }, ref) {
-  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "";
   const hostRef = useRef<HTMLDivElement>(null);
   const widgetId = useRef<string | null>(null);
   const onTokenRef = useRef(onToken);
+  const [siteKey, setSiteKey] = useState("");
   const [hydrated, setHydrated] = useState(false);
   onTokenRef.current = onToken;
 
   useEffect(() => {
-    setHydrated(true);
+    let cancelled = false;
+    void loadSiteKey().then((key) => {
+      if (!cancelled) {
+        setSiteKey(key);
+        setHydrated(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const mount = useCallback(() => {
@@ -66,7 +95,7 @@ export const Turnstile = forwardRef<
   }));
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || !siteKey) return;
     mount();
     return () => {
       if (widgetId.current && window.turnstile) {
@@ -74,10 +103,10 @@ export const Turnstile = forwardRef<
         widgetId.current = null;
       }
     };
-  }, [hydrated, mount]);
+  }, [hydrated, siteKey, mount]);
 
-  if (!siteKey) return null;
   if (!hydrated) return <div className="min-h-[65px]" />;
+  if (!siteKey) return null;
 
   return (
     <>
@@ -94,7 +123,8 @@ export const Turnstile = forwardRef<
 Turnstile.displayName = "Turnstile";
 
 export async function verifyTurnstileClient(token: string): Promise<string | null> {
-  if (!process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) return null;
+  const siteKey = await loadSiteKey();
+  if (!siteKey) return null;
   if (!token) return "Selesaikan verifikasi Cloudflare dulu";
 
   try {
