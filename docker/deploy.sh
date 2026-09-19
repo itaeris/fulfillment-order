@@ -43,9 +43,9 @@ echo "Pull images"
 docker pull "$FRONTEND_IMAGE"
 docker pull "$BACKEND_IMAGE"
 
-recreate FinStatement_backend_app
+recreate fulfillment_backend_app
 docker run -d \
-  --name FinStatement_backend_app \
+  --name fulfillment_backend_app \
   --restart unless-stopped \
   --network "$NETWORK" \
   --network-alias host.docker.local \
@@ -54,9 +54,9 @@ docker run -d \
   -e API_PORT=4000 \
   "$BACKEND_IMAGE"
 
-recreate FinStatement_frontend_app
+recreate fulfillment_frontend_app
 docker run -d \
-  --name FinStatement_frontend_app \
+  --name fulfillment_frontend_app \
   --restart unless-stopped \
   --network "$NETWORK" \
   -p 2022:80 \
