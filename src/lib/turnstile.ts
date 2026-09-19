@@ -1,13 +1,22 @@
+const ERROR_TEXT: Record<string, string> = {
+  "missing-input-secret": "TURNSTILE_SECRET_KEY belum diisi di server",
+  "invalid-input-secret": "Secret key Turnstile salah. Pakai Secret key Cloudflare (bukan Site key).",
+  "missing-input-response": "Selesaikan verifikasi Cloudflare dulu",
+  "invalid-input-response": "Verifikasi kadaluarsa. Centang lagi kotak Cloudflare.",
+  "timeout-or-duplicate": "Verifikasi sudah dipakai. Centang lagi kotak Cloudflare.",
+  "internal-error": "Cloudflare sedang gangguan. Coba beberapa detik lagi.",
+  "bad-request": "Permintaan verifikasi tidak valid. Muat ulang halaman.",
+};
+
 export async function verifyTurnstileToken(
   token: string | undefined,
   ip?: string | null
 ): Promise<{ ok: boolean; error?: string }> {
-  const secret = process.env.TURNSTILE_SECRET_KEY;
-  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+  const secret = String(process.env.TURNSTILE_SECRET_KEY || "").trim();
 
-  if (!secret || !siteKey) {
+  if (!secret) {
     if (process.env.NODE_ENV === "production") {
-      return { ok: false, error: "Verifikasi Cloudflare belum dikonfigurasi" };
+      return { ok: false, error: "Verifikasi Cloudflare belum dikonfigurasi di server" };
     }
     return { ok: true };
   }
@@ -30,7 +39,8 @@ export async function verifyTurnstileToken(
 
   const data = (await res.json()) as { success?: boolean; "error-codes"?: string[] };
   if (!data.success) {
-    return { ok: false, error: "Verifikasi gagal. Muat ulang halaman lalu coba lagi." };
+    const code = data["error-codes"]?.[0] || "";
+    return { ok: false, error: ERROR_TEXT[code] || "Verifikasi gagal. Muat ulang halaman lalu coba lagi." };
   }
   return { ok: true };
 }
