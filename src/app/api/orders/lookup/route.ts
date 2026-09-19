@@ -92,7 +92,7 @@ export async function GET(request: Request) {
       }
 
       const live = remote[0];
-      const merged = local.map((order) => ({
+      const merged = local.map((order: Order) => ({
         ...order,
         status: live.status,
         trackingNumber: live.trackingNumber || order.trackingNumber,

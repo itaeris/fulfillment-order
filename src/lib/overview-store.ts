@@ -1,9 +1,3 @@
-import {
-  clearOverviewData,
-  insertOverviewFile,
-  insertOverviewOrders,
-  replaceOverviewOrdersByPlatforms,
-} from "@/lib/db";
 import { clearOverviewCache, hydrateOrders } from "@/lib/client-data";
 import { Order, Platform, UploadedFile } from "@/types/order";
 
@@ -78,15 +72,15 @@ async function clearLegacyIndexedDb(): Promise<void> {
   }
 }
 
-function serializeOrder(order: Order) {
-  return {
-    ...order,
-    orderDate: order.orderDate ? new Date(order.orderDate).toISOString() : undefined,
-    paidTime: order.paidTime ? new Date(order.paidTime).toISOString() : undefined,
-    shippedTime: order.shippedTime ? new Date(order.shippedTime).toISOString() : undefined,
-    mustShipBefore: order.mustShipBefore ? new Date(order.mustShipBefore).toISOString() : undefined,
-    pickupTime: order.pickupTime ? new Date(order.pickupTime).toISOString() : undefined,
-  };
+async function postJson(url: string, body: unknown, method = "POST") {
+  const res = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as { error?: string; orders?: Order[] };
+  if (!res.ok) throw new Error(data.error || "Gagal menyimpan data ringkasan");
+  return data;
 }
 
 export async function migrateLegacyOverviewIfNeeded(): Promise<void> {
@@ -95,15 +89,10 @@ export async function migrateLegacyOverviewIfNeeded(): Promise<void> {
     const legacy = await readLegacyIndexedDb();
     if (legacy.orders.length === 0 && legacy.files.length === 0) return;
     if (legacy.orders.length > 0) {
-      await insertOverviewOrders(legacy.orders.map(serializeOrder));
+      await postJson("/api/overview/orders", { orders: legacy.orders });
     }
     for (const file of legacy.files) {
-      await insertOverviewFile({
-        name: file.name,
-        platform: file.platform,
-        orderCount: file.orderCount,
-        uploadedAt: file.uploadedAt,
-      });
+      await postJson("/api/overview/files", file);
     }
     await clearLegacyIndexedDb();
   })();
@@ -112,7 +101,7 @@ export async function migrateLegacyOverviewIfNeeded(): Promise<void> {
 
 export async function upsertOverviewOrders(orders: Order[]): Promise<void> {
   if (orders.length === 0) return;
-  await insertOverviewOrders(orders.map(serializeOrder));
+  await postJson("/api/overview/orders", { orders });
   clearOverviewCache();
 }
 
@@ -120,26 +109,19 @@ export async function replaceOverviewPlatforms(
   platforms: Platform[],
   orders: Order[]
 ): Promise<Order[]> {
-  const next = await replaceOverviewOrdersByPlatforms(
-    platforms,
-    orders.map(serializeOrder)
-  );
+  const data = await postJson("/api/overview/orders", { platforms, orders }, "PUT");
   clearOverviewCache();
-  return hydrateOrders(next as Order[]);
+  return hydrateOrders((data.orders || []) as Order[]);
 }
 
 export async function saveOverviewFile(file: UploadedFile): Promise<void> {
-  await insertOverviewFile({
-    name: file.name,
-    platform: file.platform,
-    orderCount: file.orderCount,
-    uploadedAt: file.uploadedAt,
-  });
+  await postJson("/api/overview/files", file);
   clearOverviewCache();
 }
 
 export async function clearOverviewStore(): Promise<void> {
-  await clearOverviewData();
+  const res = await fetch("/api/overview/orders", { method: "DELETE" });
+  if (!res.ok) throw new Error("Gagal menghapus data ringkasan");
   await clearLegacyIndexedDb();
   clearOverviewCache();
 }

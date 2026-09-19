@@ -117,7 +117,7 @@ export async function getAllOrdersProgressive(
   return last;
 }
 
-export async function searchOrdersByNumber(query: string) {
+export async function searchOrdersByNumber(query: string): Promise<Order[]> {
   const raw = String(query || "").trim();
   if (!raw) return [];
   const keys = Array.from(
@@ -160,7 +160,7 @@ export async function getMarketplaceOrdersMovedOn(dateKey: string) {
   if (liveRes.error) throw liveRes.error;
 
   const fromOrders = (ordersRes.data ?? []).map(rowToOrder);
-  const fromLive = (liveRes.data ?? []).map((row) =>
+  const fromLive = (liveRes.data ?? []).map((row: any) => 
     rowToOrder({
       id: `live-${row.platform}-${row.order_number}`,
       order_number: row.order_number,
@@ -1057,7 +1057,9 @@ export async function purgeDuplicateAheadScans(scanDate: string) {
   if (scans.length === 0) return;
 
   const codes = Array.from(
-    new Set(scans.flatMap((scan) => [scan.orderNumber, scan.scannedCode]).filter(Boolean) as string[])
+    new Set(
+      scans.flatMap((scan: { orderNumber?: string; scannedCode?: string }) => [scan.orderNumber, scan.scannedCode]).filter(Boolean) as string[]
+    )
   ).slice(0, 40);
   const orders: Order[] = [];
   const seenOrder = new Set<string>();
@@ -1070,8 +1072,10 @@ export async function purgeDuplicateAheadScans(scanDate: string) {
     }
   }
 
-  const keep = new Set(uniqueAheadScans(scans, orders).map((scan) => scan.id));
-  const idsToDelete = scans.filter((scan) => !keep.has(scan.id)).map((scan) => scan.id);
+  const keep = new Set(uniqueAheadScans(scans, orders).map((scan: { id: string }) => scan.id));
+  const idsToDelete = scans
+    .filter((scan: { id: string }) => !keep.has(scan.id))
+    .map((scan: { id: string }) => scan.id);
   if (idsToDelete.length === 0) return;
   const { error: delError } = await supabase.from("overdue_scans").delete().in("id", idsToDelete);
   if (delError) throw delError;
