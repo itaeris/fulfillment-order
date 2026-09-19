@@ -63,6 +63,8 @@ jobs:
           mkdir -p /opt/fulfillment/docker
           printf '%s\n' "$BACKEND_ENV" > /opt/fulfillment/backend.env
           chmod 600 /opt/fulfillment/backend.env
+          test -s /opt/fulfillment/backend.env
+          command -v docker
 
       - name: Run docker deploy
         run: |

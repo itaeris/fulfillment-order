@@ -6,6 +6,11 @@ BACKEND_IMAGE="${BACKEND_IMAGE:-itaeris/fulfillment_backend_app:latest}"
 NETWORK="${NETWORK:-fulfillment-network}"
 ENV_FILE="${ENV_FILE:-/opt/fulfillment/backend.env}"
 
+env_get() {
+  key="$1"
+  grep -E "^${key}=" "$ENV_FILE" | tail -n 1 | cut -d= -f2-
+}
+
 recreate() {
   name="$1"
   if docker ps -a --format '{{.Names}}' | grep -qx "$name"; then
@@ -30,14 +35,12 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-# shellcheck disable=SC1090
-set -a
-. "$ENV_FILE"
-set +a
+MYSQL_HOST="$(env_get MYSQL_HOST)"
+REDIS_HOST="$(env_get REDIS_HOST)"
 
 docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create "$NETWORK"
-join_network "${MYSQL_HOST:-}"
-join_network "${REDIS_HOST:-}"
+join_network "$MYSQL_HOST"
+join_network "$REDIS_HOST"
 
 echo "Pull images"
 docker pull "$FRONTEND_IMAGE"
