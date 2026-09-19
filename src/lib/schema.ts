@@ -198,7 +198,7 @@ export async function ensureSchema() {
         try {
           await run(sql);
         } catch {
-          /* kolom sudah ada */
+          /* kolom / index sudah ada — bukan error */
         }
       }
       const rows = await run("SELECT COUNT(*) AS n FROM users");

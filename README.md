@@ -216,11 +216,17 @@ Lokal: `MYSQL_HOST=127.0.0.1`, `REDIS_HOST=127.0.0.1`, `NEXT_PUBLIC_API_URL=http
 
 ### Database
 
-Schema referensi: [`docker/mysql/init.sql`](docker/mysql/init.sql). Terapkan **manual** ke MySQL yang sudah ada (pipeline tidak membuat container DB).
+Schema: [`docker/mysql/init.sql`](docker/mysql/init.sql). Pipeline tidak membuat container DB — connect ke MySQL/MariaDB yang sudah running.
+
+Setiap deploy selalu cek migrate: table/kolom baru ditambah, yang sudah ada di-skip (bukan error). Lokal:
+
+```bash
+npm run db:migrate
+```
+
+Kalau `users` kosong, seed admin: `itaeris` / `it@aerisbeaute.com`.
 
 Tabel utama: `orders`, `uploaded_files`, `overview_orders`, `overview_files`, `live_order_status`, `overdue_scans`, `cancel_alerts`, `users`, `tiktok_tokens`, `shopee_tokens`, `jubelio_tokens`.
-
-Request pertama Next juga menjalankan `CREATE TABLE IF NOT EXISTS` kalau tabel belum ada.
 
 ### Run lokal
 
@@ -338,7 +344,7 @@ docker/
 ├── backend/                      # Dockerfile + NGINX Nest
 ├── frontend/                     # Dockerfile + NGINX Next standalone
 ├── backend.env.example
-└── mysql/init.sql                # Schema referensi (apply manual)
+└── mysql/init.sql                # Schema (auto-migrate saat start)
 src/
 ├── app/
 │   ├── api/                      # Route Next (auth, sync, webhook, overview, scan)

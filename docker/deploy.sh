@@ -67,6 +67,22 @@ docker run -d \
   -e API_URL=http://host.docker.local \
   "$FRONTEND_IMAGE"
 
+echo "Cek migrate"
+ok=0
+i=0
+while [ "$i" -lt 20 ]; do
+  if docker exec fulfillment_backend_app node /app/scripts/migrate.mjs; then
+    ok=1
+    break
+  fi
+  i=$((i + 1))
+  sleep 2
+done
+if [ "$ok" != 1 ]; then
+  echo "migrate gagal: cek MYSQL_HOST (nama container MariaDB, bukan 127.0.0.1)" >&2
+  exit 1
+fi
+
 echo "Deploy selesai"
 echo "Frontend :2022 -> https://fulfillment-fti.aerisbeaute.com"
 echo "Backend  :2021 -> host.docker.local"

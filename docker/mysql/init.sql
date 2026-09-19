@@ -1,4 +1,4 @@
--- Schema referensi. Terapkan manual ke MySQL yang sudah running.
+-- Schema. Dijalankan otomatis oleh `npm run db:migrate` / container start.
 -- Deploy tidak membuat container database baru.
 CREATE DATABASE IF NOT EXISTS fulfillment_db;
 USE fulfillment_db;

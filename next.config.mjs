@@ -3,6 +3,7 @@ const nextConfig = {
   output: "standalone",
   experimental: {
     serverComponentsExternalPackages: ["mysql2"],
+    instrumentationHook: true,
   },
   generateBuildId: () => `build-${Date.now()}`,
   env: {

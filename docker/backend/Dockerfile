@@ -21,6 +21,8 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
+COPY scripts/migrate.mjs /app/scripts/migrate.mjs
+COPY docker/mysql/init.sql /app/docker/mysql/init.sql
 COPY docker/backend/nginx.conf /etc/nginx/nginx.conf
 COPY docker/backend/start.sh /start.sh
 RUN chmod +x /start.sh
