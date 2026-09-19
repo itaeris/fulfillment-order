@@ -50,45 +50,22 @@ jobs:
 
   deploy:
     needs: build-and-push
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Write backend env on server
-        uses: appleboy/ssh-action@v1.2.2
+      - name: Write backend env
         env:
           BACKEND_ENV: ${{ secrets.BACKEND_ENV }}
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script_stop: true
-          envs: BACKEND_ENV
-          script: |
-            set -eu
-            mkdir -p /opt/fulfillment/docker
-            printf '%s\n' "$BACKEND_ENV" > /opt/fulfillment/backend.env
-            chmod 600 /opt/fulfillment/backend.env
-
-      - name: Copy deploy files
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          source: "docker/deploy.sh"
-          target: /opt/fulfillment
-          strip_components: 0
+        run: |
+          set -eu
+          mkdir -p /opt/fulfillment/docker
+          printf '%s\n' "$BACKEND_ENV" > /opt/fulfillment/backend.env
+          chmod 600 /opt/fulfillment/backend.env
 
       - name: Run docker deploy
-        uses: appleboy/ssh-action@v1.2.2
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script_stop: true
-          script: |
-            set -eu
-            chmod +x /opt/fulfillment/docker/deploy.sh
-            ENV_FILE=/opt/fulfillment/backend.env /opt/fulfillment/docker/deploy.sh
+        run: |
+          set -eu
+          chmod +x docker/deploy.sh
+          ENV_FILE=/opt/fulfillment/backend.env ./docker/deploy.sh

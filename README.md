@@ -1,6 +1,8 @@
 # Order Dashboard - Aeris Beaute Fulfillment
 
-Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **Shopee** dan **TikTok Shop / Tokopedia**. **Jubelio** dipakai sebagai cermin omnichannel (WMS), bukan saluran penjualan tambahan: untuk memantau yang miss atau belum realtime. Order Shopee, TikTok, dan Tokopedia ditarik dari API masing-masing (Excel Shopee tetap bisa sebagai cadangan). Order Jubelio ditarik dari **Jubelio WMS API**. Penyimpanan di **Supabase** (PostgreSQL): dashboard utama memakai tabel `orders`, halaman **Kirim hari ini** memakai tabel terpisah `overview_orders`.
+Dashboard webapp untuk mengelola dan menganalisis data order dari marketplace **Shopee** dan **TikTok Shop / Tokopedia**. **Jubelio** dipakai sebagai cermin omnichannel (WMS), bukan saluran penjualan tambahan: untuk memantau yang miss atau belum realtime. Order Shopee, TikTok, dan Tokopedia ditarik dari API masing-masing (Excel Shopee tetap bisa sebagai cadangan). Order Jubelio ditarik dari **Jubelio WMS API**.
+
+Penyimpanan di **MySQL** (`fulfillment_db`): dashboard utama memakai tabel `orders`, halaman **Kirim hari ini** memakai tabel terpisah `overview_orders`. Auth memakai cookie + tabel `users` (bukan Supabase). Cache dashboard Nest memakai **Redis** yang sudah running (bukan Upstash).
 
 **Live**: [fulfillment-fti.aerisbeaute.com](https://fulfillment-fti.aerisbeaute.com)
 
@@ -44,7 +46,7 @@ flowchart TB
 
 ### Status live
 
-Ambil data tidak mengupdate status di request yang sama. Status menyusul dari webhook dan cron.
+Ambil data tidak mengupdate status di request yang sama. Status menyusul dari webhook dan refresh periodik.
 
 ```mermaid
 flowchart LR
@@ -54,10 +56,10 @@ flowchart LR
 
   subgraph live [Update status]
     WH[Webhook TikTok / Jubelio]
-    Cron[Cron 15 menit]
+    Refresh[Refresh status]
   end
 
-  subgraph simpan [Supabase]
+  subgraph simpan [MySQL]
     Orders[(orders)]
     Overview[(overview_orders)]
     Live[(live_order_status)]
@@ -67,9 +69,9 @@ flowchart LR
   WH --> Orders
   WH --> Overview
   WH --> Live
-  Cron --> Orders
-  Cron --> Overview
-  Cron --> Live
+  Refresh --> Orders
+  Refresh --> Overview
+  Refresh --> Live
   Live --> UI[Pesanan / Kirim hari ini]
 ```
 
@@ -98,122 +100,96 @@ flowchart TD
 - **Komparasi**: Cermin Jubelio vs Shopee / TikTok (miss / delay realtime)
 - **Settings**: Hubungkan & Ambil Shopee / TikTok / Jubelio, profil, password, kelola user
 - **Kirim hari ini**: Antrian gudang terpisah (`/overview-duedate`) — dari sidebar terbuka di tab baru
+- **Scanner barcode**: Validasi scan kirim hari ini (`/scanner-barcode`)
 
 ### Sumber Data
 - **Shopee**: Sync API — tarik order siap dikirim (`get_shipment_list`), diproses, dan selesai 30 hari (`get_order_list`). Hubungkan toko sekali di Settings
 - **TikTok & Tokopedia**: Sync API — tarik order siap dikirim (`AWAITING_SHIPMENT` + `AWAITING_COLLECTION`) dan order **selesai** (`COMPLETED` + `DELIVERED`, 30 hari terakhir). Channel dibaca dari `commerce_platform` (`TIKTOK_SHOP` / `TOKOPEDIA`)
 - **Jubelio**: Sync API — tarik order Siap Kirim (`channel_status` Ready To Ship) sebagai **cermin WMS**, tidak dijumlahkan ke total penjualan
-- Status live mengikuti webhook Shopee / TikTok / Jubelio dan cron 15 menit (`/api/refresh-status`)
-- **Kirim hari ini**: Excel/CSV dari 3 platform; antrian kirim dari Shopee & TikTok; Jubelio dicocokkan sebagai cermin. Unggahan Shopee/TikTok/Jubelio dicocokkan ke API
+- Status live mengikuti webhook Shopee / TikTok / Jubelio dan `/api/refresh-status`
+- **Kirim hari ini**: Excel/CSV dari 3 platform; antrian kirim dari Shopee & TikTok; Jubelio dicocokkan sebagai cermin
 
 ### Dashboard
 - Total order, pendapatan, item terjual, dan rata-rata order
 - Breakdown per platform (Shopee, TikTok & Tokopedia). Jubelio tidak masuk kartu/grafik penjualan
 - Grafik tren pendapatan, distribusi platform, distribusi status
-- Data dibaca langsung dari Supabase (paralel), disimpan di memori sesi supaya pindah menu tidak fetch ulang
+- Data dashboard dibaca lewat Nest `GET /v1/dashboard` (cache Redis), fallback ke `/api/v1/dashboard` di Next
 
 ### Pesanan
-- Filter platform: Semua (marketplace) | Shopee | TikTok & Tokopedia | Jubelio (cermin WMS, tidak masuk tab Semua)
-- Sub-filter TikTok & Tokopedia: Semua | TikTok Shop by Tokopedia | Tokopedia
-- Filter status: Belum Bayar, Perlu Dikirim, Dikirim, Selesai, Batal/Retur
+- Filter platform: Channel (marketplace) | Shopee | TikTok & Tokopedia | Jubelio (cermin WMS, tidak masuk tab Channel)
+- Tab **Belum Bayar** tetap ada; **Order hari ini** hanya yang sudah bayar. Cancel tidak masuk order hari ini — masuk chart/log `cancel_alerts`
+- Filter status: Belum Bayar, Perlu Dikirim, Dikirim, Selesai, Batal, Retur
 - Sub-filter pengiriman: Instant / Reguler
-- Sub-filter pickup: Sebelum Pickup, Sesudah Pickup, Siap Dikirim
-- Sorting, pencarian (no. pesanan, customer, SKU, resi), indikator batas kirim, pagination
-- Klik baris → panel detail dari kanan (produk, SKU, penerima, alamat, kurir, resi, tenggat). Tutup: klik luar, X, atau Escape
-- Export CSV (Settings)
+- Satu order multi-SKU tampil sebagai 1 baris
+- Sorting, pencarian, indikator batas kirim, pagination
+- Timezone: `Asia/Jakarta` (UTC+7)
 
 ### Komparasi
 - Cermin omnichannel: Jubelio vs marketplace via order number, ref number, atau tracking number
+- Tidak ada tab Penjualan
 - Filter: Dikirim hari ini · Ada di toko belum di Jubelio · Ada di Jubelio saja · Beda data
-- Kartu **Dikirim hari ini**: pesanan Shopee/TikTok berdasarkan tanggal tenggat (pemilih tanggal; default hari ini, termasuk yang terlambat). Klik kartu atau ubah tanggal untuk filter tabel
-- Tombol Ambil TikTok dan Ambil Jubelio di halaman yang sama
-- Klik baris → preview Jubelio + marketplace (status komparasi, match via)
 
 ### Kirim hari ini (`/overview-duedate`)
-Halaman kerja daily warehouse. **Data terpisah dari dashboard utama** (Supabase `overview_orders` / `overview_files`, bukan tabel `orders`). Import / hapus di sini tidak mengubah Settings, Pesanan, atau Komparasi.
+Halaman kerja daily warehouse. **Data terpisah dari dashboard utama** (MySQL `overview_orders` / `overview_files`, bukan tabel `orders`). Import / hapus di sini tidak mengubah Settings, Pesanan, atau Komparasi.
 
-**Import (wajib 3 platform)**
-- Daily worker unggah Excel/CSV Shopee, TikTok, dan Jubelio
-- Shopee & TikTok dipakai sebagai antrian kirim
-- Jubelio dipakai sebagai **cermin omnichannel** (tidak menambah jumlah pesanan)
-- TikTok & Jubelio: backend memindai nomor pesanan dari file, lalu menyamakan dengan data realtime toko/gudang (tenggat, kurir, resi, pickup, status, preorder)
-- Kalau API gagal, data Excel tetap dipakai
-- Loading memakai skeleton (bukan spinner)
+**Cutoff Order hari ini (SOP)**
+- Shopee reguler + instant: 15.01
+- TikTok / Tokopedia reguler: 15.01
+- TikTok / Tokopedia instant: 17.01
 
 **Yang ditampilkan**
-- Hanya pesanan yang perlu dikirim **hari ini** (termasuk preorder yang jatuh tempo hari ini; preorder masa depan disembunyikan)
+- Hanya pesanan yang perlu dikirim **hari ini**
 - Kartu: Perlu dikirim hari ini · Wajib dikirim sekarang · Shopee · TikTok / Tokopedia · Belum di Jubelio
-- **Shopee / TikTok**: total pesanan marketplace hari ini (semua jenis kirim), lalu pecahan **Reguler · Instan · Same-day** di bawahnya
-- **Belum di Jubelio**: pesanan toko yang belum tercermin di Jubelio (miss atau belum realtime)
-- **Cermin Jubelio**: daftar toko tanpa Jubelio vs Jubelio tanpa toko — yang kedua bukan antrian kirim tambahan
-- **Wajib dikirim sekarang**: terlambat atau sisa ≤ 1 jam
-- **Pesanan per tenggat**: jumlah pesanan saja (tanpa kolom qty). Per bucket: total Shopee dan TikTok, lalu Reguler / Instan / Same-day terpisah — bukan satu baris campur
-- **Instant**: kurir instant (SPX Instant, GoSend, Grab Express, dll.). **Same-day** dihitung terpisah. Bukan Hemat/Standard
-- **Tenggat tidak cocok**: pesanan yang sudah tercocokkan tapi **tanggal kirim Shopee/TikTok ≠ Jubelio**. Nomor order di-list supaya tim gudang bisa cek; ada tombol salin semua nomor dan badge **Beda tenggat** di antrian
-
-**Filter antrian**
-- Jenis kirim: Instant · Reguler · Semua
-- Platform: Semua · Shopee · TikTok / Tokopedia · Belum di Jubelio
-
-Klik baris antrian → preview detail (sisa waktu, kurir, catatan, preorder, data marketplace + Jubelio). Role warehouse tidak melihat harga. Qty / harga / total di-normalisasi dari Excel (titik ribuan vs desimal) supaya tidak membengkak jadi puluhan ribu item atau total miliaran.
+- Shopee Regular / Hemat / Next Day mengikuti SLA toko
+- Instant hanya jika order benar-benar instant
+- Packing cicil: 1 order bisa punya lebih dari satu identitas resi marketplace
 
 Timezone tenggat: `Asia/Jakarta`. Tombol **Hapus data halaman ini** hanya mengosongkan tabel overview.
 
 ### Autentikasi & Keamanan
-- Login: email/username + password, atau Google OAuth
-- Cloudflare Turnstile di login dan request reset password (wajib di production)
-- Google OAuth hanya untuk domain `@aerisbeaute.com` dan `@fromthisisland.com`
-- User yang dibuat admin (password) boleh email domain apa saja — restriction domain hanya untuk Google
-- User harus didaftarkan admin sebelum bisa login (termasuk Google)
-- **Admin**: akses penuh
+- Login: email/username + password (cookie httpOnly)
+- Cloudflare Turnstile di login (wajib di production)
+- User harus didaftarkan admin sebelum bisa login
+- **Admin**: akses penuh + kelola user
 - **Warehouse**: akses penuh, data keuangan disembunyikan
-- Reset password via email atau Settings
+- Seed lokal (kalau tabel `users` kosong): `it@aerisbeaute.com` / `itaeris`
+- Login Google sudah tidak dipakai
 
 ### Shopee Open API
-- Hubungkan toko sekali di Settings → **Hubungkan toko** (OAuth Seller Centre, bukan tempel token). Kode otorisasi kadaluarsa **10 menit**
+- Hubungkan toko sekali di Settings → **Hubungkan toko** (OAuth Seller Centre). Kode otorisasi kadaluarsa **10 menit**
 - Access token API habis ~4 jam; app memperbarui otomatis lewat `refresh_token` (~30 hari)
-- Redirect domain di [Shopee Open Platform](https://open.shopee.com/developer-guide/20): `{origin}` — callback app `{origin}/api/shopee/callback`
-- **Ambil Shopee** hanya menambah order baru (siap kirim + diproses + selesai 30 hari). Update status tidak digabung di request yang sama (hindari timeout 60 detik Vercel)
-- Webhook: `POST /api/shopee/webhook` — set Push URL di Open Platform (order status)
+- Token disimpan di MySQL `shopee_tokens` (+ cache file lokal)
+- Redirect domain: `{origin}` — callback `{origin}/api/shopee/callback`
+- **Ambil Shopee** hanya menambah order baru. Update status menyusul dari webhook / refresh
+- Webhook: `POST /api/shopee/webhook`
 
 ### TikTok Shop API
-- Hubungkan toko sekali di Settings → **Hubungkan TikTok** (OAuth seller, bukan tempel token)
-- Izin aplikasi ke toko bisa **Unlimited**; access token API tetap habis ~4 jam
-- App memperbarui access token otomatis lewat `refresh_token`
-- Redirect URL di aplikasi TikTok: `{origin}/api/tiktok/callback`
-- **Ambil TikTok** hanya menambah order baru (siap kirim + selesai 30 hari). Update status tidak digabung di request yang sama (hindari timeout 60 detik Vercel)
-- Webhook: `POST /api/tiktok/webhook` — aktifkan Order Status Change, Package Update, Cancellation di Partner Center
+- Hubungkan toko sekali di Settings → **Hubungkan TikTok**
+- Access token API habis ~4 jam; diperbarui lewat `refresh_token`
+- Token disimpan di MySQL `tiktok_tokens`
+- Redirect URL: `{origin}/api/tiktok/callback`
+- Webhook: `POST /api/tiktok/webhook`
 
 ### Jubelio WMS API
-- Login `POST https://api2.jubelio.com/login` dengan email & password resmi ([docs](https://docs-wms.jubelio.com/))
-- Token kadaluarsa 12 jam; app login ulang otomatis 15 menit sebelum expired, atau saat API mengembalikan 401
-- Sync menarik daftar sales order Siap Kirim (`GET /sales/orders/`)
-- Kredensial hanya di env (`JUBELIO_EMAIL`, `JUBELIO_PASSWORD`), bukan di UI
-- Webhook: `POST /api/jubelio/webhook?secret=...` — Jubelio hanya 1 URL; app bisa meneruskan payload ke sistem lama via `JUBELIO_WEBHOOK_FORWARD_URL`
-
-### Lainnya
-- PWA (install di desktop/mobile)
-- Skeleton loader (dashboard + Kirim hari ini)
-- Preview detail pesanan (drawer kanan) di Pesanan, Komparasi, dan Kirim hari ini
-- Jam header Kirim hari ini dari `/api/time` (Asia/Jakarta)
-- Responsive, tema warm brown/cream
+- Login `POST https://api2.jubelio.com/login` ([docs](https://docs-wms.jubelio.com/))
+- Token kadaluarsa 12 jam; disimpan di MySQL `jubelio_tokens`
+- Kredensial hanya di env (`JUBELIO_EMAIL`, `JUBELIO_PASSWORD`)
+- Webhook: `POST /api/jubelio/webhook?secret=...`
 
 ## Tech Stack
 
-- **Frontend**: Next.js 14 (App Router) — tetap di root repo
-- **Backend**: NestJS 10 (Express) di `apps/api` — `GET /v1/dashboard` satu JSON
+- **Frontend**: Next.js 14 (App Router, `output: "standalone"`) di root repo
+- **Backend**: NestJS 10 (Express) di `apps/api` — `GET /v1/dashboard`, `GET /v1/health`
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS
-- **Animasi**: Framer Motion
-- **Database**: Supabase (PostgreSQL + Auth)
+- **Database**: MySQL 8 (`mysql2`) — container yang sudah running, tidak dibuat pipeline
+- **Cache**: Redis (ioredis) — container yang sudah running, bukan Upstash
+- **Auth**: cookie + bcrypt, tabel `users`
 - **Charts**: Recharts
-- **Excel Parser**: xlsx (SheetJS)
-- **Icons**: Lucide React
-- **Date Utils**: date-fns
-- **Cache**: Upstash Redis (local + Vercel) — `GET /v1/dashboard`
-- **Hosting**: Vercel — dua project dari monorepo yang sama (web + API)
+- **Excel**: xlsx (SheetJS)
+- **Hosting**: Docker (NGINX di dalam image frontend + backend) + GitHub Actions → Docker Hub
 
-Pesanan load lewat Nest (`NEXT_PUBLIC_API_URL`) supaya browser tidak paging Supabase berkali-kali. Kalau Nest down, `/api/v1/dashboard` di Next tetap ambil data. Fastify / Prisma / BullMQ / Socket.IO belum dipakai.
+Tidak memakai Vercel, Supabase, atau Upstash.
 
 ## Getting Started
 
@@ -221,31 +197,43 @@ Pesanan load lewat Nest (`NEXT_PUBLIC_API_URL`) supaya browser tidak paging Supa
 
 - Node.js 18+
 - npm
-- Supabase project ([supabase.com](https://supabase.com))
-- Aplikasi TikTok Shop di [Partner Center](https://partner.tiktokshop.com/) (untuk sync API)
-- Aplikasi Shopee di [Open Platform](https://open.shopee.com/) (untuk sync API)
+- MySQL 8 yang sudah running (`fulfillment_db`)
+- Redis yang sudah running (opsional; tanpa Redis cache fallback ke memory)
+- Aplikasi TikTok Shop di [Partner Center](https://partner.tiktokshop.com/)
+- Aplikasi Shopee di [Open Platform](https://open.shopee.com/)
 
 ### Installation
 
 ```bash
 npm install
+cp .env.example .env
+cp apps/api/.env.example apps/api/.env
 ```
 
-### Environment Variables
+Jangan commit `.env` / `apps/api/.env`.
 
-Dua file, jangan dicampur:
+Lokal: `MYSQL_HOST=127.0.0.1`, `REDIS_HOST=127.0.0.1`, `NEXT_PUBLIC_API_URL=http://localhost:4000`.
+
+### Database
+
+Schema referensi: [`docker/mysql/init.sql`](docker/mysql/init.sql). Terapkan **manual** ke MySQL yang sudah ada (pipeline tidak membuat container DB).
+
+Tabel utama: `orders`, `uploaded_files`, `overview_orders`, `overview_files`, `live_order_status`, `overdue_scans`, `cancel_alerts`, `users`, `tiktok_tokens`, `shopee_tokens`, `jubelio_tokens`.
+
+Request pertama Next juga menjalankan `CREATE TABLE IF NOT EXISTS` kalau tabel belum ada.
+
+### Run lokal
 
 ```bash
-cp .env.example .env                 # frontend Next.js (root)
-cp apps/api/.env.example apps/api/.env   # backend Nest
+npm run dev
 ```
 
-| File | Dipakai siapa | Vercel project |
-|------|----------------|----------------|
-| `.env` (root) | Next.js :3000 — login, Shopee, TikTok, Jubelio, Turnstile, URL Nest | Web (Root Directory kosong) |
-| `apps/api/.env` | Nest :4000 — Supabase, Upstash, port, CORS | API (Root Directory `apps/api`) |
+Web: [http://localhost:3000](http://localhost:3000)  
+Nest: [http://localhost:4000/v1/health](http://localhost:4000/v1/health)
 
-Jangan commit secret.
+Hanya frontend: `npm run dev:web`. Hanya API: `npm run dev:api`.
+
+### Webhook & OAuth URL
 
 Di Open Platform Shopee, Redirect URL Domain:
 
@@ -253,91 +241,61 @@ Di Open Platform Shopee, Redirect URL Domain:
 https://fulfillment-fti.aerisbeaute.com
 ```
 
-Di Partner Center, Redirect URL boleh:
-
-```
-https://fulfillment-fti.aerisbeaute.com/
-https://fulfillment-fti.aerisbeaute.com/api/tiktok/callback
-```
-
-Webhook Shopee:
+Webhook Shopee / TikTok / Jubelio:
 
 ```
 https://fulfillment-fti.aerisbeaute.com/api/shopee/webhook
-```
-
-Webhook TikTok:
-
-```
 https://fulfillment-fti.aerisbeaute.com/api/tiktok/webhook
-```
-
-Webhook Jubelio (field Pesanan / Create):
-
-```
 https://fulfillment-fti.aerisbeaute.com/api/jubelio/webhook?secret=<JUBELIO_WEBHOOK_SECRET>
 ```
 
-Callback ke `/` diteruskan ke `/api/tiktok/callback` atau `/api/shopee/callback`. Lokal: `http://localhost:3000/` atau path callback masing-masing.
+Lokal: `http://localhost:3000/` + path callback masing-masing.
 
-Di **Vercel Environment Variables** hanya simpan kredensial statis. Access token TikTok/Shopee yang berganti **tidak** ditulis ulang ke env Vercel. Setelah **Hubungkan TikTok** / **Hubungkan Shopee**, token baru disimpan di Supabase `tiktok_tokens` / `shopee_tokens`.
+## Docker & CI/CD
 
-Tambah di Vercel (Production + Preview), lalu **Redeploy**:
+Tidak memakai docker-compose. Image di-build GitHub Actions, di-push ke Docker Hub, lalu `docker run` di server.
 
-| Name | Keterangan |
-|------|------------|
-| `SHOPEE_PARTNER_ID` | Live Partner ID |
-| `SHOPEE_PARTNER_KEY` | Live API Partner Key |
-| `SHOPEE_BASE_URL` | `https://partner.shopeemobile.com` |
-| `SHOPEE_REDIRECT_ORIGIN` | `https://fulfillment-fti.aerisbeaute.com` (opsional, disarankan) |
+| | Frontend | Backend |
+|---|---|---|
+| Image | `itaeris/fulfillment_frontend_app` | `itaeris/fulfillment_backend_app` |
+| Container | `fulfillment_frontend_app` | `fulfillment_backend_app` |
+| Port host | **2022** | **2021** |
+| Domain | `https://fulfillment-fti.aerisbeaute.com` | alias `host.docker.local` di network |
 
-### Database Setup
+Network: `fulfillment-network`. NGINX ada di **kedua** image. Deploy **tidak** membuat container MySQL/Redis — isi `MYSQL_HOST` / `REDIS_HOST` dengan nama container yang sudah jalan.
 
-Jalankan `supabase/migration.sql` di **Supabase Dashboard > SQL Editor** (tabel `orders`, `uploaded_files`, `overview_orders`, `overview_files`, `live_order_status`, `profiles`, `tiktok_tokens`, `shopee_tokens`, `jubelio_tokens`, trigger auth).
-
-Kalau database sudah ada, jalankan blok yang belum ada — termasuk **Kirim hari ini** (`overview_orders` / `overview_files`) dan `live_order_status`.
-
-`overview_orders` hanya untuk `/overview-duedate`. Settings / Pesanan / Komparasi tetap di `orders`.
-
-Token Jubelio disimpan di `jubelio_tokens` (production) supaya login 12 jam tidak hilang tiap cold start Vercel.
-
-### Run
-
-```bash
-npm run dev
+```mermaid
+flowchart LR
+  Browser --> FE[fulfillment_frontend_app :2022]
+  FE -->|API_URL host.docker.local| BE[fulfillment_backend_app :2021]
+  FE --> MySQL[(MySQL existing)]
+  BE --> MySQL
+  BE --> Redis[(Redis existing)]
 ```
 
-Web di [http://localhost:3000](http://localhost:3000), Nest di [http://localhost:4000/v1/health](http://localhost:4000/v1/health).
+Workflow: [`.github/workflows/docker.yml`](.github/workflows/docker.yml)  
+Deploy script: [`docker/deploy.sh`](docker/deploy.sh)
 
-Hanya frontend: `npm run dev:web`. Hanya API: `npm run dev:api`.
+### GitHub Secrets
 
-Pastikan root `.env` punya `NEXT_PUBLIC_API_URL=http://localhost:4000`, dan `apps/api/.env` punya Upstash + Supabase.
+| Secret | Isi |
+|--------|-----|
+| `DOCKERHUB_USERNAME` | username Docker Hub |
+| `DOCKERHUB_TOKEN` | token Docker Hub |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | site key Turnstile (build-arg frontend) |
+| `BACKEND_ENV` | env multiline untuk kedua container (lihat `docker/backend.env.example`) |
 
-### Build & Deploy
+Deploy job jalan di **self-hosted runner** di CasaOS (bukan SSH dari GitHub). Tunnel `ssh.aerisbeaute.com` tidak membuka port 22 ke internet, jadi `SERVER_HOST` / `SERVER_SSH_KEY` tidak dipakai pipeline.
 
-```bash
-npm run build
-npm run build:api
-npm start
-```
+`BACKEND_ENV` berisi MySQL, Redis, `SESSION_SECRET`, `TURNSTILE_SECRET_KEY`, Shopee / TikTok / Jubelio. Jangan isi `NEXT_PUBLIC_API_URL` (Docker mengosongkannya; browser same-origin, Next → Nest via `API_URL=http://host.docker.local`).
 
-Monorepo, dua project Vercel dari repo yang sama:
+Jangan masukkan `SUPABASE_*` / `UPSTASH_*`.
 
-1. **Web** (dashboard yang sudah ada) — Root Directory kosong. Env dari `.env.example` (Shopee, TikTok, Jubelio, Turnstile, `NEXT_PUBLIC_API_URL` + `API_URL` = URL project API). Cron tetap.
-2. **API** — Root Directory `apps/api`. Env dari `apps/api/.env.example`: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`. CORS default: `localhost:3000` + `https://fulfillment-fti.aerisbeaute.com`. Origin lain: `API_CORS_ORIGIN`.
+Pasang runner sekali di CasaOS: repo → Settings → Actions → Runners → New self-hosted runner (Linux x64). Label default `self-hosted` + `linux`. Biarkan process-nya jalan terus.
 
-Jangan pindahkan Next ke `apps/web` di langkah ini — Root Directory web tetap root repo.
+### Cloudflare Turnstile
 
-**Cloudflare Turnstile** wajib di production (login + request reset password). Di Vercel → project yang serve `fulfillment-fti.aerisbeaute.com` → Settings → Environment Variables, tambah:
-
-| Name | Environment |
-|------|-------------|
-| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Production, Preview |
-| `TURNSTILE_SECRET_KEY` | Production, Preview |
-
-`NEXT_PUBLIC_TURNSTILE_SITE_KEY` di-bake saat **build**, jadi setelah menambah env harus **Redeploy** (bukan hanya restart instance). Tanpa secret di production, `/api/turnstile/verify` menolak login.
-
-Di Cloudflare Dashboard → Turnstile, hostname widget harus termasuk `fulfillment-fti.aerisbeaute.com` (dan `localhost` kalau mau tes lokal dengan key production). Site key boleh di client; secret key hanya di server / env Vercel, jangan di repo.
+`NEXT_PUBLIC_TURNSTILE_SITE_KEY` di-bake saat **build image**. Setelah ganti site key, harus rebuild/push image. Hostname widget: `fulfillment-fti.aerisbeaute.com` (+ `localhost` untuk tes).
 
 ## Cara Penggunaan
 
@@ -351,9 +309,7 @@ Di Cloudflare Dashboard → Turnstile, hostname widget harus termasuk `fulfillme
 | Jubelio | Jubelio WMS API (Shipping → Siap Kirim) | Settings / Pesanan / Komparasi → Ambil Jubelio |
 | TikTok & Tokopedia | TikTok Shop API (To Ship + Selesai 30 hari) | Settings → Hubungkan TikTok (sekali) → Ambil TikTok |
 
-**Ambil Shopee / Ambil TikTok** menambah order baru saja; status *Terkirim / Selesai* menyusul dari webhook dan cron. Jangan tarik puluhan ribu order selesai sekaligus — sync membatasi halaman supaya tidak kena timeout 60 detik Vercel.
-
-Token Jubelio kadaluarsa 12 jam dan di-login ulang otomatis ([docs WMS](https://docs-wms.jubelio.com/)).
+**Ambil Shopee / Ambil TikTok** menambah order baru saja; status *Terkirim / Selesai* menyusul dari webhook dan refresh.
 
 **Kirim hari ini (terpisah)**
 
@@ -363,109 +319,41 @@ Token Jubelio kadaluarsa 12 jam dan di-login ulang otomatis ([docs WMS](https://
 | TikTok & Tokopedia | Export Excel/CSV toko | Unggah Excel/CSV → otomatis dicocokkan API |
 | Jubelio | Export Excel/CSV gudang (cermin, bukan antrian tambahan) | Unggah Excel/CSV → otomatis dicocokkan API |
 
-### Google OAuth Setup
-
-1. Buat OAuth Client ID di [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-2. Set Authorized redirect URI: `https://<supabase-project>.supabase.co/auth/v1/callback`
-3. Enable Google provider di Supabase Dashboard > Authentication > Providers
-4. Paste Client ID dan Client Secret
-
 ### User Management
 
 - Admin membuat user di **Settings > Kelola User > Tambah User**
-- User yang belum didaftarkan tidak bisa login (termasuk Google)
 - Admin bisa mengubah role dan menghapus user
+- Ubah password di Settings → Ubah Password
 
 ## Struktur Project
 
 ```
-apps/api/                         # NestJS (Vercel Root Directory: apps/api)
-├── api/index.js                  # Serverless catch-all
+.github/workflows/docker.yml      # Build + push Docker Hub + SSH deploy
+apps/api/                         # NestJS
 ├── src/dashboard/                # GET /v1/health, GET /v1/dashboard
-└── vercel.json
+├── src/cache.ts                  # Redis + memory
+└── src/mysql.ts
+docker/
+├── deploy.sh                     # docker run (tanpa compose, tanpa create MySQL/Redis)
+├── backend/                      # Dockerfile + NGINX Nest
+├── frontend/                     # Dockerfile + NGINX Next standalone
+├── backend.env.example
+└── mysql/init.sql                # Schema referensi (apply manual)
 src/
 ├── app/
-│   ├── api/
-│   │   ├── auth/create-user/     # Create user (admin, server-side)
-│   │   ├── orders/               # CRUD order (dashboard utama)
-│   │   ├── files/                # Riwayat file upload
-│   │   ├── overview/reconcile/   # Cocokkan Excel Shopee/TikTok/Jubelio dengan API
-│   │   ├── overview/orders/      # CRUD pesanan Kirim hari ini
-│   │   ├── overview/files/       # Riwayat unggah Kirim hari ini
-│   │   ├── overview/live-status/ # Status live webhook untuk overlay
-│   │   ├── v1/dashboard/         # Proxy Next → Nest, fallback Supabase
-│   │   ├── refresh-status/       # Cron 15 menit (Shopee + TikTok + Jubelio)
-│   │   ├── v1/dashboard/         # Proxy Next → Nest, fallback Supabase
-│   │   ├── time/                 # Jam Asia/Jakarta
-│   │   ├── turnstile/verify/     # Verifikasi Cloudflare Turnstile
-│   │   ├── jubelio/sync/         # Tarik order Siap Kirim
-│   │   ├── jubelio/webhook/      # Status live + forward URL lama
-│   │   ├── jubelio/refresh-status/
-│   │   ├── shopee/
-│   │   │   ├── authorize/        # Mulai OAuth seller
-│   │   │   ├── callback/         # Tukar auth code → token
-│   │   │   ├── token/            # Status + jaga token tetap fresh
-│   │   │   ├── sync/             # Siap kirim + diproses + selesai 30 hari
-│   │   │   ├── webhook/          # Order status change
-│   │   │   └── refresh-status/
-│   │   └── tiktok/
-│   │       ├── authorize/        # Mulai OAuth seller
-│   │       ├── callback/         # Tukar auth code → token
-│   │       ├── token/            # Status + jaga token tetap fresh
-│   │       ├── sync/             # Siap kirim + selesai 30 hari
-│   │       ├── webhook/          # Order status change
-│   │       └── refresh-status/
-│   ├── auth/callback/            # Google OAuth callback
+│   ├── api/                      # Route Next (auth, sync, webhook, overview, scan)
 │   ├── login/
-│   ├── overview-duedate/         # Kirim hari ini (data terpisah)
-│   ├── reset-password/
-│   ├── globals.css
-│   ├── layout.tsx
-│   └── page.tsx                  # Dashboard / Pesanan / Komparasi / Settings
+│   ├── overview-duedate/
+│   ├── scanner-barcode/
+│   └── page.tsx
 ├── components/
-│   ├── ApiSyncBar.tsx
-│   ├── Charts.tsx
-│   ├── ComparisonView.tsx
-│   ├── DueDateOverview.tsx       # UI Kirim hari ini
-│   ├── Turnstile.tsx             # Cloudflare Turnstile (login)
-│   ├── OrderDetailPreview.tsx    # Drawer detail klik baris
-│   ├── OrderTable.tsx
-│   ├── SettingsView.tsx
-│   ├── Sidebar.tsx
-│   ├── Skeleton.tsx
-│   ├── SummaryCards.tsx
-│   └── ServiceWorkerRegistrar.tsx
-├── contexts/
-│   └── AuthContext.tsx
-├── lib/
-│   ├── client-data.ts            # Cache + Nest /v1/dashboard, fallback Supabase
-│   ├── db.ts
-│   ├── due-date.ts               # Tenggat, Instant/same-day, mismatch tanggal kirim
-│   ├── excel-parser.ts           # Import Excel + normalisasi angka qty/harga
-│   ├── overview-merge.ts         # Overlay Excel dengan data API
-│   ├── overview-store.ts         # Tulis data Kirim hari ini ke Supabase
-│   ├── supabase.ts
-│   ├── supabase-admin.ts
-│   ├── shopee-api.ts
-│   ├── shopee-auth.ts
-│   ├── shopee-status.ts
-│   ├── tiktok-api.ts
-│   ├── tiktok-auth.ts
-│   ├── tiktok-status.ts
-│   ├── jubelio-api.ts
-│   ├── jubelio-auth.ts
-│   ├── jubelio-status.ts
-│   └── utils.ts                  # Format angka, sanitasi qty/harga Excel
-└── types/
-    └── order.ts
-public/
-├── manifest.json
-├── sw.js
-└── icons/
-supabase/
-├── migration.sql
-└── seed-admin.sql
-vercel.json                       # Cron /api/refresh-status tiap 15 menit
+├── contexts/AuthContext.tsx      # Cookie session
+└── lib/
+    ├── sql.ts                    # Pool MySQL + query builder
+    ├── schema.ts                 # ensure tables + seed admin
+    ├── db.ts
+    ├── client-data.ts            # Fetch Nest / API, tanpa mysql2 di browser
+    └── overview-store.ts         # Tulis overview lewat /api/overview/*
 ```
 
 ## Format Kolom Excel yang Didukung
