@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { supabase } from "./sql";
 import { addCalendarDays, INDONESIA_OFFSET, indonesiaDateKey, indonesiaOrderCutoffKey, inProcessCutoffWindow, parseIndonesiaDateTime, processCutoffQuerySpan, warehouseTodayKey } from "./timezone";
 import { isTrackingLikeCode, lookupMatchKeys } from "./order-match";
 import { cancelAlertMatchKey, canonicalizeCancelNumber, fallbackCancelReason } from "./live-cancel";

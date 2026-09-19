@@ -37,7 +37,6 @@ function Spinner({ className = "w-4 h-4" }: { className?: string }) {
   );
 }
 import { useAuth, type UserProfile, type UserRole } from "@/contexts/AuthContext";
-import { supabase } from "@/lib/supabase";
 
 type SettingsTab = "data" | "profile" | "password" | "users";
 
@@ -146,18 +145,19 @@ function ProfileSection() {
     }
 
     setSaving(true);
-    const { error: dbError } = await supabase
-      .from("profiles")
-      .update({ name: name.trim(), username: username.trim() })
-      .eq("id", profile!.id);
-
+    const res = await fetch("/api/users", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim(), username: username.trim() }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
     setSaving(false);
 
-    if (dbError) {
+    if (!res.ok) {
       setError(
-        dbError.message.includes("unique")
+        String(data.error || "").includes("Duplicate")
           ? "Username sudah dipakai"
-          : toIndonesianError(dbError.message, "Gagal memperbarui profil")
+          : toIndonesianError(data.error, "Gagal memperbarui profil")
       );
     } else {
       setSuccess(true);
@@ -724,13 +724,10 @@ function UserManagementSection() {
 
   const loadUsers = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .order("created_at", { ascending: true });
-
-    if (data && !error) {
-      setUsers(data as AllUser[]);
+    const res = await fetch("/api/users", { cache: "no-store" });
+    const data = (await res.json().catch(() => ({}))) as { users?: AllUser[]; error?: string };
+    if (res.ok && data.users) {
+      setUsers(data.users);
     }
     setLoading(false);
   };
@@ -742,8 +739,8 @@ function UserManagementSection() {
   const handleDeleteUser = async (userId: string) => {
     if (userId === profile?.id) return;
 
-    const { error } = await supabase.from("profiles").delete().eq("id", userId);
-    if (!error) {
+    const res = await fetch(`/api/users?id=${encodeURIComponent(userId)}`, { method: "DELETE" });
+    if (res.ok) {
       setUsers((prev) => prev.filter((u) => u.id !== userId));
     }
     setDeleteTarget(null);
@@ -752,12 +749,13 @@ function UserManagementSection() {
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
     if (userId === profile?.id) return;
 
-    const { error } = await supabase
-      .from("profiles")
-      .update({ role: newRole })
-      .eq("id", userId);
+    const res = await fetch("/api/users", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: userId, role: newRole }),
+    });
 
-    if (!error) {
+    if (res.ok) {
       setUsers((prev) =>
         prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
       );

@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import crypto from "crypto";
-import { getSupabaseAdmin } from "./supabase-admin";
+import { supabase } from "./sql";
 
 /**
  * Shopee Open API v2 tokens.
@@ -18,7 +18,6 @@ const REFRESH_TOKEN_REAUTH_MS = 7 * 24 * 60 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 function tokenFilePath() {
-  if (process.env.VERCEL) return path.join("/tmp", "shopee-tokens.json");
   return path.join(process.cwd(), "data", "shopee-tokens.json");
 }
 
@@ -142,9 +141,7 @@ async function writeFileTokens(tokens: ShopeeStoredTokens): Promise<void> {
 }
 
 async function readDbTokens(): Promise<ShopeeStoredTokens | null> {
-  const admin = getSupabaseAdmin();
-  if (!admin) return null;
-  const { data, error } = await admin
+  const { data, error } = await supabase
     .from("shopee_tokens")
     .select("*")
     .eq("id", TOKEN_ROW_ID)
@@ -167,17 +164,7 @@ async function readDbTokens(): Promise<ShopeeStoredTokens | null> {
 }
 
 async function writeDbTokens(tokens: ShopeeStoredTokens): Promise<void> {
-  const admin = getSupabaseAdmin();
-  if (!admin) {
-    if (process.env.VERCEL) {
-      throw new Error(
-        "SUPABASE_SERVICE_ROLE_KEY wajib di Vercel supaya access token Shopee tersimpan."
-      );
-    }
-    return;
-  }
-
-  const { error } = await admin.from("shopee_tokens").upsert({
+  const { error } = await supabase.from("shopee_tokens").upsert({
     id: TOKEN_ROW_ID,
     access_token: tokens.accessToken,
     refresh_token: tokens.refreshToken,
@@ -188,11 +175,8 @@ async function writeDbTokens(tokens: ShopeeStoredTokens): Promise<void> {
     refresh_token_expire_at: tokens.refreshTokenExpireAt ?? null,
     updated_at: tokens.updatedAt,
   });
-
   if (error) {
-    throw new Error(
-      `Gagal menyimpan token Shopee ke database (${error.message}). Jalankan tabel shopee_tokens di supabase/migration.sql.`
-    );
+    console.warn("Shopee token tidak tersimpan di MySQL, memakai file cache lokal:", error.message);
   }
 }
 
@@ -223,7 +207,7 @@ export async function saveStoredTokens(tokens: ShopeeStoredTokens): Promise<void
   try {
     await writeFileTokens(payload);
   } catch {
-    // /tmp cache only on Vercel
+    // cache file lokal
   }
 }
 

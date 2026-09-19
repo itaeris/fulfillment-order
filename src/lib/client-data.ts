@@ -1,10 +1,3 @@
-import {
-  getAllOverviewFiles,
-  getAllOverviewOrders,
-  getAllOrders,
-  getAllOrdersProgressive,
-  getAllUploadedFiles,
-} from "@/lib/db";
 import { sanitizeOrderMetrics } from "@/lib/utils";
 import { Order, UploadedFile } from "@/types/order";
 
@@ -55,7 +48,7 @@ function apiBaseUrl() {
   const raw = String(process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
   if (!raw) return "";
   if (!isLocalApi(raw)) return raw;
-  if (typeof window === "undefined") return process.env.VERCEL ? "" : raw;
+  if (typeof window === "undefined") return raw;
   const host = window.location.hostname;
   return host === "localhost" || host === "127.0.0.1" ? raw : "";
 }
@@ -131,40 +124,17 @@ export async function loadDashboardData(
   dashboardInflight = (async () => {
     const nestPromise = loadDashboardFromNest();
 
-    if (!onPartial) {
-      const fromApi = await nestPromise;
-      if (fromApi) {
-        dashboardCache = fromApi;
-        return fromApi;
-      }
-      const [orders, files] = await Promise.all([getAllOrders(), getAllUploadedFiles()]);
-      const next = snapshot(orders, files);
-      dashboardCache = next;
-      return next;
-    }
-
-    let nestWon = false;
-    const nestSide = nestPromise.then((fromApi) => {
-      if (!fromApi) return null;
-      nestWon = true;
+    const fromApi = await nestPromise;
+    if (fromApi) {
       dashboardCache = fromApi;
-      onPartial(fromApi);
+      onPartial?.(fromApi);
       return fromApi;
-    });
-
-    const files = await getAllUploadedFiles();
-    const orders = await getAllOrdersProgressive((chunk) => {
-      if (nestWon) return;
-      const next = snapshot(chunk, files);
-      dashboardCache = next;
-      onPartial(next);
-    });
-
-    const fromApi = await nestSide;
-    if (fromApi) return fromApi;
-
-    const next = snapshot(orders, files);
+    }
+    const res = await fetch("/api/v1/dashboard", { cache: "no-store" });
+    const data = (await res.json().catch(() => ({}))) as { orders?: Order[]; files?: UploadedFile[] };
+    const next = snapshot(data.orders || [], data.files || []);
     dashboardCache = next;
+    onPartial?.(next);
     return next;
   })().finally(() => {
     dashboardInflight = null;
@@ -191,11 +161,13 @@ export async function loadOverviewData(force = false): Promise<DataSnapshot> {
   if (overviewInflight) return overviewInflight;
 
   overviewInflight = (async () => {
-    const [orders, files] = await Promise.all([
-      getAllOverviewOrders(),
-      getAllOverviewFiles(),
+    const [ordersRes, filesRes] = await Promise.all([
+      fetch("/api/overview/orders", { cache: "no-store" }),
+      fetch("/api/overview/files", { cache: "no-store" }),
     ]);
-    const next = snapshot(orders, files);
+    const ordersJson = (await ordersRes.json().catch(() => ({}))) as { orders?: Order[] };
+    const filesJson = (await filesRes.json().catch(() => ({}))) as { files?: UploadedFile[] };
+    const next = snapshot(ordersJson.orders || [], filesJson.files || []);
     overviewCache = next;
     return next;
   })().finally(() => {

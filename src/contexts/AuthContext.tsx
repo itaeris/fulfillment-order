@@ -8,12 +8,13 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-import { supabase } from "@/lib/supabase";
-import { toIndonesianError } from "@/lib/errors";
-import { isAllowedGoogleEmail, isGoogleUser } from "@/lib/auth-domains";
-import type { User } from "@supabase/supabase-js";
 
 export type UserRole = "admin" | "warehouse";
+
+export type AuthUser = {
+  id: string;
+  email: string;
+};
 
 export interface UserProfile {
   id: string;
@@ -24,7 +25,6 @@ export interface UserProfile {
   approved: boolean;
 }
 
-const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 const SESSION_KEY = "login_timestamp";
 const PROFILE_CACHE_KEY = "fo_profile_v1";
 
@@ -44,7 +44,7 @@ function writeProfileCache(profile: UserProfile) {
   try {
     sessionStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profile));
   } catch {
-    // ignore quota
+    /* ignore */
   }
 }
 
@@ -52,18 +52,15 @@ function clearProfileCache() {
   try {
     sessionStorage.removeItem(PROFILE_CACHE_KEY);
   } catch {
-    // ignore
+    /* ignore */
   }
 }
 
 interface AuthContextType {
-  user: User | null;
+  user: AuthUser | null;
   profile: UserProfile | null;
   isLoading: boolean;
-  signIn: (
-    emailOrUsername: string,
-    password: string
-  ) => Promise<{ error: string | null }>;
+  signIn: (emailOrUsername: string, password: string) => Promise<{ error: string | null }>;
   signInWithGoogle: () => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: string | null }>;
@@ -79,255 +76,83 @@ export function useAuth() {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchProfile = useCallback(async (userId: string, email: string): Promise<boolean> => {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .single();
-
-    if (data && !error) {
-      if (!data.approved) {
-        await supabase.auth.signOut();
-        clearProfileCache();
-        setUser(null);
-        setProfile(null);
-        return false;
-      }
-
-      setProfile({
-        id: data.id,
-        username: data.username,
-        name: data.name,
-        email,
-        role: data.role as UserRole,
-        approved: data.approved,
-      });
-      writeProfileCache({
-        id: data.id,
-        username: data.username,
-        name: data.name,
-        email,
-        role: data.role as UserRole,
-        approved: data.approved,
-      });
-      return true;
-    }
-
-    await supabase.auth.signOut();
-    clearProfileCache();
-    setUser(null);
-    setProfile(null);
-    return false;
-  }, []);
-
-  const checkSessionExpiry = useCallback(async () => {
-    const loginTime = localStorage.getItem(SESSION_KEY);
-    if (!loginTime) return;
-
-    const elapsed = Date.now() - parseInt(loginTime, 10);
-    if (elapsed >= SESSION_DURATION_MS) {
-      localStorage.removeItem(SESSION_KEY);
-      await supabase.auth.signOut();
-      setUser(null);
-      setProfile(null);
-    }
-  }, []);
-
   useEffect(() => {
-    const profileUserId = { current: null as string | null };
     let cancelled = false;
-
-    const applySession = async (session: { user: User } | null, event?: string) => {
-      if (cancelled) return;
-
-      if (!session?.user) {
-        profileUserId.current = null;
-        setUser(null);
-        setProfile(null);
-        setIsLoading(false);
-        return;
-      }
-
-      if (event === "TOKEN_REFRESHED" && profileUserId.current === session.user.id) {
-        setUser(session.user);
-        return;
-      }
-
-      const loginTime = localStorage.getItem(SESSION_KEY);
-      if (loginTime) {
-        const elapsed = Date.now() - parseInt(loginTime, 10);
-        if (elapsed >= SESSION_DURATION_MS) {
-          localStorage.removeItem(SESSION_KEY);
-          clearProfileCache();
-          await supabase.auth.signOut();
-          setIsLoading(false);
-          return;
+    void (async () => {
+      try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        const data = (await res.json()) as { user?: AuthUser | null; profile?: UserProfile | null };
+        if (cancelled) return;
+        if (data.user && data.profile) {
+          setUser(data.user);
+          setProfile(data.profile);
+          writeProfileCache(data.profile);
+          if (!localStorage.getItem(SESSION_KEY)) localStorage.setItem(SESSION_KEY, Date.now().toString());
+        } else {
+          setUser(null);
+          setProfile(null);
         }
-      } else {
-        localStorage.setItem(SESSION_KEY, Date.now().toString());
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
-
-      setUser(session.user);
-      const cached = readProfileCache(session.user.id);
-      if (cached) {
-        setProfile(cached);
-        profileUserId.current = session.user.id;
-        setIsLoading(false);
-        void fetchProfile(session.user.id, session.user.email || cached.email);
-        return;
-      }
-
-      await fetchProfile(session.user.id, session.user.email || "");
-      profileUserId.current = session.user.id;
-      setIsLoading(false);
-    };
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      applySession(session);
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "INITIAL_SESSION") return;
-      if (event === "SIGNED_OUT") {
-        clearProfileCache();
-        localStorage.removeItem(SESSION_KEY);
-      }
-      // Domain lock is Google OAuth only. Admin-created password users
-      // (e.g. Shopee tester) may use any email.
-      if (session?.user && isGoogleUser(session.user) && !isAllowedGoogleEmail(session.user.email || "")) {
-        clearProfileCache();
-        await supabase.auth.signOut();
-        setUser(null);
-        setProfile(null);
-        return;
-      }
-      await applySession(session, event);
-    });
-
-    const expiryInterval = setInterval(checkSessionExpiry, 60 * 1000);
-
+    })();
     return () => {
       cancelled = true;
-      subscription.unsubscribe();
-      clearInterval(expiryInterval);
     };
-  }, [fetchProfile, checkSessionExpiry]);
+  }, []);
 
-  const signIn = useCallback(
-    async (
-      emailOrUsername: string,
-      password: string
-    ): Promise<{ error: string | null }> => {
-      let email = emailOrUsername.trim();
-
-      if (!email.includes("@")) {
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("email")
-          .ilike("username", email)
-          .single();
-
-        if (error || !data) {
-          return { error: "Username tidak ditemukan" };
-        }
-        email = data.email;
-      }
-
-      const { data: authData, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
-        return { error: toIndonesianError(error.message, "Email/username atau password salah") };
-      }
-
-      const userId = authData.user?.id;
-      if (userId) {
-        const ok = await fetchProfile(userId, authData.user.email || email);
-        if (!ok) {
-          return { error: "Akun belum aktif. Hubungi admin." };
-        }
-      }
-
-      return { error: null };
-    },
-    [fetchProfile]
-  );
-
-  const signInWithGoogle = useCallback(async (): Promise<{ error: string | null }> => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-        queryParams: {
-          prompt: "select_account",
-        },
-      },
+  const signIn = useCallback(async (emailOrUsername: string, password: string) => {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ emailOrUsername, password }),
     });
-
-    if (error) return { error: toIndonesianError(error.message, "Gagal login dengan Google") };
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      user?: AuthUser;
+      profile?: UserProfile;
+    };
+    if (!res.ok || !data.user || !data.profile) {
+      return { error: data.error || "Email/username atau password salah" };
+    }
+    localStorage.setItem(SESSION_KEY, Date.now().toString());
+    writeProfileCache(data.profile);
+    setUser(data.user);
+    setProfile(data.profile);
     return { error: null };
+  }, []);
+
+  const signInWithGoogle = useCallback(async () => {
+    return { error: "Login Google sudah tidak dipakai. Masuk pakai email/username dan password." };
   }, []);
 
   const signOut = useCallback(async () => {
     localStorage.removeItem(SESSION_KEY);
     clearProfileCache();
-    await supabase.auth.signOut();
+    await fetch("/api/auth/logout", { method: "POST" });
     setUser(null);
     setProfile(null);
     window.location.replace("/login");
   }, []);
 
-  const resetPassword = useCallback(
-    async (email: string): Promise<{ error: string | null }> => {
-      let targetEmail = email.trim();
+  const resetPassword = useCallback(async () => {
+    return { error: "Reset password lewat admin di Settings → Kelola User." };
+  }, []);
 
-      if (!targetEmail.includes("@")) {
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("email")
-          .eq("username", targetEmail)
-          .single();
-
-        if (error || !data) {
-          return { error: "Username tidak ditemukan" };
-        }
-        targetEmail = data.email;
-      }
-
-      const { error } = await supabase.auth.resetPasswordForEmail(
-        targetEmail,
-        { redirectTo: `${window.location.origin}/reset-password` }
-      );
-
-      return {
-        error: error
-          ? toIndonesianError(error.message, "Gagal mengirim email reset password")
-          : null,
-      };
-    },
-    []
-  );
-
-  const updatePassword = useCallback(
-    async (password: string): Promise<{ error: string | null }> => {
-      const { error } = await supabase.auth.updateUser({ password });
-      return {
-        error: error
-          ? toIndonesianError(error.message, "Gagal memperbarui password")
-          : null,
-      };
-    },
-    []
-  );
+  const updatePassword = useCallback(async (password: string) => {
+    const res = await fetch("/api/auth/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) return { error: data.error || "Gagal mengubah password" };
+    return { error: null };
+  }, []);
 
   return (
     <AuthContext.Provider

@@ -1,8 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { getDashboardCache, redisMode, setDashboardCache, type DashboardPayload } from "../cache";
-import { getSupabase } from "../supabase";
+import { getMysql, mysqlConfigured, mysqlReady } from "../mysql";
 
-const PAGE = 1000;
 const ORDER_COLUMNS = [
   "id",
   "order_number",
@@ -92,7 +91,7 @@ export class DashboardService {
   private inflight: Promise<DashboardPayload> | null = null;
 
   cacheInfo() {
-    return { cache: redisMode() };
+    return { cache: redisMode(), mysql: mysqlConfigured() };
   }
 
   async loadDashboard(fresh = false) {
@@ -122,52 +121,24 @@ export class DashboardService {
   }
 
   private async fetchLive(): Promise<DashboardPayload> {
-    const supabase = getSupabase();
-    const [orders, files] = await Promise.all([this.loadOrders(supabase), this.loadFiles(supabase)]);
+    if (!mysqlConfigured() || !(await mysqlReady())) {
+      throw new Error("MySQL belum siap");
+    }
+    const [orders, files] = await Promise.all([this.loadMysqlOrders(), this.loadMysqlFiles()]);
     return { orders, files };
   }
 
-  private async loadFiles(supabase: ReturnType<typeof getSupabase>) {
-    const { data, error } = await supabase
-      .from("uploaded_files")
-      .select("name, platform, uploaded_at, order_count")
-      .order("uploaded_at", { ascending: false });
-    if (error) throw error;
-    return (data ?? []).map(rowToFile);
+  private async loadMysqlFiles() {
+    const [rows] = await getMysql().query(
+      "SELECT name, platform, uploaded_at, order_count FROM uploaded_files ORDER BY uploaded_at DESC"
+    );
+    return (Array.isArray(rows) ? rows : []).map((row) => rowToFile(row as OrderRow));
   }
 
-  private async loadOrders(supabase: ReturnType<typeof getSupabase>) {
-    const rows: OrderRow[] = [];
-    const first = await this.page(supabase, 0);
-    rows.push(...first);
-    if (first.length < PAGE) return rows.map(rowToOrder);
-
-    let from = PAGE;
-    while (true) {
-      const starts = [from, from + PAGE, from + PAGE * 2];
-      const wave = await Promise.all(starts.map((start) => this.page(supabase, start)));
-      let done = false;
-      for (const page of wave) {
-        rows.push(...page);
-        if (page.length < PAGE) {
-          done = true;
-          break;
-        }
-      }
-      if (done) break;
-      from += PAGE * 3;
-    }
-    return rows.map(rowToOrder);
-  }
-
-  private async page(supabase: ReturnType<typeof getSupabase>, from: number) {
-    const { data, error } = await supabase
-      .from("orders")
-      .select(ORDER_COLUMNS)
-      .order("order_date", { ascending: false })
-      .order("id", { ascending: true })
-      .range(from, from + PAGE - 1);
-    if (error) throw error;
-    return ((data ?? []) as unknown) as OrderRow[];
+  private async loadMysqlOrders() {
+    const [rows] = await getMysql().query(
+      `SELECT ${ORDER_COLUMNS} FROM orders ORDER BY order_date DESC, id ASC`
+    );
+    return (Array.isArray(rows) ? rows : []).map((row) => rowToOrder(row as OrderRow));
   }
 }

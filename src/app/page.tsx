@@ -19,7 +19,6 @@ import { Order, UploadedFile, OrderSummary, DailyStats } from "@/types/order";
 import { calculateSummary, calculateDailyStats } from "@/lib/utils";
 import { toIndonesianError } from "@/lib/errors";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/lib/supabase";
 import { fetchMarketplaceTokenStatus, isShopLinkedPayload } from "@/lib/shop-link-status";
 import {
   getCachedDashboard,
@@ -64,7 +63,7 @@ export default function Dashboard() {
   const [syncErrorSource, setSyncErrorSource] = useState<ApiSyncSource | null>(null);
   const [syncProgress, setSyncProgress] = useState(0);
   const [autoSyncing, setAutoSyncing] = useState(false);
-  const [realtimeState, setRealtimeState] = useState<RealtimeState>("connecting");
+  const [realtimeState] = useState<RealtimeState>("live");
   const restoredTab = useRef(false);
   const hasLoaded = useRef(false);
   const syncLock = useRef(false);
@@ -357,32 +356,6 @@ export default function Dashboard() {
     };
   }, [authLoading, user, isLoading, loadData]);
 
-  useEffect(() => {
-    if (authLoading || !user) return;
-    let debounce: number | undefined;
-    const reload = () => {
-      if (syncLock.current) return;
-      window.clearTimeout(debounce);
-      debounce = window.setTimeout(() => {
-        if (!syncLock.current) void loadData("quiet");
-      }, 800);
-    };
-    const channel = supabase
-      .channel("dashboard-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, reload)
-      .on("postgres_changes", { event: "*", schema: "public", table: "uploaded_files" }, reload)
-      .on("postgres_changes", { event: "*", schema: "public", table: "live_order_status" }, reload)
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") setRealtimeState("live");
-        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") setRealtimeState("error");
-        else if (status === "CLOSED") setRealtimeState("connecting");
-      });
-    return () => {
-      window.clearTimeout(debounce);
-      void supabase.removeChannel(channel);
-    };
-  }, [authLoading, user, loadData]);
-
   const apiSync = {
     syncing,
     syncError,
@@ -458,10 +431,10 @@ export default function Dashboard() {
                     }
                   >
                     {realtimeState === "live"
-                      ? "Realtime aktif"
+                      ? "Sinkron otomatis"
                       : realtimeState === "error"
-                        ? "Realtime terputus"
-                        : "Menghubungkan realtime..."}
+                        ? "Sinkron terputus"
+                        : "Menyiapkan sinkron..."}
                   </span>
                   <span className="text-brand-400">
                     {autoSyncing ? "· sinkron otomatis..." : "· data otomatis tiap 5 menit"}

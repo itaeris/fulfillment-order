@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
-import { getSupabaseAdmin } from "./supabase-admin";
+import { supabase } from "./sql";
 
 /**
  * TikTok Shop token (API v2):
@@ -19,8 +19,6 @@ const REFRESH_TOKEN_ROTATE_MS = 30 * 24 * 60 * 60 * 1000;
 const REFRESH_TOKEN_REAUTH_MS = 7 * 24 * 60 * 60 * 1000;
 
 function tokenFilePath() {
-  // Vercel filesystem read-only kecuali /tmp — token production disimpan di Supabase
-  if (process.env.VERCEL) return path.join("/tmp", "tiktok-tokens.json");
   return path.join(process.cwd(), "data", "tiktok-tokens.json");
 }
 
@@ -114,9 +112,7 @@ async function writeFileTokens(tokens: TikTokStoredTokens): Promise<void> {
 }
 
 async function readDbTokens(): Promise<TikTokStoredTokens | null> {
-  const admin = getSupabaseAdmin();
-  if (!admin) return null;
-  const { data, error } = await admin
+  const { data, error } = await supabase
     .from("tiktok_tokens")
     .select("*")
     .eq("id", TOKEN_ROW_ID)
@@ -132,17 +128,7 @@ async function readDbTokens(): Promise<TikTokStoredTokens | null> {
 }
 
 async function writeDbTokens(tokens: TikTokStoredTokens): Promise<void> {
-  const admin = getSupabaseAdmin();
-  if (!admin) {
-    if (process.env.VERCEL) {
-      throw new Error(
-        "SUPABASE_SERVICE_ROLE_KEY wajib di Vercel supaya access token hasil refresh tersimpan."
-      );
-    }
-    return;
-  }
-
-  const { error } = await admin.from("tiktok_tokens").upsert({
+  const { error } = await supabase.from("tiktok_tokens").upsert({
     id: TOKEN_ROW_ID,
     access_token: tokens.accessToken,
     refresh_token: tokens.refreshToken,
@@ -150,11 +136,8 @@ async function writeDbTokens(tokens: TikTokStoredTokens): Promise<void> {
     refresh_token_expire_at: tokens.refreshTokenExpireAt ?? null,
     updated_at: tokens.updatedAt,
   });
-
   if (error) {
-    throw new Error(
-      `Gagal menyimpan token TikTok ke database (${error.message}). Jalankan tabel tiktok_tokens di supabase/migration.sql.`
-    );
+    console.warn("TikTok token tidak tersimpan di MySQL, memakai file cache lokal:", error.message);
   }
 }
 
@@ -186,7 +169,7 @@ export async function saveStoredTokens(tokens: TikTokStoredTokens): Promise<void
   try {
     await writeFileTokens(payload);
   } catch {
-    // File hanya cache lokal /tmp di Vercel
+    // cache file lokal
   }
 }
 

@@ -11,7 +11,6 @@ import {
   EyeOff,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/lib/supabase";
 import { Turnstile, verifyTurnstileClient, type TurnstileHandle } from "@/components/Turnstile";
 
 type Mode = "request" | "update" | "done";
@@ -31,19 +30,9 @@ export default function ResetPasswordPage() {
   const turnstileRef = useRef<TurnstileHandle | null>(null);
 
   useEffect(() => {
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
-        setMode("update");
-      }
-    });
-
     if (window.location.hash.includes("type=recovery")) {
       setMode("update");
     }
-
-    return () => subscription.unsubscribe();
   }, []);
 
   const handleRequestReset = async (e: FormEvent) => {

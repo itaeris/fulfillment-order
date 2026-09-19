@@ -15,7 +15,6 @@ import {
 import { dropCancelledOrders, makeCancelAlert, orderMatchesScanKeys, takeNewlyCancelled, cancelAlertMatchKey, preferMarketplaceCancelOrders, type CancelAlert } from "@/lib/live-cancel";
 import { expandMatchKeys, isTrackingLikeCode } from "@/lib/order-match";
 import { upsertOverviewOrders } from "@/lib/overview-store";
-import { supabase } from "@/lib/supabase";
 import { classifyWarehouseScan, isAheadPackOrder, isShipTodayQueueOrder } from "@/lib/due-date";
 import { indonesiaOrderCutoffKey, warehouseTodayKey } from "@/lib/timezone";
 import { Order } from "@/types/order";
@@ -25,10 +24,6 @@ async function fetchTodayScans(): Promise<OverdueScan[]> {
   const data = (await res.json().catch(() => ({}))) as { scans?: OverdueScan[]; error?: string };
   if (!res.ok) throw new Error(data.error || "Gagal mengambil data scan");
   return (data.scans || []).map((scan) => hydrateOverdueScan(scan));
-}
-
-function mergeScan(prev: OverdueScan[], next: OverdueScan) {
-  return [next, ...prev.filter((item) => item.id !== next.id)];
 }
 
 function hydrateCancelAlert(raw: any): CancelAlert {
@@ -449,58 +444,6 @@ export default function ScannerBarcodePage() {
     const timer = window.setInterval(tick, 20_000);
     return () => window.clearInterval(timer);
   }, [authLoading, user, kickCancelled, pushCancelAlerts]);
-
-  useEffect(() => {
-    if (authLoading || !user) return;
-    let debounce: number | undefined;
-    const reloadOrders = () => {
-      window.clearTimeout(debounce);
-      debounce = window.setTimeout(() => {
-        void loadOrders("refresh");
-      }, 600);
-    };
-    const channel = supabase
-      .channel(`overdue-live-${user.id}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "overdue_scans" },
-        (payload) => {
-          if (!payload.new) return;
-          setScans((prev) => mergeScan(prev, hydrateOverdueScan(payload.new)));
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "overview_orders" },
-        reloadOrders
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "live_order_status" },
-        () => {
-          void applyLive(ordersRef.current).then((next) => {
-            ordersRef.current = next;
-            setOrders(next);
-          });
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "cancel_alerts" },
-        (payload) => {
-          if (!payload.new) return;
-          const row = payload.new as { scan_date?: string };
-          const scanDate = String(row.scan_date || "").slice(0, 10);
-          if (scanDate && scanDate !== warehouseTodayKey()) return;
-          setCancelAlerts((prev) => mergeCancelAlerts(prev, [hydrateCancelAlert(payload.new)]));
-        }
-      )
-      .subscribe();
-    return () => {
-      window.clearTimeout(debounce);
-      void supabase.removeChannel(channel);
-    };
-  }, [authLoading, user, loadOrders, applyLive]);
 
   if (!authLoading && !user) return null;
   if (authLoading || isLoading) return <OverviewSkeleton />;

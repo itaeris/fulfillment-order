@@ -582,10 +582,10 @@ export default function DueDateOverviewView({
                 )}
               >
                 {realtimeState === "live"
-                  ? "Realtime aktif"
+                  ? "Sinkron otomatis"
                   : realtimeState === "error"
-                    ? "Realtime terputus"
-                    : "Menghubungkan realtime..."}
+                    ? "Sinkron terputus"
+                    : "Menyiapkan sinkron..."}
               </span>
               <span className="text-brand-400">
                 {autoSyncing

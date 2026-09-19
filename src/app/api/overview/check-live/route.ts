@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/sql";
 import { getLiveOrderStatuses } from "@/lib/db";
 import { isCancelledStatus } from "@/lib/overdue-scan";
 import { applyLiveShopeeStatuses } from "@/lib/shopee-status";

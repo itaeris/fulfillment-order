@@ -1,5 +1,5 @@
 import { gzipSync, gunzipSync } from "zlib";
-import { Redis as Upstash } from "@upstash/redis";
+import Redis from "ioredis";
 
 const KEY = "fti:dashboard:v1";
 const CHUNK = 3000;
@@ -11,7 +11,7 @@ export type DashboardPayload = { orders: unknown[]; files: unknown[] };
 type MemoryHit = { at: number; data: DashboardPayload };
 
 let memory: MemoryHit | null = null;
-let upstash: Upstash | null | undefined;
+let redis: Redis | null | undefined;
 
 function freshMs() {
   return FRESH_SEC * 1000;
@@ -29,18 +29,30 @@ function unpack<T>(raw: string): T {
   return JSON.parse(gunzipSync(Buffer.from(raw, "base64")).toString("utf8")) as T;
 }
 
-function getUpstash(): Upstash | null {
-  const url = String(process.env.UPSTASH_REDIS_REST_URL || "").trim();
-  const token = String(process.env.UPSTASH_REDIS_REST_TOKEN || "").trim();
-  if (!url || !token) return null;
-  if (upstash === undefined) {
-    upstash = new Upstash({ url, token });
+function redisHost() {
+  return String(process.env.REDIS_HOST || "").trim();
+}
+
+function getRedis(): Redis | null {
+  const host = redisHost();
+  if (!host) return null;
+  if (redis === undefined) {
+    redis = new Redis({
+      host,
+      port: Number(process.env.REDIS_PORT || 6379),
+      password: String(process.env.REDIS_PASSWORD || "") || undefined,
+      maxRetriesPerRequest: 1,
+      lazyConnect: true,
+    });
+    redis.on("error", () => {
+      /* container down — memory tetap dipakai */
+    });
   }
-  return upstash;
+  return redis;
 }
 
 export function redisMode() {
-  return getUpstash() ? "upstash" : "memory";
+  return redisHost() ? "redis" : "memory";
 }
 
 export function readMemory(): { data: DashboardPayload; stale: boolean } | null {
@@ -60,18 +72,19 @@ export function clearMemory() {
 }
 
 async function redisGet(): Promise<DashboardPayload | null> {
-  const rest = getUpstash();
-  if (!rest) return null;
+  const client = getRedis();
+  if (!client) return null;
   try {
-    const metaRaw = await rest.get<string>(`${KEY}:meta`);
-    if (!metaRaw || typeof metaRaw !== "string") return null;
+    if (client.status === "wait") await client.connect();
+    const metaRaw = await client.get(`${KEY}:meta`);
+    if (!metaRaw) return null;
     const meta = unpack<{ files: unknown[]; chunks: number }>(metaRaw);
     if (!meta.chunks) return { orders: [], files: meta.files || [] };
     const keys = Array.from({ length: meta.chunks }, (_, i) => `${KEY}:o:${i}`);
-    const parts = (await rest.mget(...keys)) as (string | null)[];
+    const parts = await client.mget(...keys);
     const orders: unknown[] = [];
     for (const part of parts) {
-      if (!part || typeof part !== "string") return null;
+      if (!part) return null;
       orders.push(...unpack<unknown[]>(part));
     }
     return { orders, files: meta.files || [] };
@@ -81,19 +94,22 @@ async function redisGet(): Promise<DashboardPayload | null> {
 }
 
 async function redisSet(data: DashboardPayload) {
-  const rest = getUpstash();
-  if (!rest) return;
+  const client = getRedis();
+  if (!client) return;
   const chunks: string[] = [];
   for (let i = 0; i < data.orders.length; i += CHUNK) {
     chunks.push(pack(data.orders.slice(i, i + CHUNK)));
   }
   const meta = pack({ files: data.files, chunks: chunks.length });
-  const ttl = STALE_SEC;
   try {
-    await rest.set(`${KEY}:meta`, meta, { ex: ttl });
-    await Promise.all(chunks.map((chunk, i) => rest.set(`${KEY}:o:${i}`, chunk, { ex: ttl })));
+    if (client.status === "wait") await client.connect();
+    const ttl = STALE_SEC;
+    const pipe = client.multi();
+    pipe.set(`${KEY}:meta`, meta, "EX", ttl);
+    chunks.forEach((chunk, i) => pipe.set(`${KEY}:o:${i}`, chunk, "EX", ttl));
+    await pipe.exec();
   } catch {
-    /* payload terlalu besar / Upstash down — memory tetap dipakai */
+    /* payload terlalu besar / Redis down — memory tetap dipakai */
   }
 }
 

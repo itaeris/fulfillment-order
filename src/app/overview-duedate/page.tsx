@@ -32,7 +32,6 @@ import { isShipTodayQueueOrder, mergeTodayQueueWithPickedUp } from "@/lib/due-da
 import { dropCancelledOrders, takeNewlyCancelled } from "@/lib/live-cancel";
 import { indonesiaOrderCutoffKey, warehouseTodayKey } from "@/lib/timezone";
 import { fetchMarketplaceTokenStatus, isShopLinkedPayload } from "@/lib/shop-link-status";
-import { supabase } from "@/lib/supabase";
 import { Order, Platform, UploadedFile } from "@/types/order";
 
 const SYNC_URL: Record<ApiSyncSource, string> = {
@@ -76,7 +75,7 @@ export default function OverviewDueDatePage() {
   const [syncing, setSyncing] = useState<ApiSyncSource | null>(null);
   const [syncProgress, setSyncProgress] = useState<OverviewSyncProgress | null>(null);
   const [autoSyncing, setAutoSyncing] = useState(false);
-  const [realtimeState, setRealtimeState] = useState<RealtimeState>("connecting");
+  const [realtimeState] = useState<RealtimeState>("live");
   const [shopeeLinked, setShopeeLinked] = useState<boolean | null>(null);
   const [tiktokLinked, setTiktokLinked] = useState<boolean | null>(null);
   const [connectMsg, setConnectMsg] = useState("");
@@ -509,44 +508,6 @@ export default function OverviewDueDatePage() {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [authLoading, user, isLoading, loadData]);
-
-  useEffect(() => {
-    if (authLoading || !user) return;
-    let debounce: number | undefined;
-    const reload = () => {
-      if (syncLock.current) return;
-      window.clearTimeout(debounce);
-      debounce = window.setTimeout(() => {
-        if (!syncLock.current) void loadData("refresh");
-      }, 800);
-    };
-    const channel = supabase
-      .channel("overview-live")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "overview_orders" },
-        reload
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "overview_files" },
-        reload
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "live_order_status" },
-        reload
-      )
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") setRealtimeState("live");
-        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") setRealtimeState("error");
-        else if (status === "CLOSED") setRealtimeState("connecting");
-      });
-    return () => {
-      window.clearTimeout(debounce);
-      void supabase.removeChannel(channel);
-    };
-  }, [authLoading, user, loadData]);
 
   const handleClear = useCallback(async () => {
     dataGen.current += 1;

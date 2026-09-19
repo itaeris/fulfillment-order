@@ -7,7 +7,7 @@ export const maxDuration = 60;
 function nestUrl() {
   const raw = String(process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
   if (!raw) return "";
-  if (/localhost|127\.0\.0\.1/.test(raw) && process.env.VERCEL) return "";
+  if (/localhost|127\.0\.0\.1/.test(raw)) return raw;
   return raw;
 }
 

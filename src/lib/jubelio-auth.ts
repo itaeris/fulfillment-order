@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
-import { getSupabaseAdmin } from "./supabase-admin";
+import { supabase } from "./sql";
 
 /**
  * Jubelio WMS / Omnichannel API
@@ -15,7 +15,6 @@ const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 const REFRESH_BUFFER_MS = 15 * 60 * 1000;
 
 function tokenFilePath() {
-  if (process.env.VERCEL) return path.join("/tmp", "jubelio-tokens.json");
   return path.join(process.cwd(), "data", "jubelio-tokens.json");
 }
 
@@ -36,7 +35,7 @@ function getCredentials() {
   );
   if (!email || !password) {
     throw new Error(
-      "Kredensial Jubelio belum di-set. Isi JUBELIO_EMAIL dan JUBELIO_PASSWORD di .env.local / Vercel."
+      "Kredensial Jubelio belum di-set. Isi JUBELIO_EMAIL dan JUBELIO_PASSWORD di .env."
     );
   }
   return { email, password, baseUrl };
@@ -67,9 +66,7 @@ async function writeFileToken(token: JubelioStoredToken): Promise<void> {
 }
 
 async function readDbToken(): Promise<JubelioStoredToken | null> {
-  const admin = getSupabaseAdmin();
-  if (!admin) return null;
-  const { data, error } = await admin
+  const { data, error } = await supabase
     .from("jubelio_tokens")
     .select("*")
     .eq("id", TOKEN_ROW_ID)
@@ -83,33 +80,14 @@ async function readDbToken(): Promise<JubelioStoredToken | null> {
 }
 
 async function writeDbToken(token: JubelioStoredToken): Promise<void> {
-  const admin = getSupabaseAdmin();
-  if (!admin) {
-    if (process.env.VERCEL) {
-      throw new Error(
-        "SUPABASE_SERVICE_ROLE_KEY wajib di Vercel supaya token Jubelio tersimpan."
-      );
-    }
-    return;
-  }
-  const { error } = await admin.from("jubelio_tokens").upsert({
+  const { error } = await supabase.from("jubelio_tokens").upsert({
     id: TOKEN_ROW_ID,
     access_token: token.accessToken,
     access_token_expire_at: token.accessTokenExpireAt,
     updated_at: token.updatedAt,
   });
   if (error) {
-    // Lokal: file cache di data/jubelio-tokens.json cukup. Jangan gagalkan sync.
-    if (!process.env.VERCEL) {
-      console.warn(
-        "Jubelio token tidak tersimpan di DB, memakai file cache lokal:",
-        error.message
-      );
-      return;
-    }
-    throw new Error(
-      `Gagal menyimpan token Jubelio (${error.message}). Jalankan tabel jubelio_tokens di supabase/migration.sql.`
-    );
+    console.warn("Jubelio token tidak tersimpan di MySQL, memakai file cache lokal:", error.message);
   }
 }
 
@@ -124,7 +102,7 @@ async function saveStoredToken(token: JubelioStoredToken): Promise<void> {
   try {
     await writeFileToken(token);
   } catch {
-    // cache /tmp di Vercel
+    // cache file lokal
   }
 }
 
